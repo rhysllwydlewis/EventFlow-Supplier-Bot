@@ -43,6 +43,8 @@ export async function ensureMongoIndexes(): Promise<void> {
     db.collection('supplier_identities').createIndex({ normalizedName: 1, normalizedLocation: 1, normalizedCategory: 1 }),
     db.collection('supplier_identities').createIndex({ normalizedEmail: 1 }, { sparse: true }),
     db.collection('supplier_identities').createIndex({ normalizedPhone: 1 }, { sparse: true }),
+    db.collection('supplier_identity_keys').createIndex({ key: 1 }, { unique: true }),
+    db.collection('supplier_identity_keys').createIndex({ candidateId: 1 }),
     db.collection('dedup_assessments').createIndex({ candidateId: 1 }, { unique: true }),
     db.collection('dedup_assessments').createIndex({ decision: 1, assessedAt: -1 }),
     db.collection('suppression').createIndex({ key: 1, type: 1 }, { unique: true }),

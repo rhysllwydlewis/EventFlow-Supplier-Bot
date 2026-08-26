@@ -8,7 +8,6 @@ import { saveEvidenceFragments } from '../repositories/evidence.repository.js';
 import { saveShadowProfile } from '../repositories/shadow-profile.repository.js';
 import { setCandidateStatus } from '../repositories/candidate.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
-import { upsertSupplierIdentity } from '../repositories/supplier-identity.repository.js';
 import { enrichShadowProfileWithAi } from './ai-enrichment.service.js';
 import {
   applyDescriptionComplianceFallback,
@@ -100,9 +99,7 @@ export async function runShadowPipeline(candidate: Candidate) {
       };
     }
 
-    await upsertSupplierIdentity(dedup.identity);
     await setCandidateStatus(candidate.id, 'shadow_ready');
-
     return {
       profile: finalProfile,
       quality,
