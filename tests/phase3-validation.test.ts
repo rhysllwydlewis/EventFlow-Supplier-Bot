@@ -84,7 +84,8 @@ const run: Phase3ValidationRun = {
   completedAt: null,
   campaignId: 'cmp_phase3',
   targetCandidates: PHASE3_TARGET_CANDIDATES,
-  aiCostBaselineGbp: 0,
+  restartRequiredAt: null,
+  restartReason: null,
   updatedAt: '2026-08-27T00:00:00.000Z',
 };
 
@@ -150,7 +151,7 @@ describe('Phase 3 shadow validation', () => {
     expect(report.metrics.rejectedCandidates).toBe(1);
     expect(report.metrics.publicationEligible).toBe(1);
     expect(report.metrics.complianceReview).toBe(1);
-    expect(report.metrics.complianceBlocked).toBe(1);
+    expect(report.metrics.complianceBlocked).toBe(2);
     expect(report.metrics.seoReady).toBe(1);
     expect(report.metrics.aiEstimatedCostGbp).toBe(2);
     expect(report.metrics.aiCostPerCandidateGbp).toBe(0.5);
@@ -213,5 +214,23 @@ describe('Phase 3 shadow validation', () => {
     expect(workerSource.indexOf('const phase3 = await reconcilePhase3Validation(initialSettings)')).toBeLessThan(
       workerSource.indexOf("getQueue('discovery').add"),
     );
+  });
+
+  it('freezes completed metrics and attributes AI spend to sampled candidates only', () => {
+    expect(phase3Source).toContain('if (run.completedAt) discoveredAt.$lte = run.completedAt');
+    expect(phase3Source).toContain("collection<StoredAiExtraction>('ai_extractions')");
+    expect(phase3Source).toContain("find({ candidateId: { $in: ids } })");
+    expect(phase3Source).not.toContain("collection<{ day: string; estimatedCostGbp?: number }>('ai_usage')");
+  });
+
+  it('invalidates and fail-closes an active sample if any safety toggle breaks', () => {
+    expect(phase3Source).toContain("restartReason: 'safety_contract_broken'");
+    expect(phase3Source).toContain("runState: 'emergency_stopped'");
+    expect(phase3Source).toContain("mode: 'shadow'");
+    expect(phase3Source).toContain('publishingEnabled: false');
+    expect(phase3Source).toContain('claimNoticesEnabled: false');
+    expect(phase3Source).toContain('marketingEnabled: false');
+    expect(phase3Source).toContain('seoIndexingEnabled: false');
+    expect(phase3Source).toContain('phase3.validation_restarted');
   });
 });
