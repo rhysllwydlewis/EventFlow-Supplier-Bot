@@ -12,6 +12,7 @@ import {
 } from '../repositories/eventflow-ingestion.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
 import { getShadowProfile } from '../repositories/shadow-profile.repository.js';
+import { isSuppressed } from '../repositories/suppression.repository.js';
 import {
   assessShadowProfileCompliance,
   effectiveMinimumPublicationQuality,
@@ -40,6 +41,15 @@ export async function processEventFlowPublication(candidateId: string): Promise<
       reason: 'missing_shadow_profile_or_candidate',
     });
     return { skipped: true, reason: 'missing_shadow_profile_or_candidate' };
+  }
+
+  if (await isSuppressed(candidate.canonicalDomain, 'do_not_list')) {
+    await saveEventFlowIngestionState({
+      candidateId,
+      status: 'ineligible',
+      reason: 'do_not_list_suppression',
+    });
+    return { skipped: true, reason: 'do_not_list_suppression' };
   }
 
   if (candidate.dedupDecision !== 'distinct') {
@@ -104,6 +114,17 @@ export async function processEventFlowPublication(candidateId: string): Promise<
         reason: liveSettings.runState === 'emergency_stopped' ? 'emergency_stopped' : 'publishing_disabled',
       });
       return { skipped: true, reason: 'publishing_revoked_before_send' };
+    }
+
+    // Suppression is rechecked immediately before the external write so a
+    // do-not-list decision made while compliance was being assessed wins the race.
+    if (await isSuppressed(candidate.canonicalDomain, 'do_not_list')) {
+      await saveEventFlowIngestionState({
+        candidateId,
+        status: 'ineligible',
+        reason: 'do_not_list_suppression',
+      });
+      return { skipped: true, reason: 'do_not_list_suppression' };
     }
 
     const result = await ingestShadowProfileToEventFlow({
