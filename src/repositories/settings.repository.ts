@@ -20,7 +20,7 @@ export async function getSettings(): Promise<BotSettings> {
   return initial;
 }
 
-export type SettingsPatch = Partial<Pick<BotSettings,
+type MutableSettings = Pick<BotSettings,
   | 'mode'
   | 'runState'
   | 'discoveryEnabled'
@@ -36,7 +36,11 @@ export type SettingsPatch = Partial<Pick<BotSettings,
   | 'softAiSpendGbpPerDay'
   | 'hardAiSpendGbpPerDay'
   | 'activeCampaignId'
->>;
+>;
+
+export type SettingsPatch = {
+  [Key in keyof MutableSettings]?: MutableSettings[Key] | undefined;
+};
 
 function validateSafetyCeilings(candidate: BotSettings): void {
   if (candidate.dailyHardLimit > env.ABSOLUTE_MAX_PROFILES_PER_DAY) {
@@ -61,9 +65,12 @@ function validateSafetyCeilings(candidate: BotSettings): void {
 
 export async function patchSettings(patch: SettingsPatch, actor: string): Promise<BotSettings> {
   const current = await getSettings();
+  const definedPatch = Object.fromEntries(
+    Object.entries(patch).filter(([, value]) => value !== undefined),
+  );
   const candidate = botSettingsSchema.parse({
     ...current,
-    ...patch,
+    ...definedPatch,
     updatedAt: new Date().toISOString(),
     updatedBy: actor,
   });
