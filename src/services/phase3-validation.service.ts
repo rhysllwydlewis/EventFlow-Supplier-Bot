@@ -5,6 +5,7 @@ import type { ShadowProfile } from '../domain/shadow-profile.js';
 import type { BotSettings } from '../domain/settings.js';
 import { getDatabase } from '../lib/mongo.js';
 import { recordAuditEvent } from '../repositories/audit.repository.js';
+import { getCampaign, listCampaigns } from '../repositories/campaign.repository.js';
 import { patchSettings } from '../repositories/settings.repository.js';
 
 export const PHASE3_VALIDATION_ID = 'phase3-shadow-validation';
@@ -79,6 +80,29 @@ function average(values: number[]): number {
 
 function isPopulated(value: unknown): boolean {
   return typeof value === 'string' ? value.trim().length > 0 : value !== null && value !== undefined;
+}
+
+function isSouthWalesVenueCampaign(campaign: {
+  status: string;
+  categories: string[];
+  locations: string[];
+} | null): boolean {
+  if (!campaign || campaign.status !== 'running') return false;
+  const categories = campaign.categories.map(value => value.trim().toLowerCase());
+  const locations = campaign.locations.map(value => value.trim().toLowerCase());
+  return categories.includes('venues') && locations.includes('south wales');
+}
+
+async function resolvePhase3CampaignId(settings: BotSettings): Promise<string | null> {
+  if (settings.activeCampaignId) {
+    const active = await getCampaign(settings.activeCampaignId);
+    return isSouthWalesVenueCampaign(active) ? active!.id : null;
+  }
+
+  const running = (await listCampaigns())
+    .filter(isSouthWalesVenueCampaign)
+    .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt));
+  return running[0]?.id ?? null;
 }
 
 export function phase3Safety(settings: BotSettings) {
@@ -194,13 +218,16 @@ async function ensureRun(settings: BotSettings): Promise<Phase3ValidationRun | n
   if (existing) return existing;
   if (settings.runState !== 'running') return null;
 
+  const campaignId = await resolvePhase3CampaignId(settings);
+  if (!campaignId) return null;
+
   const now = new Date().toISOString();
   const run: Phase3ValidationRun = {
     id: PHASE3_VALIDATION_ID,
     status: 'collecting',
     startedAt: now,
     completedAt: null,
-    campaignId: settings.activeCampaignId,
+    campaignId,
     targetCandidates: PHASE3_TARGET_CANDIDATES,
     aiCostBaselineGbp: await totalRecordedAiCostGbp(),
     updatedAt: now,
@@ -213,7 +240,7 @@ async function ensureRun(settings: BotSettings): Promise<Phase3ValidationRun | n
   );
   await recordAuditEvent('phase3-validator', 'phase3.validation_started', {
     targetCandidates: PHASE3_TARGET_CANDIDATES,
-    campaignId: settings.activeCampaignId,
+    campaignId,
     aiCostBaselineGbp: run.aiCostBaselineGbp,
   });
   return (await getRun()) ?? run;
