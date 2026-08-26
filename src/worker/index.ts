@@ -16,14 +16,16 @@ import { writeHeartbeat } from '../repositories/heartbeat.repository.js';
 import { getSettings, patchSettings } from '../repositories/settings.repository.js';
 import { recordAuditEvent } from '../repositories/audit.repository.js';
 import { isSuppressed } from '../repositories/suppression.repository.js';
+import { tryClaimDailyBrowserCrawlSlot } from '../services/browser-crawl-budget.service.js';
+import { enqueueBrowserCrawlCandidate, reconcileQueuedBrowserCrawlCandidates } from '../services/browser-crawl-queue.service.js';
 import { tryClaimDailyCrawlSlot } from '../services/crawl-budget.service.js';
 import { enqueueCrawlCandidate, reconcileQueuedCrawlCandidates } from '../services/crawl-queue.service.js';
 import { reassessPendingCompliance } from '../services/compliance-reassessment.service.js';
 import { remainingDailyAllowance } from '../services/daily-limit.service.js';
 import { runDiscoveryCycle } from '../services/discovery.service.js';
-import { runShadowPipeline } from '../services/shadow-pipeline.service.js';
+import { runBrowserShadowPipeline, runShadowPipeline } from '../services/shadow-pipeline.service.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 const workerId = `worker-${hostname()}-${process.pid}`;
 const startedAt = new Date().toISOString();
 let heartbeatTimer: NodeJS.Timeout | null = null;
@@ -36,90 +38,42 @@ function startOfUtcDayIso(): string {
 }
 
 async function heartbeat(status: 'starting' | 'ready' | 'draining' | 'stopping'): Promise<void> {
-  await writeHeartbeat({
-    workerId,
-    processType: 'worker',
-    hostname: hostname(),
-    pid: process.pid,
-    status,
-    startedAt,
-    updatedAt: new Date().toISOString(),
-    version: VERSION,
-  });
+  await writeHeartbeat({ workerId, processType: 'worker', hostname: hostname(), pid: process.pid, status, startedAt, updatedAt: new Date().toISOString(), version: VERSION });
 }
 
 async function handleCoveragePlan(job: Job): Promise<Record<string, unknown>> {
   const settings = await getSettings();
   if (settings.runState !== 'running') return { skipped: true, reason: `run_state_${settings.runState}` };
   if (!settings.discoveryEnabled || settings.mode === 'off') return { skipped: true, reason: 'discovery_disabled' };
-
   const campaigns = (await listCampaigns()).filter(item => item.status === 'running');
   if (campaigns.length === 0) return { skipped: true, reason: 'no_running_campaigns' };
-
   const dayStart = startOfUtcDayIso();
   const globalAcquiredToday = await countCandidatesSince(dayStart);
   const scheduled: Array<{ campaignId: string; remainingAllowance: number }> = [];
   for (const campaign of campaigns) {
     const campaignAcquiredToday = await countCampaignCandidatesSince(campaign.id, dayStart);
-    const remainingAllowance = remainingDailyAllowance(
-      campaignAcquiredToday,
-      globalAcquiredToday,
-      campaign.dailyHardLimit,
-      settings.dailyHardLimit,
-    );
+    const remainingAllowance = remainingDailyAllowance(campaignAcquiredToday, globalAcquiredToday, campaign.dailyHardLimit, settings.dailyHardLimit);
     if (remainingAllowance === 0) continue;
-
-    await getQueue('discovery').add(
-      'discover-campaign',
-      {
-        campaignId: campaign.id,
-        provider: 'brave',
-        remainingAllowance,
-        trigger: job.data?.trigger || 'orchestration',
-      },
-      {
-        jobId: `discover-${campaign.id}-${Date.now()}`,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 60_000 },
-      },
-    );
+    await getQueue('discovery').add('discover-campaign', { campaignId: campaign.id, provider: 'brave', remainingAllowance, trigger: job.data?.trigger || 'orchestration' }, { jobId: `discover-${campaign.id}-${Date.now()}`, attempts: 3, backoff: { type: 'exponential', delay: 60_000 } });
     scheduled.push({ campaignId: campaign.id, remainingAllowance });
   }
-
-  logger.info({ jobId: job.id, scheduled }, 'Coverage planning cycle queued discovery work');
   return { planned: true, campaignCount: campaigns.length, scheduled };
 }
 
 async function handleDiscoveryJob(job: Job): Promise<Record<string, unknown>> {
   const settings = await getSettings();
-  if (settings.runState !== 'running' || !settings.discoveryEnabled || settings.mode === 'off') {
-    return { skipped: true, reason: 'discovery_not_running' };
-  }
-
+  if (settings.runState !== 'running' || !settings.discoveryEnabled || settings.mode === 'off') return { skipped: true, reason: 'discovery_not_running' };
   const campaignId = typeof job.data?.campaignId === 'string' ? job.data.campaignId : '';
   const campaign = campaignId ? await getCampaign(campaignId) : null;
   if (!campaign || campaign.status !== 'running') return { skipped: true, reason: 'campaign_not_running' };
-
   const dayStart = startOfUtcDayIso();
-  const [campaignAcquiredToday, globalAcquiredToday] = await Promise.all([
-    countCampaignCandidatesSince(campaign.id, dayStart),
-    countCandidatesSince(dayStart),
-  ]);
-  const remainingAllowance = remainingDailyAllowance(
-    campaignAcquiredToday,
-    globalAcquiredToday,
-    campaign.dailyHardLimit,
-    settings.dailyHardLimit,
-  );
+  const [campaignAcquiredToday, globalAcquiredToday] = await Promise.all([countCampaignCandidatesSince(campaign.id, dayStart), countCandidatesSince(dayStart)]);
+  const remainingAllowance = remainingDailyAllowance(campaignAcquiredToday, globalAcquiredToday, campaign.dailyHardLimit, settings.dailyHardLimit);
   if (remainingAllowance === 0) return { skipped: true, reason: 'daily_hard_limit_reached' };
-
   const provider = typeof job.data?.provider === 'string' ? job.data.provider : 'brave';
   const requestedAllowance = Number(job.data?.remainingAllowance);
-  const allowance = Number.isFinite(requestedAllowance)
-    ? Math.min(remainingAllowance, Math.max(0, Math.floor(requestedAllowance)))
-    : remainingAllowance;
+  const allowance = Number.isFinite(requestedAllowance) ? Math.min(remainingAllowance, Math.max(0, Math.floor(requestedAllowance))) : remainingAllowance;
   const result = await runDiscoveryCycle(campaign, provider, allowance, settings.dailyHardLimit);
-
   let crawlJobsQueued = 0;
   for (const candidateId of result.candidateIdsCreated) {
     await setCandidateStatus(candidateId, 'queued_for_crawl');
@@ -128,29 +82,48 @@ async function handleDiscoveryJob(job: Job): Promise<Record<string, unknown>> {
   return { ...result, crawlJobsQueued };
 }
 
-async function handleCrawlJob(job: Job): Promise<Record<string, unknown>> {
-  const settings = await getSettings();
-  if (settings.runState === 'emergency_stopped' || settings.mode === 'off') return { skipped: true, reason: 'bot_stopped' };
-
+async function getRunnableCandidate(job: Job, actor: string) {
   const candidateId = typeof job.data?.candidateId === 'string' ? job.data.candidateId : '';
   const candidate = candidateId ? await getCandidate(candidateId) : null;
   if (!candidate) throw new Error('Crawl candidate not found');
-
   if (await isSuppressed(candidate.canonicalDomain, 'do_not_crawl')) {
     await setCandidateStatus(candidate.id, 'suppressed');
-    await recordAuditEvent('crawl-worker', 'candidate.suppressed_before_crawl', {
-      candidateId: candidate.id,
-      domain: candidate.canonicalDomain,
-    });
-    return { skipped: true, reason: 'do_not_crawl_suppression' };
+    await recordAuditEvent(actor, 'candidate.suppressed_before_crawl', { candidateId: candidate.id, domain: candidate.canonicalDomain });
+    return null;
   }
+  return candidate;
+}
 
+async function handleCrawlJob(job: Job): Promise<Record<string, unknown>> {
+  const settings = await getSettings();
+  if (settings.runState === 'emergency_stopped' || settings.mode === 'off') return { skipped: true, reason: 'bot_stopped' };
+  const candidate = await getRunnableCandidate(job, 'crawl-worker');
+  if (!candidate) return { skipped: true, reason: 'do_not_crawl_suppression' };
   const claimed = await tryClaimDailyCrawlSlot(settings.maxCrawlsPerDay, env.ABSOLUTE_MAX_CRAWLS_PER_DAY);
   if (!claimed) {
     await setCandidateStatus(candidate.id, 'queued_for_crawl');
     return { skipped: true, reason: 'crawl_daily_limit_reached', retryNextUtcDay: true };
   }
-  return runShadowPipeline(candidate);
+  const result = await runShadowPipeline(candidate);
+  if ('browserFallbackRequired' in result && result.browserFallbackRequired) {
+    await setCandidateStatus(candidate.id, 'queued_for_browser_crawl');
+    const queued = await enqueueBrowserCrawlCandidate(candidate.id, 'static-fallback');
+    return { ...result, browserJobQueued: queued };
+  }
+  return result;
+}
+
+async function handleBrowserCrawlJob(job: Job): Promise<Record<string, unknown>> {
+  const settings = await getSettings();
+  if (settings.runState === 'emergency_stopped' || settings.mode === 'off') return { skipped: true, reason: 'bot_stopped' };
+  const candidate = await getRunnableCandidate(job, 'browser-crawl-worker');
+  if (!candidate) return { skipped: true, reason: 'do_not_crawl_suppression' };
+  const claimed = await tryClaimDailyBrowserCrawlSlot(env.ABSOLUTE_MAX_BROWSER_CRAWLS_PER_DAY);
+  if (!claimed) {
+    await setCandidateStatus(candidate.id, 'queued_for_browser_crawl');
+    return { skipped: true, reason: 'browser_crawl_daily_limit_reached', retryNextUtcDay: true };
+  }
+  return runBrowserShadowPipeline(candidate);
 }
 
 async function pipelineIsDrained(): Promise<boolean> {
@@ -165,51 +138,33 @@ async function pipelineIsDrained(): Promise<boolean> {
 async function handleReconcile(): Promise<Record<string, unknown>> {
   const settings = await getSettings();
   const reassessedCompliance = await reassessPendingCompliance(100);
-  const mayRecoverQueuedWork = settings.mode !== 'off'
-    && (settings.runState === 'running' || settings.runState === 'paused');
-  const recoveredCrawls = mayRecoverQueuedWork ? await reconcileQueuedCrawlCandidates() : 0;
-
+  const mayRecoverQueuedWork = settings.mode !== 'off' && (settings.runState === 'running' || settings.runState === 'paused');
+  const [recoveredCrawls, recoveredBrowserCrawls] = mayRecoverQueuedWork
+    ? await Promise.all([reconcileQueuedCrawlCandidates(), reconcileQueuedBrowserCrawlCandidates()])
+    : [0, 0];
   if (settings.runState === 'draining') {
     await heartbeat('draining');
     if (await pipelineIsDrained()) {
       const updated = await patchSettings({ runState: 'stopped' }, 'system-reconciler');
       await recordAuditEvent('system-reconciler', 'bot.drain_completed');
       await heartbeat('ready');
-      return { reconciled: true, drainCompleted: true, runState: updated.runState, recoveredCrawls, reassessedCompliance };
+      return { reconciled: true, drainCompleted: true, runState: updated.runState, recoveredCrawls, recoveredBrowserCrawls, reassessedCompliance };
     }
-    return { reconciled: true, drainCompleted: false, recoveredCrawls, reassessedCompliance };
+    return { reconciled: true, drainCompleted: false, recoveredCrawls, recoveredBrowserCrawls, reassessedCompliance };
   }
-  return { reconciled: true, runState: settings.runState, recoveredCrawls, reassessedCompliance };
+  return { reconciled: true, runState: settings.runState, recoveredCrawls, recoveredBrowserCrawls, reassessedCompliance };
 }
 
 async function processOrchestrationJob(job: Job): Promise<Record<string, unknown>> {
-  switch (job.name) {
-    case 'coverage-plan': return handleCoveragePlan(job);
-    case 'system-reconcile': return handleReconcile();
-    default: throw new Error(`Unknown orchestration job: ${job.name}`);
-  }
+  if (job.name === 'coverage-plan') return handleCoveragePlan(job);
+  if (job.name === 'system-reconcile') return handleReconcile();
+  throw new Error(`Unknown orchestration job: ${job.name}`);
 }
 
 async function registerSchedulers(): Promise<void> {
   const queue = getQueue('orchestration');
-  await queue.upsertJobScheduler(
-    'coverage-planner-v1',
-    { every: 6 * 60 * 60 * 1000 },
-    {
-      name: 'coverage-plan',
-      data: { trigger: 'scheduler' },
-      opts: { attempts: 1, removeOnComplete: 500, removeOnFail: 500 },
-    },
-  );
-  await queue.upsertJobScheduler(
-    'system-reconciler-v1',
-    { every: 5 * 60 * 1000 },
-    {
-      name: 'system-reconcile',
-      data: { trigger: 'scheduler' },
-      opts: { attempts: 3, backoff: { type: 'exponential', delay: 10_000 } },
-    },
-  );
+  await queue.upsertJobScheduler('coverage-planner-v1', { every: 6 * 60 * 60 * 1000 }, { name: 'coverage-plan', data: { trigger: 'scheduler' }, opts: { attempts: 1, removeOnComplete: 500, removeOnFail: 500 } });
+  await queue.upsertJobScheduler('system-reconciler-v1', { every: 5 * 60 * 1000 }, { name: 'system-reconcile', data: { trigger: 'scheduler' }, opts: { attempts: 3, backoff: { type: 'exponential', delay: 10_000 } } });
 }
 
 function attachWorkerLogging(worker: Worker, label: string): void {
@@ -223,10 +178,12 @@ function startWorkers(): void {
   const orchestration = new Worker(QUEUE_NAMES.orchestration, processOrchestrationJob, { ...shared, concurrency: 2 });
   const discovery = new Worker(QUEUE_NAMES.discovery, handleDiscoveryJob, { ...shared, concurrency: 1 });
   const crawl = new Worker(QUEUE_NAMES.crawl, handleCrawlJob, { ...shared, concurrency: 2 });
-  workers.push(orchestration, discovery, crawl);
+  const browserCrawl = new Worker(QUEUE_NAMES.browserCrawl, handleBrowserCrawlJob, { ...shared, concurrency: 1 });
+  workers.push(orchestration, discovery, crawl, browserCrawl);
   attachWorkerLogging(orchestration, 'orchestration');
   attachWorkerLogging(discovery, 'discovery');
   attachWorkerLogging(crawl, 'crawl');
+  attachWorkerLogging(browserCrawl, 'browser-crawl');
 }
 
 async function start(): Promise<void> {
@@ -236,12 +193,9 @@ async function start(): Promise<void> {
   await registerSchedulers();
   startWorkers();
   await heartbeat('ready');
-  heartbeatTimer = setInterval(() => {
-    void heartbeat('ready').catch(error => logger.error({ err: error }, 'Worker heartbeat failed'));
-  }, 30_000);
+  heartbeatTimer = setInterval(() => void heartbeat('ready').catch(error => logger.error({ err: error }, 'Worker heartbeat failed')), 30_000);
   heartbeatTimer.unref();
   logger.info({ workerId, workers: workers.length }, 'Supplier Bot workers ready');
-
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Supplier Bot worker process shutting down');
     if (heartbeatTimer) clearInterval(heartbeatTimer);
