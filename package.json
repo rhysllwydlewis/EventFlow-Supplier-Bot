@@ -1,0 +1,45 @@
+{
+  "name": "eventflow-supplier-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autonomous supplier discovery and profile composition service for EventFlow",
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "scripts": {
+    "dev:control": "tsx watch src/control/server.ts",
+    "dev:worker": "tsx watch src/worker/index.ts",
+    "start:control": "node dist/control/server.js",
+    "start:worker": "node dist/worker/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "bullmq": "^6.0.0",
+    "compression": "^1.8.0",
+    "dotenv": "^17.2.0",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.7.0",
+    "mongodb": "^6.19.0",
+    "pino": "^9.9.0",
+    "pino-http": "^10.5.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@types/compression": "^1.8.1",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.18.0",
+    "eslint": "^9.35.0",
+    "globals": "^16.3.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.42.0",
+    "vitest": "^3.2.0"
+  }
+}
