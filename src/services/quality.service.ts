@@ -38,7 +38,7 @@ export function scoreShadowProfile(profile: ShadowProfile): QualityBreakdown {
 
   if (profile.description.length >= 120) content += 10;
   if (profile.services.length) content += 5;
-  if (content < 10) reasons.push('thin_content');
+  if (content < 15) reasons.push('thin_content');
 
   const total = Math.min(100, identity + evidence + contact + commercialData + content);
   return { identity, evidence, contact, commercialData, content, total, reasons };
