@@ -38,6 +38,7 @@
     .toggle input { width:auto; }
     .metric-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
     .metric-grid.compact { grid-template-columns:repeat(4,1fr); }
+    .metric-grid.compliance-grid { grid-template-columns:repeat(5,1fr); }
     .metric { background:#f7f8fa; border-radius:12px; padding:13px; min-width:0; }
     .metric strong { display:block; font-size:22px; letter-spacing:-.03em; overflow:hidden; text-overflow:ellipsis; }
     .metric span { color:#70757e; font-size:12px; }
@@ -49,7 +50,7 @@
     .muted { color:#777c84; font-size:13px; }
     .status { display:inline-flex; padding:4px 7px; border-radius:7px; background:#f0f1f3; font-size:11px; font-weight:800; text-transform:uppercase; white-space:nowrap; }
     .status.pass,.status.ready,.status.index { background:#edf8f1; color:#17683a; }
-    .status.review,.status.noindex { background:#fff6e7; color:#8a5a00; }
+    .status.review,.status.noindex,.status.pending { background:#fff6e7; color:#8a5a00; }
     .status.block,.status.hold { background:#fff0f0; color:#9c2c2c; }
     .reason-list { max-width:250px; color:#676c74; font-size:12px; line-height:1.35; }
     .login { min-height:100vh; display:grid; place-items:center; padding:24px; }
@@ -57,7 +58,7 @@
     .login-card h1 { margin:0 0 8px; } .login-card p { color:#686d76; margin:0 0 18px; } .login-card button { width:100%; margin-top:12px; }
     .hidden { display:none !important; } .error { color:#a52222; font-size:13px; margin-top:10px; }
     .notice { padding:10px 12px; border-radius:10px; background:#f0f5ff; color:#31466c; font-size:13px; margin-top:12px; }
-    @media (max-width:900px) { .span-8,.span-4,.span-6 { grid-column:span 12; } .form-grid,.metric-grid,.metric-grid.compact,.toggle-row,.seed-grid { grid-template-columns:1fr; } }
+    @media (max-width:900px) { .span-8,.span-4,.span-6 { grid-column:span 12; } .form-grid,.metric-grid,.metric-grid.compact,.metric-grid.compliance-grid,.toggle-row,.seed-grid { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -117,10 +118,11 @@
       </div>
 
       <div class="card span-12">
-        <div class="section-head"><div><h2>Compliance overview</h2><p class="muted">Database-wide latest compliance decisions across assessed profiles.</p></div></div>
-        <div class="metric-grid">
+        <div class="section-head"><div><h2>Compliance overview</h2><p id="complianceScope" class="muted">Loading profile coverage…</p></div></div>
+        <div class="metric-grid compliance-grid">
           <div class="metric"><strong id="publishReadyMetric">0</strong><span>Publication eligible</span></div>
           <div class="metric"><strong id="reviewMetric">0</strong><span>Needs review</span></div>
+          <div class="metric"><strong id="pendingMetric">0</strong><span>Pending assessment</span></div>
           <div class="metric"><strong id="blockedMetric">0</strong><span>Blocked</span></div>
           <div class="metric"><strong id="seoReadyMetric">0</strong><span>SEO ready</span></div>
         </div>
@@ -161,12 +163,12 @@ async function refresh(){
   ['discoveryEnabled','refreshEnabled','publishingEnabled','claimNoticesEnabled','marketingEnabled','seoIndexingEnabled'].forEach(id=>$(id).checked=!!s[id]);
   $('statusText').textContent=s.runState.replaceAll('_',' ').toUpperCase();$('statusDot').className=`dot ${s.runState==='running'&&status.workerHealthy?'running':s.runState==='stopped'?'':'warning'}`;
   $('workerMetric').textContent=status.workerHealthy?'Healthy':'Offline';$('modeMetric').textContent=s.mode.replaceAll('_',' ');$('todayMetric').textContent=status.metrics?.candidatesToday??0;$('crawlMetric').textContent=status.metrics?.crawlsToday??0;$('aiCallsMetric').textContent=status.metrics?.aiCallsToday??0;$('aiCostMetric').textContent=money(status.metrics?.aiEstimatedCostGbpToday);$('aiReservedMetric').textContent=money(status.metrics?.aiReservedGbp);$('capMetric').textContent=s.dailyHardLimit;
-  $('publishReadyMetric').textContent=overview.publicationEligible??0;$('reviewMetric').textContent=overview.review??0;$('blockedMetric').textContent=overview.blocked??0;$('seoReadyMetric').textContent=overview.seoReady??0;
+  $('publishReadyMetric').textContent=overview.publicationEligible??0;$('reviewMetric').textContent=overview.review??0;$('pendingMetric').textContent=overview.pending??0;$('blockedMetric').textContent=overview.blocked??0;$('seoReadyMetric').textContent=overview.seoReady??0;$('complianceScope').textContent=`${overview.assessed??0} assessed of ${overview.totalProfiles??0} profiles`;
   const p=status.providerCapabilities;$('providerInfo').textContent=`OpenAI ${p.openAiConfigured?'configured':'not configured'} · Brave ${p.braveConfigured?'configured':'not configured'} · persistence ${p.bravePersistenceAllowed?'allowed':'gated'}`;
   $('campaignRows').innerHTML=campaigns.items.map(c=>`<tr><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.categories.join(', '))}</td><td>${escapeHtml(c.locations.join(', '))}</td><td>${c.dailyTarget}/${c.dailyHardLimit}</td><td><span class="status">${escapeHtml(c.status)}</span></td><td><button class="small campaign-toggle" data-id="${escapeHtml(c.id)}" data-next="${c.status==='running'?'paused':'running'}">${c.status==='running'?'Pause':'Run'}</button></td></tr>`).join('');
   $('queueRows').innerHTML=Object.entries(status.queues).map(([name,c])=>`<tr><td>${escapeHtml(name)}</td><td>${c.waiting||0}</td><td>${c.active||0}</td><td>${c.failed||0}</td></tr>`).join('');
   $('candidateRows').innerHTML=candidates.items.map(c=>`<tr><td>${escapeHtml(c.titleHint||c.canonicalDomain)}</td><td>${escapeHtml(c.categoryHint||'—')}</td><td>${escapeHtml(c.locationHint||'—')}</td><td>${escapeHtml(c.provider)}</td><td><span class="status">${escapeHtml(c.status)}</span></td></tr>`).join('')||'<tr><td colspan="5" class="muted">No candidates yet.</td></tr>';
-  $('shadowRows').innerHTML=(reviews.items||[]).map(item=>{const profile=item.profile;const assessment=item.assessment;const complianceState=assessment?.status||'review';const publishState=assessment?.publicationEligible?'ready':'hold';const seoState=assessment?.seoIndexEligible?'index':'noindex';const similarity=assessment?`${Math.round((assessment.descriptionSimilarity||0)*100)}%`:'—';return `<tr><td>${escapeHtml(profile.businessName)}</td><td>${escapeHtml(profile.category)}</td><td>${escapeHtml(profile.location||'—')}</td><td>${Math.round(profile.publicationQuality)}%</td><td><span class="status ${escapeHtml(complianceState)}">${escapeHtml(complianceState)}</span></td><td><span class="status ${publishState}">${publishState==='ready'?'Ready':'Hold'}</span></td><td><span class="status ${seoState}">${seoState==='index'?'Index':'Noindex'}</span></td><td>${similarity}</td><td class="reason-list">${escapeHtml(displayReason(assessment))}</td></tr>`;}).join('')||'<tr><td colspan="9" class="muted">No Shadow profiles yet.</td></tr>';
+  $('shadowRows').innerHTML=(reviews.items||[]).map(item=>{const profile=item.profile;const assessment=item.assessment;const complianceState=assessment?.status||'pending';const publishState=assessment?.publicationEligible?'ready':'hold';const seoState=assessment?.seoIndexEligible?'index':'noindex';const similarity=assessment?`${Math.round((assessment.descriptionSimilarity||0)*100)}%`:'—';return `<tr><td>${escapeHtml(profile.businessName)}</td><td>${escapeHtml(profile.category)}</td><td>${escapeHtml(profile.location||'—')}</td><td>${Math.round(profile.publicationQuality)}%</td><td><span class="status ${escapeHtml(complianceState)}">${escapeHtml(complianceState)}</span></td><td><span class="status ${publishState}">${publishState==='ready'?'Ready':'Hold'}</span></td><td><span class="status ${seoState}">${seoState==='index'?'Index':'Noindex'}</span></td><td>${similarity}</td><td class="reason-list">${escapeHtml(displayReason(assessment))}</td></tr>`;}).join('')||'<tr><td colspan="9" class="muted">No Shadow profiles yet.</td></tr>';
   document.querySelectorAll('.campaign-toggle').forEach(button=>button.addEventListener('click',async()=>{try{await request(`/api/campaigns/${encodeURIComponent(button.dataset.id)}`,{method:'PATCH',body:JSON.stringify({status:button.dataset.next})});await refresh();}catch(error){alert(error.message);}}));
 }
 $('loginForm').addEventListener('submit',async event=>{event.preventDefault();$('loginError').textContent='';try{const data=await request('/api/auth/login',{method:'POST',body:JSON.stringify({key:$('adminKey').value})});csrfToken=data.csrfToken;showApp();await refresh();}catch(error){$('loginError').textContent=error.message;}});
