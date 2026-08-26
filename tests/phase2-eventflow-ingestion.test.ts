@@ -46,13 +46,15 @@ describe('Phase 2 EventFlow ingestion contract', () => {
     expect(enqueueIndex).toBeGreaterThan(complianceIndex);
   });
 
-  it('re-reads live controls and compliance before the network write', () => {
+  it('re-reads live controls, suppression and compliance before the network write', () => {
     expect(publicationSource).toContain("settings.runState === 'emergency_stopped'");
     expect(publicationSource).toContain('!settings.publishingEnabled');
     expect(publicationSource).toContain('withCompliancePolicyLock');
     expect(publicationSource).toContain('const liveSettings = await getSettings()');
     expect(publicationSource).toContain('publishing_revoked_before_send');
     expect(publicationSource).toContain('assessShadowProfileCompliance');
+    expect(publicationSource).toContain("isSuppressed(candidate.canonicalDomain, 'do_not_list')");
+    expect(publicationSource.match(/do_not_list_suppression/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
   it('has a durable publication worker and reconciliation path', () => {
