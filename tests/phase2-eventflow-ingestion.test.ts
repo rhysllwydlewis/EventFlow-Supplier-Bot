@@ -29,9 +29,18 @@ describe('Phase 2 EventFlow ingestion contract', () => {
   });
 
   it('queues EventFlow publication only after dedup and compliance complete', () => {
-    const dedupIndex = pipelineSource.indexOf('assessAndPersistSupplierDuplicate');
-    const complianceIndex = pipelineSource.indexOf('saveComplianceAssessment');
-    const enqueueIndex = pipelineSource.indexOf('enqueueEventFlowPublication(candidate.id');
+    const bodyStart = pipelineSource.indexOf('async function completeShadowProfile');
+    const bodyEnd = pipelineSource.indexOf('export async function runShadowPipeline', bodyStart);
+    const completeShadowProfile = pipelineSource.slice(bodyStart, bodyEnd);
+    const dedupIndex = completeShadowProfile.indexOf('await assessAndPersistSupplierDuplicate');
+    const complianceIndex = completeShadowProfile.indexOf(
+      'await saveComplianceAssessment(assessShadowProfileCompliance',
+    );
+    const enqueueIndex = completeShadowProfile.indexOf(
+      'await enqueueEventFlowPublication(candidate.id',
+    );
+    expect(bodyStart).toBeGreaterThan(-1);
+    expect(bodyEnd).toBeGreaterThan(bodyStart);
     expect(dedupIndex).toBeGreaterThan(-1);
     expect(complianceIndex).toBeGreaterThan(dedupIndex);
     expect(enqueueIndex).toBeGreaterThan(complianceIndex);
