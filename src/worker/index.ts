@@ -53,7 +53,7 @@ async function handleCoveragePlan(job: Job): Promise<Record<string, unknown>> {
   const globalAcquiredToday = await countCandidatesSince(dayStart);
   const scheduled: Array<{ campaignId: string; remainingAllowance: number }> = [];
   for (const campaign of campaigns) {
-    const campaignAcquiredToday = await countCampaignCandidatesSince(dayStart);
+    const campaignAcquiredToday = await countCampaignCandidatesSince(campaign.id, dayStart);
     const remainingAllowance = remainingDailyAllowance(campaignAcquiredToday, globalAcquiredToday, campaign.dailyHardLimit, settings.dailyHardLimit);
     if (remainingAllowance === 0) continue;
     await getQueue('discovery').add('discover-campaign', { campaignId: campaign.id, provider: 'brave', remainingAllowance, trigger: job.data?.trigger || 'orchestration' }, { jobId: `discover-${campaign.id}-${Date.now()}`, attempts: 3, backoff: { type: 'exponential', delay: 60_000 } });
