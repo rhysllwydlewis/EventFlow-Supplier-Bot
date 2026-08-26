@@ -21,7 +21,8 @@ export async function playBot(actor: string) {
 
 export async function pauseBot(actor: string) {
   const settings = await patchSettings({ runState: 'paused' }, actor);
-  await recordAuditEvent(actor, 'bot.pause');
+  await pausePipelineQueues();
+  await recordAuditEvent(actor, 'bot.pause', { queuesPaused: PIPELINE_QUEUE_KEYS });
   return settings;
 }
 
