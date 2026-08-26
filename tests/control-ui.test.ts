@@ -19,15 +19,18 @@ describe('Supplier Bot Control Centre review surface', () => {
     expect(complianceRepository).toContain('candidateId: { $in: uniqueIds }');
   });
 
-  it('uses a database-wide compliance overview instead of sampled UI counts', () => {
+  it('includes pending Shadow profiles in the database-wide compliance overview', () => {
     expect(html).toContain("request('/api/compliance-overview')");
     expect(html).toContain('overview.publicationEligible');
-    expect(html).toContain('Database-wide latest compliance decisions across assessed profiles.');
-    expect(html).not.toContain('function complianceSummary(');
-    expect(html).not.toContain('for every researched profile');
+    expect(html).toContain('overview.pending');
+    expect(html).toContain('overview.totalProfiles');
+    expect(html).toContain('id="pendingMetric"');
+    expect(html).toContain("assessment?.status||'pending'");
     expect(server).toContain("app.get('/api/compliance-overview'");
-    expect(complianceRepository).toContain('export async function getComplianceOverview()');
-    expect(complianceRepository).toContain('$group');
+    expect(complianceRepository).toContain("db.collection('shadow_profiles')");
+    expect(complianceRepository).toContain("from: 'compliance_assessments'");
+    expect(complianceRepository).toContain('pending: { $sum:');
+    expect(complianceRepository).toContain('totalProfiles: { $sum: 1 }');
   });
 
   it('shows distinct compliance, publication and SEO gates', () => {
