@@ -13,6 +13,7 @@ const identityRepository = readFileSync('src/repositories/supplier-identity.repo
 const compliance = readFileSync('src/services/compliance.service.ts', 'utf8');
 const ai = readFileSync('src/services/ai-enrichment.service.ts', 'utf8');
 const control = readFileSync('public/control.html', 'utf8');
+const controlServer = readFileSync('src/control/server.ts', 'utf8');
 
 describe('Phase 1 standalone autonomy contract', () => {
   it('has autonomous campaign discovery and queue orchestration', () => {
@@ -58,6 +59,11 @@ describe('Phase 1 standalone autonomy contract', () => {
     expect(control).toContain('AI hard budget');
     expect(control).toContain('Shadow profile review');
     expect(control).toContain('Identity dedup');
+  });
+
+  it('uses an Express 5-compatible SPA fallback route', () => {
+    expect(controlServer).toContain("app.get('/{*splat}'");
+    expect(controlServer).not.toContain("app.get('*'");
   });
 
   it('contains no Phase 1 EventFlow production publishing implementation', () => {
