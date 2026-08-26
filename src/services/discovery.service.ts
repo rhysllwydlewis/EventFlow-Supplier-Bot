@@ -11,6 +11,7 @@ export interface DiscoveryCycleResult {
   queriesRun: number;
   resultsSeen: number;
   candidatesCreated: number;
+  candidateIdsCreated: string[];
   duplicatesSkipped: number;
   suppressedSkipped: number;
   persistenceBlocked: number;
@@ -31,6 +32,7 @@ export async function runDiscoveryCycle(
     queriesRun: 0,
     resultsSeen: 0,
     candidatesCreated: 0,
+    candidateIdsCreated: [],
     duplicatesSkipped: 0,
     suppressedSkipped: 0,
     persistenceBlocked: 0,
@@ -59,10 +61,6 @@ export async function runDiscoveryCycle(
         continue;
       }
 
-      // Standard Brave Search access is currently capability-gated for persistent
-      // result retention. We can exercise discovery in dry/shadow diagnostics,
-      // but we do not persist Brave-derived candidates until the configured
-      // permission explicitly allows it.
       if (!provider.capabilities.supportsPersistence) {
         result.persistenceBlocked += 1;
         continue;
@@ -80,6 +78,7 @@ export async function runDiscoveryCycle(
       });
       if (saved.created) {
         result.candidatesCreated += 1;
+        result.candidateIdsCreated.push(saved.candidate.id);
       } else {
         result.duplicatesSkipped += 1;
       }
