@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EventFlow Supplier Bot</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#f5f6f8; color:#14161a; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#f5f6f8; }
+    button,input,select { font:inherit; }
+    .shell { max-width:1280px; margin:0 auto; padding:28px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; gap:18px; margin-bottom:22px; }
+    .brand h1 { margin:0; font-size:26px; letter-spacing:-.03em; }
+    .brand p { margin:5px 0 0; color:#686d76; font-size:14px; }
+    .pill { display:inline-flex; align-items:center; gap:8px; border:1px solid #dddfe4; background:white; padding:8px 12px; border-radius:999px; font-weight:700; font-size:13px; }
+    .dot { width:9px; height:9px; border-radius:50%; background:#8b9098; }
+    .dot.running { background:#149647; }
+    .dot.warning { background:#c67a00; }
+    .grid { display:grid; grid-template-columns:repeat(12,1fr); gap:16px; }
+    .card { background:white; border:1px solid #e3e5e9; border-radius:16px; padding:18px; box-shadow:0 5px 18px rgba(20,22,26,.035); }
+    .span-12 { grid-column:span 12; } .span-8 { grid-column:span 8; } .span-4 { grid-column:span 4; } .span-6 { grid-column:span 6; }
+    h2 { margin:0 0 14px; font-size:16px; }
+    .controls { display:flex; flex-wrap:wrap; gap:9px; }
+    button { border:1px solid #d8dbe0; background:#fff; border-radius:10px; padding:10px 14px; cursor:pointer; font-weight:700; }
+    button.primary { background:#17191d; border-color:#17191d; color:white; }
+    button.danger { background:#fff4f4; color:#a52222; border-color:#efcaca; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
+    label { display:grid; gap:6px; color:#5f646d; font-size:12px; font-weight:700; }
+    input,select { width:100%; border:1px solid #dfe2e7; border-radius:9px; padding:10px 11px; background:white; color:#16181c; }
+    .toggle-row { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:14px; }
+    .toggle { display:flex; align-items:center; justify-content:space-between; gap:8px; border:1px solid #e5e7eb; border-radius:10px; padding:10px; color:#4f545d; font-size:12px; font-weight:700; }
+    .toggle input { width:auto; }
+    .metric-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+    .metric { background:#f7f8fa; border-radius:12px; padding:13px; }
+    .metric strong { display:block; font-size:22px; letter-spacing:-.03em; }
+    .metric span { color:#70757e; font-size:12px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th,td { padding:9px 6px; border-bottom:1px solid #eceef1; text-align:left; }
+    th { color:#777c84; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+    .muted { color:#777c84; font-size:13px; }
+    .login { min-height:100vh; display:grid; place-items:center; padding:24px; }
+    .login-card { width:min(420px,100%); background:white; border:1px solid #e3e5e9; border-radius:18px; padding:24px; box-shadow:0 10px 30px rgba(20,22,26,.08); }
+    .login-card h1 { margin:0 0 8px; }
+    .login-card p { color:#686d76; margin:0 0 18px; }
+    .login-card button { width:100%; margin-top:12px; }
+    .hidden { display:none !important; }
+    .error { color:#a52222; font-size:13px; margin-top:10px; }
+    .notice { padding:10px 12px; border-radius:10px; background:#f0f5ff; color:#31466c; font-size:13px; margin-top:12px; }
+    @media (max-width:900px) { .span-8,.span-4,.span-6 { grid-column:span 12; } .form-grid,.metric-grid,.toggle-row { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <section id="loginView" class="login hidden">
+    <form id="loginForm" class="login-card">
+      <h1>Supplier Bot</h1>
+      <p>EventFlow autonomous supplier acquisition control centre.</p>
+      <label>Admin key<input id="adminKey" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">Sign in</button>
+      <div id="loginError" class="error"></div>
+    </form>
+  </section>
+
+  <main id="appView" class="shell hidden">
+    <header class="topbar">
+      <div class="brand"><h1>EventFlow Supplier Bot</h1><p>Autonomous acquisition · controlled by guardrails</p></div>
+      <div style="display:flex;gap:9px;align-items:center"><div class="pill"><span id="statusDot" class="dot"></span><span id="statusText">Loading</span></div><button id="logoutBtn">Sign out</button></div>
+    </header>
+
+    <section class="grid">
+      <div class="card span-12">
+        <h2>Bot controls</h2>
+        <div class="controls">
+          <button id="playBtn" class="primary">▶ Run</button>
+          <button id="pauseBtn">Ⅱ Pause</button>
+          <button id="drainBtn">Drain safely</button>
+          <button id="runNowBtn">Run planning cycle now</button>
+          <button id="stopBtn" class="danger">Emergency stop</button>
+        </div>
+        <div class="notice">Phase 1 starts in Shadow mode. Publishing, outreach and SEO indexing stay disabled until explicitly enabled in a later integration phase.</div>
+      </div>
+
+      <div class="card span-8">
+        <h2>Operating settings</h2>
+        <form id="settingsForm">
+          <div class="form-grid">
+            <label>Mode<select id="mode"><option value="off">Off</option><option value="dry_run">Dry Run</option><option value="shadow">Shadow</option><option value="live">Live</option></select></label>
+            <label>Minimum publication quality<input id="quality" type="number" min="0" max="100" step="1"></label>
+            <label>Daily target<input id="dailyTarget" type="number" min="0" step="1"></label>
+            <label>Daily hard maximum<input id="dailyHardLimit" type="number" min="1" step="1"></label>
+            <label>Maximum crawls/day<input id="maxCrawls" type="number" min="0" step="1"></label>
+            <label>AI soft budget (£/day)<input id="softAi" type="number" min="0" step="0.1"></label>
+            <label>AI hard budget (£/day)<input id="hardAi" type="number" min="0" step="0.1"></label>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle">Discovery<input id="discoveryEnabled" type="checkbox"></label>
+            <label class="toggle">Refresh<input id="refreshEnabled" type="checkbox"></label>
+            <label class="toggle">Publishing<input id="publishingEnabled" type="checkbox"></label>
+            <label class="toggle">Claim notices<input id="claimNoticesEnabled" type="checkbox"></label>
+            <label class="toggle">Marketing<input id="marketingEnabled" type="checkbox"></label>
+            <label class="toggle">SEO indexing<input id="seoIndexingEnabled" type="checkbox"></label>
+          </div>
+          <div class="controls" style="margin-top:14px"><button class="primary" type="submit">Save settings</button></div>
+        </form>
+      </div>
+
+      <div class="card span-4">
+        <h2>System</h2>
+        <div class="metric-grid">
+          <div class="metric"><strong id="workerMetric">—</strong><span>Worker</span></div>
+          <div class="metric"><strong id="modeMetric">—</strong><span>Mode</span></div>
+          <div class="metric"><strong id="capMetric">—</strong><span>Daily max</span></div>
+        </div>
+        <p id="providerInfo" class="muted"></p>
+      </div>
+
+      <div class="card span-6">
+        <h2>Campaigns</h2>
+        <table><thead><tr><th>Name</th><th>Category</th><th>Area</th><th>Target</th><th>Status</th></tr></thead><tbody id="campaignRows"></tbody></table>
+      </div>
+
+      <div class="card span-6">
+        <h2>Queues</h2>
+        <table><thead><tr><th>Queue</th><th>Waiting</th><th>Active</th><th>Failed</th></tr></thead><tbody id="queueRows"></tbody></table>
+      </div>
+    </section>
+  </main>
+
+<script>
+let csrfToken = '';
+const $ = id => document.getElementById(id);
+
+async function request(url, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (csrfToken && ['POST','PUT','PATCH','DELETE'].includes((options.method || 'GET').toUpperCase())) headers['x-csrf-token'] = csrfToken;
+  const response = await fetch(url, { credentials:'same-origin', ...options, headers });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+  return body;
+}
+
+function showLogin() { $('loginView').classList.remove('hidden'); $('appView').classList.add('hidden'); }
+function showApp() { $('loginView').classList.add('hidden'); $('appView').classList.remove('hidden'); }
+
+async function refresh() {
+  const [status, campaigns] = await Promise.all([request('/api/status'), request('/api/campaigns')]);
+  const s = status.settings;
+  $('mode').value = s.mode; $('quality').value = s.minimumPublicationQuality; $('dailyTarget').value = s.dailyTarget;
+  $('dailyHardLimit').value = s.dailyHardLimit; $('maxCrawls').value = s.maxCrawlsPerDay; $('softAi').value = s.softAiSpendGbpPerDay; $('hardAi').value = s.hardAiSpendGbpPerDay;
+  ['discoveryEnabled','refreshEnabled','publishingEnabled','claimNoticesEnabled','marketingEnabled','seoIndexingEnabled'].forEach(id => $(id).checked = !!s[id]);
+  $('statusText').textContent = s.runState.replaceAll('_',' ').toUpperCase();
+  $('statusDot').className = `dot ${s.runState === 'running' && status.workerHealthy ? 'running' : s.runState === 'stopped' ? '' : 'warning'}`;
+  $('workerMetric').textContent = status.workerHealthy ? 'Healthy' : 'Offline'; $('modeMetric').textContent = s.mode.replaceAll('_',' '); $('capMetric').textContent = s.dailyHardLimit;
+  const p = status.providerCapabilities;
+  $('providerInfo').textContent = `OpenAI ${p.openAiConfigured ? 'configured' : 'not configured'} · Brave ${p.braveConfigured ? 'configured' : 'not configured'} · persistence ${p.bravePersistenceAllowed ? 'allowed' : 'gated'}`;
+  $('campaignRows').innerHTML = campaigns.items.map(c => `<tr><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.categories.join(', '))}</td><td>${escapeHtml(c.locations.join(', '))}</td><td>${c.dailyTarget}/${c.dailyHardLimit}</td><td>${c.status}</td></tr>`).join('');
+  $('queueRows').innerHTML = Object.entries(status.queues).map(([name,c]) => `<tr><td>${escapeHtml(name)}</td><td>${c.waiting || 0}</td><td>${c.active || 0}</td><td>${c.failed || 0}</td></tr>`).join('');
+}
+
+function escapeHtml(value) { const div = document.createElement('div'); div.textContent = String(value); return div.innerHTML; }
+
+$('loginForm').addEventListener('submit', async event => {
+  event.preventDefault(); $('loginError').textContent='';
+  try { const data = await request('/api/auth/login',{method:'POST',body:JSON.stringify({key:$('adminKey').value})}); csrfToken=data.csrfToken; showApp(); await refresh(); }
+  catch(error){ $('loginError').textContent=error.message; }
+});
+
+$('settingsForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const body = {
+    mode:$('mode').value, minimumPublicationQuality:Number($('quality').value), dailyTarget:Number($('dailyTarget').value), dailyHardLimit:Number($('dailyHardLimit').value), maxCrawlsPerDay:Number($('maxCrawls').value), softAiSpendGbpPerDay:Number($('softAi').value), hardAiSpendGbpPerDay:Number($('hardAi').value),
+    discoveryEnabled:$('discoveryEnabled').checked, refreshEnabled:$('refreshEnabled').checked, publishingEnabled:$('publishingEnabled').checked, claimNoticesEnabled:$('claimNoticesEnabled').checked, marketingEnabled:$('marketingEnabled').checked, seoIndexingEnabled:$('seoIndexingEnabled').checked
+  };
+  try { await request('/api/settings',{method:'PUT',body:JSON.stringify(body)}); await refresh(); } catch(error){ alert(error.message); }
+});
+
+for (const [id, action] of [['playBtn','play'],['pauseBtn','pause'],['drainBtn','drain'],['stopBtn','emergency-stop']]) {
+  $(id).addEventListener('click', async () => { try { await request(`/api/control/${action}`,{method:'POST',body:'{}'}); await refresh(); } catch(error){ alert(error.message); } });
+}
+$('runNowBtn').addEventListener('click', async () => { try { await request('/api/run-now',{method:'POST',body:'{}'}); await refresh(); } catch(error){ alert(error.message); } });
+$('logoutBtn').addEventListener('click', async () => { try { await request('/api/auth/logout',{method:'POST',body:'{}'}); } finally { csrfToken=''; showLogin(); } });
+
+(async () => {
+  try { const session = await request('/api/auth/session'); csrfToken=session.csrfToken; showApp(); await refresh(); setInterval(() => void refresh().catch(()=>{}),15000); }
+  catch { showLogin(); }
+})();
+</script>
+</body>
+</html>
