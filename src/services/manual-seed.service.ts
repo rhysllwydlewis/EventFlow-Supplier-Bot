@@ -9,6 +9,7 @@ import {
 import { getSettings } from '../repositories/settings.repository.js';
 import { isSuppressed } from '../repositories/suppression.repository.js';
 import { canonicalDomain, canonicalizePublicHttpUrl } from '../utils/url.js';
+import { tryClaimDailyAcquisitionSlot } from './acquisition-budget.service.js';
 import { enqueueCrawlCandidate } from './crawl-queue.service.js';
 import { remainingDailyAllowance } from './daily-limit.service.js';
 
@@ -55,6 +56,14 @@ export async function seedCandidate(input: ManualSeedInput) {
       settings.dailyHardLimit,
     );
     if (allowance === 0) {
+      throw new Error('Daily supplier acquisition hard limit has been reached');
+    }
+    const claimed = await tryClaimDailyAcquisitionSlot(
+      campaignId,
+      campaign.dailyHardLimit,
+      settings.dailyHardLimit,
+    );
+    if (!claimed) {
       throw new Error('Daily supplier acquisition hard limit has been reached');
     }
   }
