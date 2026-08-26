@@ -5,6 +5,10 @@ function utcDay(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+export function legacyCrawlJobId(candidateId: string): string {
+  return `crawl-${candidateId}`;
+}
+
 export function crawlJobId(candidateId: string, day = utcDay()): string {
   return `crawl-${candidateId}-${day}`;
 }
@@ -12,8 +16,11 @@ export function crawlJobId(candidateId: string, day = utcDay()): string {
 export async function enqueueCrawlCandidate(candidateId: string, trigger: string): Promise<boolean> {
   const queue = getQueue('crawl');
   const jobId = crawlJobId(candidateId);
-  const existing = await queue.getJob(jobId);
-  if (existing) {
+  const [existing, legacyExisting] = await Promise.all([
+    queue.getJob(jobId),
+    queue.getJob(legacyCrawlJobId(candidateId)),
+  ]);
+  if (existing || legacyExisting) {
     return false;
   }
 
