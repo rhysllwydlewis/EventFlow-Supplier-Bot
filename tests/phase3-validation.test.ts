@@ -80,6 +80,7 @@ const run: Phase3ValidationRun = {
   completedAt: null,
   campaignId: 'cmp_phase3',
   targetCandidates: PHASE3_TARGET_CANDIDATES,
+  aiCostBaselineGbp: 0,
   updatedAt: '2026-08-27T00:00:00.000Z',
 };
 
@@ -151,7 +152,7 @@ describe('Phase 3 shadow validation', () => {
     expect(report.metrics.aiCostPerCandidateGbp).toBe(0.5);
   });
 
-  it('marks the report review-ready when the 100-candidate target is reached', () => {
+  it('does not call the 100-candidate sample review-ready until the drain has finalised it', () => {
     const settings = defaultSettings();
     const candidates = Array.from({ length: PHASE3_TARGET_CANDIDATES }, (_, index) =>
       candidate(`c${index}`),
@@ -159,15 +160,32 @@ describe('Phase 3 shadow validation', () => {
     const profiles = candidates.map(item => profile(item.id));
     const assessments = candidates.map(item => assessment(item.id));
 
-    const report = summarizePhase3Validation({ settings, run, candidates, profiles, assessments });
-    expect(report.targetReached).toBe(true);
-    expect(report.readyForReview).toBe(true);
-    expect(report.metrics.profileYieldPct).toBe(100);
+    const collectingReport = summarizePhase3Validation({
+      settings,
+      run,
+      candidates,
+      profiles,
+      assessments,
+    });
+    expect(collectingReport.targetReached).toBe(true);
+    expect(collectingReport.readyForReview).toBe(false);
+
+    const completedReport = summarizePhase3Validation({
+      settings,
+      run: { ...run, status: 'completed', completedAt: '2026-08-28T00:00:00.000Z' },
+      candidates,
+      profiles,
+      assessments,
+    });
+    expect(completedReport.readyForReview).toBe(true);
+    expect(completedReport.metrics.profileYieldPct).toBe(100);
   });
 
   it('is wired into the production reconciler and completes after a safe drain', () => {
     expect(workerSource).toContain('reconcilePhase3Validation(initialSettings)');
-    expect(workerSource).toContain('phase3.transitionedToDraining ? await getSettings() : initialSettings');
+    expect(workerSource).toContain(
+      'phase3.transitionedToDraining ? await getSettings() : initialSettings',
+    );
     expect(workerSource).toContain('await completePhase3ValidationRun()');
     expect(workerSource.indexOf('await completePhase3ValidationRun()')).toBeGreaterThan(
       workerSource.indexOf('if (await pipelineIsDrained())'),
