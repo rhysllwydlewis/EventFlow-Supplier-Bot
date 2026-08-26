@@ -205,4 +205,13 @@ describe('Phase 3 shadow validation', () => {
     expect(phase3Source).toContain('if (!campaignId) return null');
     expect(phase3Source).toContain('candidateFilter.campaignId = run.campaignId');
   });
+
+  it('refuses to schedule Shadow discovery until the validation ledger is initialized', () => {
+    expect(workerSource).toContain('const phase3 = await reconcilePhase3Validation(initialSettings)');
+    expect(workerSource).toContain("reason: 'phase3_validation_not_initialized'");
+    expect(workerSource).toContain('phase3.report.run?.campaignId !== campaign.id');
+    expect(workerSource.indexOf('const phase3 = await reconcilePhase3Validation(initialSettings)')).toBeLessThan(
+      workerSource.indexOf("getQueue('discovery').add"),
+    );
+  });
 });
