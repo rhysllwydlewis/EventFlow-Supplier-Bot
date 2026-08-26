@@ -11,6 +11,7 @@
     "dev:worker": "tsx watch src/worker/index.ts",
     "start:control": "node dist/control/server.js",
     "start:worker": "node dist/worker/index.js",
+    "install:browser": "playwright install chromium",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
@@ -28,6 +29,7 @@
     "mongodb": "^6.19.0",
     "pino": "^9.9.0",
     "pino-http": "^10.5.0",
+    "playwright": "1.62.1",
     "zod": "^4.1.0"
   },
   "devDependencies": {
