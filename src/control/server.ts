@@ -309,7 +309,7 @@ app.get('/api/compliance-overview', async (_req, res, next) => {
 });
 
 app.use(express.static(path.join(process.cwd(), 'public')));
-app.get('*', (_req, res) => {
+app.get('/{*splat}', (_req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'control.html'));
 });
 
