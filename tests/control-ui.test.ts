@@ -18,7 +18,9 @@ describe('Supplier Bot Control Centre review surface', () => {
   it('uses a database-wide compliance overview instead of sampled UI counts', () => {
     expect(html).toContain("request('/api/compliance-overview')");
     expect(html).toContain('overview.publicationEligible');
+    expect(html).toContain('Database-wide latest compliance decisions across assessed profiles.');
     expect(html).not.toContain('function complianceSummary(');
+    expect(html).not.toContain('for every researched profile');
     expect(server).toContain("app.get('/api/compliance-overview'");
     expect(complianceRepository).toContain('export async function getComplianceOverview()');
     expect(complianceRepository).toContain('$group');
