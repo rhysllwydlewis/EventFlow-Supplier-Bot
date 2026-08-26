@@ -17,6 +17,7 @@ import {
   assessShadowProfileCompliance,
   effectiveMinimumPublicationQuality,
 } from './compliance.service.js';
+import { ingestShadowProfileToEventFlow } from './eventflow-ingestion.service.js';
 import { assessAndPersistSupplierDuplicate } from './supplier-identity-reconciliation.service.js';
 import { composeDeterministicShadowProfile } from './shadow-profile-composer.service.js';
 import { scoreShadowProfile } from './quality.service.js';
@@ -103,12 +104,19 @@ async function completeShadowProfile(
     };
   }
 
+  const eventFlowIngestion = await ingestShadowProfileToEventFlow({
+    profile: finalProfile,
+    compliance,
+    publishingEnabled: settings.publishingEnabled,
+  });
+
   await setCandidateStatus(candidate.id, 'shadow_ready');
   return {
     profile: finalProfile,
     quality,
     compliance,
     dedup: dedup.assessment,
+    eventFlowIngestion,
     ai: { status: ai.status, model: ai.model, responseId: ai.responseId },
     crawlFailures: crawl.failures,
     crawlMethod,
