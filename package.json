@@ -11,7 +11,7 @@
     "dev:worker": "tsx watch src/worker/index.ts",
     "start:control": "node dist/control/server.js",
     "start:worker": "node dist/worker/index.js",
-    "install:browser": "playwright install chromium",
+    "install:browser": "playwright install --with-deps chromium",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
