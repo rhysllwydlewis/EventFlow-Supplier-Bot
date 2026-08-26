@@ -1,8 +1,8 @@
-import { getQueue } from '../queues/index.js';
 import { getCampaign } from '../repositories/campaign.repository.js';
 import { setCandidateStatus, upsertDiscoveredCandidate } from '../repositories/candidate.repository.js';
 import { isSuppressed } from '../repositories/suppression.repository.js';
 import { canonicalDomain, canonicalizePublicHttpUrl } from '../utils/url.js';
+import { enqueueCrawlCandidate } from './crawl-queue.service.js';
 
 const DEFAULT_PILOT_CAMPAIGN = 'campaign_south_wales_venues_pilot';
 
@@ -42,17 +42,10 @@ export async function seedCandidate(input: ManualSeedInput) {
   });
 
   const shouldQueue = saved.created || saved.candidate.status === 'discovered';
+  let crawlQueued = false;
   if (shouldQueue) {
     await setCandidateStatus(saved.candidate.id, 'queued_for_crawl');
-    await getQueue('crawl').add(
-      'crawl-candidate',
-      { candidateId: saved.candidate.id, trigger: 'manual_seed' },
-      {
-        jobId: `crawl-${saved.candidate.id}`,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 30_000 },
-      },
-    );
+    crawlQueued = await enqueueCrawlCandidate(saved.candidate.id, 'manual_seed');
   }
 
   return {
@@ -61,6 +54,6 @@ export async function seedCandidate(input: ManualSeedInput) {
       status: shouldQueue ? 'queued_for_crawl' : saved.candidate.status,
     },
     created: saved.created,
-    crawlQueued: shouldQueue,
+    crawlQueued,
   };
 }
