@@ -1,7 +1,10 @@
 import { getQueue, QUEUE_NAMES, type QueueKey } from '../queues/index.js';
-import { patchSettings, type SettingsPatch } from '../repositories/settings.repository.js';
+import { getSettings, patchSettings, type SettingsPatch } from '../repositories/settings.repository.js';
 import { recordAuditEvent } from '../repositories/audit.repository.js';
-import { invalidateAllComplianceAssessments } from '../repositories/compliance-assessment.repository.js';
+import {
+  invalidateAllComplianceAssessments,
+  withCompliancePolicyLock,
+} from '../repositories/compliance-assessment.repository.js';
 
 const PIPELINE_QUEUE_KEYS = (Object.keys(QUEUE_NAMES) as QueueKey[]).filter(key => key !== 'orchestration');
 
@@ -49,11 +52,20 @@ export async function emergencyStopBot(actor: string) {
 }
 
 export async function updateRuntimeSettings(patch: SettingsPatch, actor: string) {
-  const settings = await patchSettings(patch, actor);
-  let invalidatedCompliance = 0;
-  if (patch.minimumPublicationQuality !== undefined) {
-    invalidatedCompliance = await invalidateAllComplianceAssessments();
-  }
-  await recordAuditEvent(actor, 'settings.update', { patch, invalidatedCompliance });
-  return settings;
+  return withCompliancePolicyLock(`settings:${actor}`, async () => {
+    const before = await getSettings();
+    const qualityFloorChanged = patch.minimumPublicationQuality !== undefined
+      && patch.minimumPublicationQuality !== before.minimumPublicationQuality;
+    let invalidatedCompliance = 0;
+    if (qualityFloorChanged) {
+      invalidatedCompliance = await invalidateAllComplianceAssessments();
+    }
+    const settings = await patchSettings(patch, actor);
+    await recordAuditEvent(actor, 'settings.update', {
+      patch,
+      qualityFloorChanged,
+      invalidatedCompliance,
+    });
+    return settings;
+  });
 }

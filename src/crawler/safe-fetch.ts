@@ -19,6 +19,18 @@ export interface SafeFetchResult {
   redirects: string[];
 }
 
+export class SafeFetchError extends Error {
+  readonly kind: 'http';
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'SafeFetchError';
+    this.kind = 'http';
+    this.status = status;
+  }
+}
+
 const DEFAULT_CONTENT_TYPES = ['text/html', 'application/xhtml+xml', 'text/plain'];
 
 function requestPinned(
@@ -122,7 +134,7 @@ export async function safeFetchText(input: string | URL, options: SafeFetchOptio
     }
 
     if (response.status < 200 || response.status >= 300) {
-      throw new Error(`Crawler received HTTP ${response.status}`);
+      throw new SafeFetchError(`Crawler received HTTP ${response.status}`, response.status);
     }
 
     const contentType = String(response.headers['content-type'] || '').split(';')[0]?.trim().toLowerCase() || '';

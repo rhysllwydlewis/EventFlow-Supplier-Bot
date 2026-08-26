@@ -1,6 +1,7 @@
-import type { Collection } from 'mongodb';
+import { MongoServerError, type Collection } from 'mongodb';
 import { dedupAssessmentSchema, supplierIdentitySchema, type DedupAssessment, type SupplierIdentity } from '../domain/supplier-identity.js';
 import { getDatabase } from '../lib/mongo.js';
+import { withMongoLease } from '../lib/mongo-lease.js';
 
 interface SupplierIdentityKey {
   key: string;
@@ -28,24 +29,49 @@ function strongIdentityKeys(identity: SupplierIdentity): string[] {
   return [...new Set(keys)];
 }
 
+function duplicateKey(error: unknown): boolean {
+  return error instanceof MongoServerError && error.code === 11000;
+}
+
+export async function withSupplierIdentityLock<T>(ownerHint: string, task: () => Promise<T>): Promise<T> {
+  return withMongoLease(
+    {
+      collectionName: 'supplier_identity_locks',
+      leaseKey: 'global',
+      ownerHint,
+      leaseMs: 60_000,
+      acquireTimeoutMs: 30_000,
+    },
+    task,
+  );
+}
+
+export async function releaseStrongIdentityKeys(candidateId: string): Promise<number> {
+  const db = await getDatabase();
+  const result = await db.collection<SupplierIdentityKey>('supplier_identity_keys').deleteMany({ candidateId });
+  return result.deletedCount;
+}
+
 export async function claimStrongIdentityKeys(identity: SupplierIdentity): Promise<{ claimed: true } | { claimed: false; ownerCandidateId: string }> {
   const db = await getDatabase();
   const store = db.collection<SupplierIdentityKey>('supplier_identity_keys');
-  const inserted: string[] = [];
   for (const key of strongIdentityKeys(identity)) {
     try {
-      const result = await store.updateOne(
+      await store.updateOne(
         { key },
         { $setOnInsert: { key, candidateId: identity.candidateId, claimedAt: new Date().toISOString() } },
         { upsert: true },
       );
-      if (result.upsertedCount === 1) inserted.push(key);
-    } catch {
-      // A concurrent unique-key insert can race the upsert query. Read the winner below.
+    } catch (error) {
+      if (!duplicateKey(error)) throw error;
     }
+
     const owner = await store.findOne({ key });
-    if (owner && owner.candidateId !== identity.candidateId) {
-      if (inserted.length) await store.deleteMany({ candidateId: identity.candidateId, key: { $in: inserted } });
+    if (!owner) {
+      throw new Error(`Identity key claim disappeared before verification: ${key}`);
+    }
+    if (owner.candidateId !== identity.candidateId) {
+      await store.deleteMany({ candidateId: identity.candidateId });
       return { claimed: false, ownerCandidateId: owner.candidateId };
     }
   }
@@ -57,6 +83,14 @@ export async function upsertSupplierIdentity(identity: SupplierIdentity): Promis
   const store = await identities();
   await store.replaceOne({ candidateId: validated.candidateId }, validated, { upsert: true });
   return validated;
+}
+
+export async function removeSupplierIdentity(candidateId: string): Promise<void> {
+  const store = await identities();
+  await Promise.all([
+    store.deleteOne({ candidateId }),
+    releaseStrongIdentityKeys(candidateId),
+  ]);
 }
 
 export async function findPotentialIdentityMatches(identity: SupplierIdentity, limit = 50): Promise<SupplierIdentity[]> {

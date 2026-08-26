@@ -1,4 +1,4 @@
-import { safeFetchText } from './safe-fetch.js';
+import { SafeFetchError, safeFetchText } from './safe-fetch.js';
 
 export interface RobotsPolicy {
   sourceUrl: string;
@@ -87,8 +87,12 @@ export async function fetchRobotsPolicy(rootUrl: string | URL): Promise<RobotsPo
       allowedContentTypes: ['text/plain', 'text/html'],
     });
     return parseRobots(response.body, response.finalUrl);
-  } catch {
-    return { sourceUrl: robotsUrl.href, rules: [], sitemaps: [], crawlDelayMs: 750 };
+  } catch (error) {
+    if (error instanceof SafeFetchError && (error.status === 404 || error.status === 410)) {
+      return { sourceUrl: robotsUrl.href, rules: [], sitemaps: [], crawlDelayMs: 750 };
+    }
+    const reason = error instanceof Error ? error.message : 'unknown robots fetch failure';
+    throw new Error(`Crawler could not safely determine robots policy for ${robotsUrl.href}: ${reason}`);
   }
 }
 

@@ -21,11 +21,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function sitemapLinks(policyOrigin: URL, sitemaps: string[]): Promise<string[]> {
+async function sitemapLinks(policyOrigin: URL, sitemaps: string[], crawlDelayMs: number): Promise<string[]> {
   const candidates = sitemaps.length ? sitemaps.slice(0, 2) : [new URL('/sitemap.xml', policyOrigin).href];
   const links: string[] = [];
   for (const sitemap of candidates) {
     try {
+      await sleep(crawlDelayMs);
       const response = await safeFetchText(sitemap, {
         maxBytes: 2 * 1024 * 1024,
         allowedContentTypes: ['application/xml', 'text/xml', 'text/plain', 'application/xhtml+xml'],
@@ -52,6 +53,7 @@ export async function crawlSupplierSite(rootUrl: string, maxPages = 8): Promise<
     throw new Error('Crawler blocked by robots.txt for requested supplier URL');
   }
 
+  await sleep(policy.crawlDelayMs);
   const root = await safeFetchText(rootUrl);
   const finalRoot = new URL(root.finalUrl);
   if (finalRoot.origin !== requested.origin) {
@@ -62,7 +64,7 @@ export async function crawlSupplierSite(rootUrl: string, maxPages = 8): Promise<
   }
 
   const internalLinks = extractLinks(root.body, root.finalUrl);
-  const fromSitemap = await sitemapLinks(finalRoot, policy.sitemaps);
+  const fromSitemap = await sitemapLinks(finalRoot, policy.sitemaps, policy.crawlDelayMs);
   const selected = selectUsefulPages(root.finalUrl, [...internalLinks, ...fromSitemap], maxPages)
     .filter(url => robotsAllows(policy, url));
   const pages: CrawledPage[] = [{

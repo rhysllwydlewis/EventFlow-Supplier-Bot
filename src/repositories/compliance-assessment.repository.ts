@@ -5,6 +5,7 @@ import {
 } from '../domain/compliance-assessment.js';
 import { candidateSchema, type Candidate } from '../domain/candidate.js';
 import { getDatabase } from '../lib/mongo.js';
+import { withMongoLease } from '../lib/mongo-lease.js';
 import { applyIdentityDedupGate } from '../services/dedup-compliance.service.js';
 
 export type ComplianceOverview = {
@@ -20,6 +21,19 @@ export type ComplianceOverview = {
 async function collection(): Promise<Collection<ComplianceAssessment>> {
   const db = await getDatabase();
   return db.collection<ComplianceAssessment>('compliance_assessments');
+}
+
+export async function withCompliancePolicyLock<T>(ownerHint: string, task: () => Promise<T>): Promise<T> {
+  return withMongoLease(
+    {
+      collectionName: 'compliance_policy_locks',
+      leaseKey: 'global',
+      ownerHint,
+      leaseMs: 5 * 60_000,
+      acquireTimeoutMs: 60_000,
+    },
+    task,
+  );
 }
 
 export async function saveComplianceAssessment(assessment: ComplianceAssessment): Promise<ComplianceAssessment> {

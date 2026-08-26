@@ -5,65 +5,74 @@ import { setCandidateDedupDecision, setCandidateStatus } from '../repositories/c
 import {
   claimStrongIdentityKeys,
   findPotentialIdentityMatches,
+  removeSupplierIdentity,
   saveDedupAssessment,
   upsertSupplierIdentity,
+  withSupplierIdentityLock,
 } from '../repositories/supplier-identity.repository.js';
 import { assessSupplierDuplicate, DEDUP_POLICY_VERSION, toSupplierIdentity } from './supplier-dedup.service.js';
 
 let reconciliationPromise: Promise<{ processed: number; duplicates: number; probable: number }> | null = null;
 
-async function claimDistinctIdentity(profile: ShadowProfile) {
-  const identity = toSupplierIdentity(profile);
-  const claim = await claimStrongIdentityKeys(identity);
-  if (!claim.claimed) {
-    const assessment = await saveDedupAssessment({
-      candidateId: profile.candidateId,
-      decision: 'strong_duplicate',
-      matchedCandidateId: claim.ownerCandidateId,
-      score: 100,
-      signals: ['concurrent_identity_key_conflict'],
-      policyVersion: DEDUP_POLICY_VERSION,
-      assessedAt: new Date().toISOString(),
-    });
-    await setCandidateDedupDecision(profile.candidateId, assessment);
-    return { assessment, identity, indexed: false as const };
-  }
-  await upsertSupplierIdentity(identity);
-  return { identity, indexed: true as const };
-}
-
-async function runHistoricalReconciliation(): Promise<{ processed: number; duplicates: number; probable: number }> {
-  const db = await getDatabase();
-  const records = await db.collection<ShadowProfile>('shadow_profiles').find({}).sort({ generatedAt: 1 }).limit(5000).toArray();
-  let duplicates = 0;
-  let probable = 0;
-
-  for (const raw of records) {
-    const profile = shadowProfileSchema.parse(raw);
+async function assessAndIndexProfile(profile: ShadowProfile) {
+  return withSupplierIdentityLock(profile.candidateId, async () => {
     const identity = toSupplierIdentity(profile);
     const matches = await findPotentialIdentityMatches(identity);
     let assessment = await saveDedupAssessment(assessSupplierDuplicate(profile, matches));
     await setCandidateDedupDecision(profile.candidateId, assessment);
 
-    if (assessment.decision === 'strong_duplicate') {
-      duplicates += 1;
-      await setCandidateStatus(profile.candidateId, 'duplicate');
-      continue;
-    }
-    if (assessment.decision === 'probable_duplicate') {
-      probable += 1;
-      await setCandidateStatus(profile.candidateId, 'quarantined');
-      continue;
+    if (assessment.decision !== 'distinct') {
+      await removeSupplierIdentity(profile.candidateId);
+      return { assessment, identity, indexed: false as const };
     }
 
-    const claimed = await claimDistinctIdentity(profile);
-    if (!claimed.indexed) {
-      assessment = claimed.assessment;
+    const claim = await claimStrongIdentityKeys(identity);
+    if (!claim.claimed) {
+      assessment = await saveDedupAssessment({
+        candidateId: profile.candidateId,
+        decision: 'strong_duplicate',
+        matchedCandidateId: claim.ownerCandidateId,
+        score: 100,
+        signals: ['concurrent_identity_key_conflict'],
+        policyVersion: DEDUP_POLICY_VERSION,
+        assessedAt: new Date().toISOString(),
+      });
+      await setCandidateDedupDecision(profile.candidateId, assessment);
+      await removeSupplierIdentity(profile.candidateId);
+      return { assessment, identity, indexed: false as const };
+    }
+
+    await upsertSupplierIdentity(identity);
+    return { assessment, identity, indexed: true as const };
+  });
+}
+
+async function runHistoricalReconciliation(): Promise<{ processed: number; duplicates: number; probable: number }> {
+  const db = await getDatabase();
+  const cursor = db.collection<{ id: string; discoveredAt?: string }>('candidates')
+    .find({ dedupDecision: { $exists: false } })
+    .sort({ discoveredAt: 1, id: 1 })
+    .batchSize(250);
+  let processed = 0;
+  let duplicates = 0;
+  let probable = 0;
+
+  for await (const candidate of cursor) {
+    const raw = await db.collection<ShadowProfile>('shadow_profiles').findOne({ candidateId: candidate.id });
+    if (!raw) continue;
+    const profile = shadowProfileSchema.parse(raw);
+    const result = await assessAndIndexProfile(profile);
+    processed += 1;
+
+    if (result.assessment.decision === 'strong_duplicate') {
       duplicates += 1;
       await setCandidateStatus(profile.candidateId, 'duplicate');
+    } else if (result.assessment.decision === 'probable_duplicate') {
+      probable += 1;
+      await setCandidateStatus(profile.candidateId, 'quarantined');
     }
   }
-  return { processed: records.length, duplicates, probable };
+  return { processed, duplicates, probable };
 }
 
 export async function ensureHistoricalIdentityReconciliation() {
@@ -78,17 +87,5 @@ export async function ensureHistoricalIdentityReconciliation() {
 
 export async function assessAndPersistSupplierDuplicate(profile: ShadowProfile) {
   await ensureHistoricalIdentityReconciliation();
-  const identity = toSupplierIdentity(profile);
-  const matches = await findPotentialIdentityMatches(identity);
-  let assessment = await saveDedupAssessment(assessSupplierDuplicate(profile, matches));
-  await setCandidateDedupDecision(profile.candidateId, assessment);
-
-  if (assessment.decision !== 'distinct') return { assessment, identity, indexed: false as const };
-
-  const claimed = await claimDistinctIdentity(profile);
-  if (!claimed.indexed) {
-    assessment = claimed.assessment;
-    return { assessment, identity, indexed: false as const };
-  }
-  return { assessment, identity, indexed: true as const };
+  return assessAndIndexProfile(profile);
 }

@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { Collection } from 'mongodb';
 import { campaignSchema, southWalesVenuePilot, type Campaign } from '../domain/campaign.js';
 import { getDatabase } from '../lib/mongo.js';
-import { invalidateComplianceAssessmentsForCampaign } from './compliance-assessment.repository.js';
+import {
+  invalidateComplianceAssessmentsForCampaign,
+  withCompliancePolicyLock,
+} from './compliance-assessment.repository.js';
 
 async function collection(): Promise<Collection<Campaign>> {
   const db = await getDatabase();
@@ -57,21 +60,27 @@ export async function updateCampaign(
 ): Promise<Campaign> {
   const id = Array.isArray(rawId) ? rawId[0] : rawId;
   if (!id) throw new Error('Campaign id is required');
-  const store = await collection();
-  const existing = await store.findOne({ id });
-  if (!existing) throw new Error('Campaign not found');
-  const definedPatch = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
-  const updated = campaignSchema.parse({
-    ...existing,
-    ...definedPatch,
-    id,
-    createdAt: existing.createdAt,
-    updatedAt: new Date().toISOString(),
+
+  return withCompliancePolicyLock(`campaign:${id}`, async () => {
+    const store = await collection();
+    const existing = await store.findOne({ id });
+    if (!existing) throw new Error('Campaign not found');
+    const definedPatch = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+    const updated = campaignSchema.parse({
+      ...existing,
+      ...definedPatch,
+      id,
+      createdAt: existing.createdAt,
+      updatedAt: new Date().toISOString(),
+    });
+    if (updated.dailyTarget > updated.dailyHardLimit) throw new Error('Campaign daily target cannot exceed its hard limit');
+
+    const qualityFloorChanged = patch.minimumPublicationQuality !== undefined
+      && patch.minimumPublicationQuality !== existing.minimumPublicationQuality;
+    if (qualityFloorChanged) {
+      await invalidateComplianceAssessmentsForCampaign(id);
+    }
+    await store.replaceOne({ id }, updated);
+    return updated;
   });
-  if (updated.dailyTarget > updated.dailyHardLimit) throw new Error('Campaign daily target cannot exceed its hard limit');
-  await store.replaceOne({ id }, updated);
-  if (patch.minimumPublicationQuality !== undefined && patch.minimumPublicationQuality !== existing.minimumPublicationQuality) {
-    await invalidateComplianceAssessmentsForCampaign(id);
-  }
-  return updated;
 }
