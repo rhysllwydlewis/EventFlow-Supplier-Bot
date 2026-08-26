@@ -1,3 +1,4 @@
+import type { Filter } from 'mongodb';
 import type { Candidate } from '../domain/candidate.js';
 import type { ComplianceAssessment } from '../domain/compliance-assessment.js';
 import type { ShadowProfile } from '../domain/shadow-profile.js';
@@ -163,7 +164,8 @@ export function summarizePhase3Validation(input: {
 
 async function getRun(): Promise<Phase3ValidationRun | null> {
   const db = await getDatabase();
-  return db.collection<Phase3ValidationRun>('validation_runs').findOne({ id: PHASE3_VALIDATION_ID });
+  const record = await db.collection<Phase3ValidationRun>('validation_runs').findOne({ id: PHASE3_VALIDATION_ID });
+  return record ? { ...record, id: PHASE3_VALIDATION_ID } : null;
 }
 
 async function ensureRun(settings: BotSettings): Promise<Phase3ValidationRun | null> {
@@ -196,7 +198,7 @@ async function ensureRun(settings: BotSettings): Promise<Phase3ValidationRun | n
 
 async function loadRunData(run: Phase3ValidationRun) {
   const db = await getDatabase();
-  const candidateFilter: Record<string, unknown> = { discoveredAt: { $gte: run.startedAt } };
+  const candidateFilter: Filter<Candidate> = { discoveredAt: { $gte: run.startedAt } };
   if (run.campaignId) candidateFilter.campaignId = run.campaignId;
 
   const candidates = await db.collection<Candidate>('candidates')
@@ -212,7 +214,7 @@ async function loadRunData(run: Phase3ValidationRun) {
     ids.length > 0
       ? db.collection<ComplianceAssessment>('compliance_assessments').find({ candidateId: { $in: ids } }).toArray()
       : Promise.resolve([]),
-    db.collection<{ day: string; estimatedCostGbp?: number }>('ai_usage')
+    db.collection<{ provider: 'openai'; day: string; estimatedCostGbp?: number }>('ai_usage')
       .find({ provider: 'openai', day: { $gte: run.startedAt.slice(0, 10) } })
       .toArray(),
   ]);
@@ -232,6 +234,21 @@ export async function getPhase3ValidationReport(settings: BotSettings): Promise<
   }
   const data = await loadRunData(run);
   return summarizePhase3Validation({ settings, run, ...data });
+}
+
+async function markCompleted(run: Phase3ValidationRun): Promise<void> {
+  if (run.status === 'completed') return;
+  const now = new Date().toISOString();
+  const db = await getDatabase();
+  await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
+    { id: PHASE3_VALIDATION_ID },
+    { $set: { status: 'completed', completedAt: now, updatedAt: now } },
+  );
+  await recordAuditEvent('phase3-validator', 'phase3.validation_completed', {
+    startedAt: run.startedAt,
+    completedAt: now,
+    targetCandidates: run.targetCandidates,
+  });
 }
 
 export async function reconcilePhase3Validation(settings: BotSettings): Promise<{
@@ -257,10 +274,15 @@ export async function reconcilePhase3Validation(settings: BotSettings): Promise<
     };
   }
 
-  const data = await loadRunData(run);
-  const report = summarizePhase3Validation({ settings, run, ...data });
-  if (!report.targetReached || ['draining', 'ready_for_review', 'completed'].includes(run.status)) {
-    return { active: true, transitionedToDraining: false, report };
+  if (run.status === 'draining' && settings.runState === 'stopped') {
+    await markCompleted(run);
+  }
+
+  const currentRun = (await getRun()) ?? run;
+  const data = await loadRunData(currentRun);
+  const report = summarizePhase3Validation({ settings, run: currentRun, ...data });
+  if (!report.targetReached || ['draining', 'ready_for_review', 'completed'].includes(currentRun.status)) {
+    return { active: currentRun.status !== 'completed', transitionedToDraining: false, report };
   }
 
   const now = new Date().toISOString();
@@ -273,23 +295,12 @@ export async function reconcilePhase3Validation(settings: BotSettings): Promise<
   await recordAuditEvent('phase3-validator', 'phase3.validation_target_reached', {
     candidateCount: report.metrics.candidateCount,
     shadowProfileCount: report.metrics.shadowProfileCount,
-    targetCandidates: run.targetCandidates,
+    targetCandidates: currentRun.targetCandidates,
   });
   return { active: true, transitionedToDraining: true, report };
 }
 
 export async function completePhase3ValidationRun(): Promise<void> {
   const run = await getRun();
-  if (!run || run.status === 'completed') return;
-  const now = new Date().toISOString();
-  const db = await getDatabase();
-  await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
-    { id: PHASE3_VALIDATION_ID },
-    { $set: { status: 'completed', completedAt: now, updatedAt: now } },
-  );
-  await recordAuditEvent('phase3-validator', 'phase3.validation_completed', {
-    startedAt: run.startedAt,
-    completedAt: now,
-    targetCandidates: run.targetCandidates,
-  });
+  if (run) await markCompleted(run);
 }
