@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { Candidate } from '../src/domain/candidate.js';
 import type { ComplianceAssessment } from '../src/domain/compliance-assessment.js';
@@ -9,6 +10,8 @@ import {
   summarizePhase3Validation,
   type Phase3ValidationRun,
 } from '../src/services/phase3-validation.service.js';
+
+const workerSource = readFileSync(new URL('../src/worker/index.ts', import.meta.url), 'utf8');
 
 function candidate(id: string, overrides: Partial<Candidate> = {}): Candidate {
   return {
@@ -142,8 +145,6 @@ describe('Phase 3 shadow validation', () => {
     expect(report.metrics.rejectedCandidates).toBe(1);
     expect(report.metrics.publicationEligible).toBe(1);
     expect(report.metrics.complianceReview).toBe(1);
-    // Candidate c is a dedupe block and has no Shadow profile/compliance assessment.
-    // It is counted in strongDuplicates, not double-counted as a compliance block.
     expect(report.metrics.complianceBlocked).toBe(1);
     expect(report.metrics.seoReady).toBe(1);
     expect(report.metrics.aiEstimatedCostGbp).toBe(2);
@@ -152,7 +153,9 @@ describe('Phase 3 shadow validation', () => {
 
   it('marks the report review-ready when the 100-candidate target is reached', () => {
     const settings = defaultSettings();
-    const candidates = Array.from({ length: PHASE3_TARGET_CANDIDATES }, (_, index) => candidate(`c${index}`));
+    const candidates = Array.from({ length: PHASE3_TARGET_CANDIDATES }, (_, index) =>
+      candidate(`c${index}`),
+    );
     const profiles = candidates.map(item => profile(item.id));
     const assessments = candidates.map(item => assessment(item.id));
 
@@ -160,5 +163,14 @@ describe('Phase 3 shadow validation', () => {
     expect(report.targetReached).toBe(true);
     expect(report.readyForReview).toBe(true);
     expect(report.metrics.profileYieldPct).toBe(100);
+  });
+
+  it('is wired into the production reconciler and completes after a safe drain', () => {
+    expect(workerSource).toContain('reconcilePhase3Validation(initialSettings)');
+    expect(workerSource).toContain('phase3.transitionedToDraining ? await getSettings() : initialSettings');
+    expect(workerSource).toContain('await completePhase3ValidationRun()');
+    expect(workerSource.indexOf('await completePhase3ValidationRun()')).toBeGreaterThan(
+      workerSource.indexOf('if (await pipelineIsDrained())'),
+    );
   });
 });
