@@ -2,8 +2,12 @@ import { env } from '../config/env.js';
 import type { Campaign } from '../domain/campaign.js';
 import { logger } from '../lib/logger.js';
 import { getDiscoveryProvider } from '../providers/discovery/index.js';
-import { upsertDiscoveredCandidate } from '../repositories/candidate.repository.js';
+import {
+  getCandidateByCanonicalDomain,
+  upsertDiscoveredCandidate,
+} from '../repositories/candidate.repository.js';
 import { isSuppressed } from '../repositories/suppression.repository.js';
+import { tryClaimDailyAcquisitionSlot } from './acquisition-budget.service.js';
 import { buildDiscoveryQueries } from './query-builder.service.js';
 
 export interface DiscoveryCycleResult {
@@ -22,6 +26,7 @@ export async function runDiscoveryCycle(
   campaign: Campaign,
   providerName = 'brave',
   maxCandidates = campaign.dailyHardLimit,
+  globalHardLimit = maxCandidates,
 ): Promise<DiscoveryCycleResult> {
   const provider = getDiscoveryProvider(providerName);
   const health = await provider.health();
@@ -77,6 +82,21 @@ export async function runDiscoveryCycle(
       if (!provider.capabilities.supportsPersistence) {
         result.persistenceBlocked += 1;
         continue;
+      }
+
+      if (await getCandidateByCanonicalDomain(domain)) {
+        result.duplicatesSkipped += 1;
+        continue;
+      }
+
+      const slotClaimed = await tryClaimDailyAcquisitionSlot(
+        campaign.id,
+        campaign.dailyHardLimit,
+        globalHardLimit,
+      );
+      if (!slotClaimed) {
+        result.limitReached = true;
+        break outer;
       }
 
       const saved = await upsertDiscoveredCandidate({
