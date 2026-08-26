@@ -57,6 +57,27 @@ export async function upsertDiscoveredCandidate(input: {
   }
 }
 
+export async function getCandidate(id: string): Promise<Candidate | null> {
+  const store = await collection();
+  const record = await store.findOne({ id });
+  return record ? candidateSchema.parse(record) : null;
+}
+
+export async function listCandidates(limit = 100): Promise<Candidate[]> {
+  const store = await collection();
+  const records = await store
+    .find({})
+    .sort({ updatedAt: -1 })
+    .limit(Math.min(Math.max(limit, 1), 500))
+    .toArray();
+  return records.map(record => candidateSchema.parse(record));
+}
+
+export async function countCandidatesSince(isoTimestamp: string): Promise<number> {
+  const store = await collection();
+  return store.countDocuments({ discoveredAt: { $gte: isoTimestamp } });
+}
+
 export async function setCandidateStatus(id: string, status: Candidate['status']): Promise<void> {
   const store = await collection();
   await store.updateOne({ id }, { $set: { status, updatedAt: new Date().toISOString() } });
