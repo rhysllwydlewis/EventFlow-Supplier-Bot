@@ -23,9 +23,11 @@ import { enqueueCrawlCandidate, reconcileQueuedCrawlCandidates } from '../servic
 import { reassessPendingCompliance } from '../services/compliance-reassessment.service.js';
 import { remainingDailyAllowance } from '../services/daily-limit.service.js';
 import { runDiscoveryCycle } from '../services/discovery.service.js';
+import { reconcileEventFlowPublicationQueue } from '../services/eventflow-publication-queue.service.js';
+import { processEventFlowPublication } from '../services/eventflow-publication.service.js';
 import { runBrowserShadowPipeline, runShadowPipeline } from '../services/shadow-pipeline.service.js';
 
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 const workerId = `worker-${hostname()}-${process.pid}`;
 const startedAt = new Date().toISOString();
 let heartbeatTimer: NodeJS.Timeout | null = null;
@@ -51,7 +53,7 @@ async function handleCoveragePlan(job: Job): Promise<Record<string, unknown>> {
   const globalAcquiredToday = await countCandidatesSince(dayStart);
   const scheduled: Array<{ campaignId: string; remainingAllowance: number }> = [];
   for (const campaign of campaigns) {
-    const campaignAcquiredToday = await countCampaignCandidatesSince(campaign.id, dayStart);
+    const campaignAcquiredToday = await countCampaignCandidatesSince(dayStart);
     const remainingAllowance = remainingDailyAllowance(campaignAcquiredToday, globalAcquiredToday, campaign.dailyHardLimit, settings.dailyHardLimit);
     if (remainingAllowance === 0) continue;
     await getQueue('discovery').add('discover-campaign', { campaignId: campaign.id, provider: 'brave', remainingAllowance, trigger: job.data?.trigger || 'orchestration' }, { jobId: `discover-${campaign.id}-${Date.now()}`, attempts: 3, backoff: { type: 'exponential', delay: 60_000 } });
@@ -126,6 +128,12 @@ async function handleBrowserCrawlJob(job: Job): Promise<Record<string, unknown>>
   return runBrowserShadowPipeline(candidate);
 }
 
+async function handlePublicationJob(job: Job): Promise<Record<string, unknown>> {
+  const candidateId = typeof job.data?.candidateId === 'string' ? job.data.candidateId : '';
+  if (!candidateId) throw new Error('Publication candidate id is required');
+  return processEventFlowPublication(candidateId);
+}
+
 async function pipelineIsDrained(): Promise<boolean> {
   const counts = await getQueueCounts();
   const pipelineKeys = (Object.keys(QUEUE_NAMES) as QueueKey[]).filter(key => key !== 'orchestration');
@@ -142,17 +150,22 @@ async function handleReconcile(): Promise<Record<string, unknown>> {
   const [recoveredCrawls, recoveredBrowserCrawls] = mayRecoverQueuedWork
     ? await Promise.all([reconcileQueuedCrawlCandidates(), reconcileQueuedBrowserCrawlCandidates()])
     : [0, 0];
+  const recoveredPublications = settings.mode !== 'off'
+    && settings.runState !== 'emergency_stopped'
+    && settings.publishingEnabled
+    ? await reconcileEventFlowPublicationQueue(100)
+    : 0;
   if (settings.runState === 'draining') {
     await heartbeat('draining');
     if (await pipelineIsDrained()) {
       const updated = await patchSettings({ runState: 'stopped' }, 'system-reconciler');
       await recordAuditEvent('system-reconciler', 'bot.drain_completed');
       await heartbeat('ready');
-      return { reconciled: true, drainCompleted: true, runState: updated.runState, recoveredCrawls, recoveredBrowserCrawls, reassessedCompliance };
+      return { reconciled: true, drainCompleted: true, runState: updated.runState, recoveredCrawls, recoveredBrowserCrawls, recoveredPublications, reassessedCompliance };
     }
-    return { reconciled: true, drainCompleted: false, recoveredCrawls, recoveredBrowserCrawls, reassessedCompliance };
+    return { reconciled: true, drainCompleted: false, recoveredCrawls, recoveredBrowserCrawls, recoveredPublications, reassessedCompliance };
   }
-  return { reconciled: true, runState: settings.runState, recoveredCrawls, recoveredBrowserCrawls, reassessedCompliance };
+  return { reconciled: true, runState: settings.runState, recoveredCrawls, recoveredBrowserCrawls, recoveredPublications, reassessedCompliance };
 }
 
 async function processOrchestrationJob(job: Job): Promise<Record<string, unknown>> {
@@ -179,11 +192,13 @@ function startWorkers(): void {
   const discovery = new Worker(QUEUE_NAMES.discovery, handleDiscoveryJob, { ...shared, concurrency: 1 });
   const crawl = new Worker(QUEUE_NAMES.crawl, handleCrawlJob, { ...shared, concurrency: 2 });
   const browserCrawl = new Worker(QUEUE_NAMES.browserCrawl, handleBrowserCrawlJob, { ...shared, concurrency: 1 });
-  workers.push(orchestration, discovery, crawl, browserCrawl);
+  const publication = new Worker(QUEUE_NAMES.publication, handlePublicationJob, { ...shared, concurrency: 1 });
+  workers.push(orchestration, discovery, crawl, browserCrawl, publication);
   attachWorkerLogging(orchestration, 'orchestration');
   attachWorkerLogging(discovery, 'discovery');
   attachWorkerLogging(crawl, 'crawl');
   attachWorkerLogging(browserCrawl, 'browser-crawl');
+  attachWorkerLogging(publication, 'publication');
 }
 
 async function start(): Promise<void> {
