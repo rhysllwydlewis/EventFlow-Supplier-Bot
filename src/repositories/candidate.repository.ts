@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Collection } from 'mongodb';
 import { candidateSchema, type Candidate } from '../domain/candidate.js';
+import type { DedupAssessment } from '../domain/supplier-identity.js';
 import { canonicalDomain, canonicalizePublicHttpUrl } from '../utils/url.js';
 import { getDatabase } from '../lib/mongo.js';
 
@@ -23,9 +24,7 @@ export async function upsertDiscoveredCandidate(input: {
   const domain = canonicalDomain(url.href);
   const store = await collection();
   const existing = await store.findOne({ canonicalDomain: domain });
-  if (existing) {
-    return { candidate: candidateSchema.parse(existing), created: false };
-  }
+  if (existing) return { candidate: candidateSchema.parse(existing), created: false };
 
   const now = new Date().toISOString();
   const candidate = candidateSchema.parse({
@@ -50,9 +49,7 @@ export async function upsertDiscoveredCandidate(input: {
     return { candidate, created: true };
   } catch (error) {
     const duplicate = await store.findOne({ canonicalDomain: domain });
-    if (duplicate) {
-      return { candidate: candidateSchema.parse(duplicate), created: false };
-    }
+    if (duplicate) return { candidate: candidateSchema.parse(duplicate), created: false };
     throw error;
   }
 }
@@ -71,21 +68,13 @@ export async function getCandidateByCanonicalDomain(domain: string): Promise<Can
 
 export async function listCandidates(limit = 100): Promise<Candidate[]> {
   const store = await collection();
-  const records = await store
-    .find({})
-    .sort({ updatedAt: -1 })
-    .limit(Math.min(Math.max(limit, 1), 500))
-    .toArray();
+  const records = await store.find({}).sort({ updatedAt: -1 }).limit(Math.min(Math.max(limit, 1), 500)).toArray();
   return records.map(record => candidateSchema.parse(record));
 }
 
 export async function listCandidatesByStatus(status: Candidate['status'], limit = 250): Promise<Candidate[]> {
   const store = await collection();
-  const records = await store
-    .find({ status })
-    .sort({ updatedAt: 1 })
-    .limit(Math.min(Math.max(limit, 1), 500))
-    .toArray();
+  const records = await store.find({ status }).sort({ updatedAt: 1 }).limit(Math.min(Math.max(limit, 1), 500)).toArray();
   return records.map(record => candidateSchema.parse(record));
 }
 
@@ -102,4 +91,21 @@ export async function countCampaignCandidatesSince(campaignId: string, isoTimest
 export async function setCandidateStatus(id: string, status: Candidate['status']): Promise<void> {
   const store = await collection();
   await store.updateOne({ id }, { $set: { status, updatedAt: new Date().toISOString() } });
+}
+
+export async function setCandidateDedupDecision(id: string, assessment: DedupAssessment): Promise<void> {
+  const store = await collection();
+  await store.updateOne(
+    { id },
+    {
+      $set: {
+        dedupDecision: assessment.decision,
+        duplicateOfCandidateId: assessment.matchedCandidateId,
+        dedupScore: assessment.score,
+        dedupSignals: assessment.signals,
+        dedupAssessedAt: assessment.assessedAt,
+        updatedAt: new Date().toISOString(),
+      },
+    },
+  );
 }

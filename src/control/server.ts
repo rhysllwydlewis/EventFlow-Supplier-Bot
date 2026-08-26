@@ -14,7 +14,11 @@ import { closeRedis, connectRedis } from '../lib/redis.js';
 import { getQueue, getQueueCounts, closeQueues } from '../queues/index.js';
 import { createCampaign, ensurePilotCampaign, listCampaigns, updateCampaign } from '../repositories/campaign.repository.js';
 import { countCandidatesSince, listCandidates } from '../repositories/candidate.repository.js';
-import { listComplianceAssessments } from '../repositories/compliance-assessment.repository.js';
+import {
+  getComplianceAssessmentsForCandidates,
+  getComplianceOverview,
+  listComplianceAssessments,
+} from '../repositories/compliance-assessment.repository.js';
 import { heartbeatIsFresh, listHeartbeats, writeHeartbeat } from '../repositories/heartbeat.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
 import { listShadowProfiles } from '../repositories/shadow-profile.repository.js';
@@ -270,10 +274,35 @@ app.get('/api/shadow-profiles', async (req, res, next) => {
   }
 });
 
+app.get('/api/shadow-profile-reviews', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    const profiles = await listShadowProfiles(limit);
+    const assessments = await getComplianceAssessmentsForCandidates(profiles.map(profile => profile.candidateId));
+    const byCandidate = new Map(assessments.map(assessment => [assessment.candidateId, assessment]));
+    res.json({
+      items: profiles.map(profile => ({
+        profile,
+        assessment: byCandidate.get(profile.candidateId) ?? null,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/compliance-assessments', async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
     res.json({ items: await listComplianceAssessments(limit) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/compliance-overview', async (_req, res, next) => {
+  try {
+    res.json(await getComplianceOverview());
   } catch (error) {
     next(error);
   }

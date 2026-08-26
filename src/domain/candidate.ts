@@ -27,6 +27,11 @@ export const candidateSchema = z.object({
   categoryHint: z.string().nullable(),
   locationHint: z.string().nullable(),
   status: candidateStatusSchema,
+  dedupDecision: z.enum(['strong_duplicate', 'probable_duplicate', 'distinct']).optional(),
+  duplicateOfCandidateId: z.string().nullable().optional(),
+  dedupScore: z.number().min(0).max(100).optional(),
+  dedupSignals: z.array(z.string().max(80)).max(20).optional(),
+  dedupAssessedAt: z.string().optional(),
   discoveredAt: z.string(),
   updatedAt: z.string(),
 });

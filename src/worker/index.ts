@@ -18,11 +18,12 @@ import { recordAuditEvent } from '../repositories/audit.repository.js';
 import { isSuppressed } from '../repositories/suppression.repository.js';
 import { tryClaimDailyCrawlSlot } from '../services/crawl-budget.service.js';
 import { enqueueCrawlCandidate, reconcileQueuedCrawlCandidates } from '../services/crawl-queue.service.js';
+import { reassessPendingCompliance } from '../services/compliance-reassessment.service.js';
 import { remainingDailyAllowance } from '../services/daily-limit.service.js';
 import { runDiscoveryCycle } from '../services/discovery.service.js';
 import { runShadowPipeline } from '../services/shadow-pipeline.service.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.5.0';
 const workerId = `worker-${hostname()}-${process.pid}`;
 const startedAt = new Date().toISOString();
 let heartbeatTimer: NodeJS.Timeout | null = null;
@@ -49,17 +50,11 @@ async function heartbeat(status: 'starting' | 'ready' | 'draining' | 'stopping')
 
 async function handleCoveragePlan(job: Job): Promise<Record<string, unknown>> {
   const settings = await getSettings();
-  if (settings.runState !== 'running') {
-    return { skipped: true, reason: `run_state_${settings.runState}` };
-  }
-  if (!settings.discoveryEnabled || settings.mode === 'off') {
-    return { skipped: true, reason: 'discovery_disabled' };
-  }
+  if (settings.runState !== 'running') return { skipped: true, reason: `run_state_${settings.runState}` };
+  if (!settings.discoveryEnabled || settings.mode === 'off') return { skipped: true, reason: 'discovery_disabled' };
 
   const campaigns = (await listCampaigns()).filter(item => item.status === 'running');
-  if (campaigns.length === 0) {
-    return { skipped: true, reason: 'no_running_campaigns' };
-  }
+  if (campaigns.length === 0) return { skipped: true, reason: 'no_running_campaigns' };
 
   const dayStart = startOfUtcDayIso();
   const globalAcquiredToday = await countCandidatesSince(dayStart);
@@ -72,9 +67,7 @@ async function handleCoveragePlan(job: Job): Promise<Record<string, unknown>> {
       campaign.dailyHardLimit,
       settings.dailyHardLimit,
     );
-    if (remainingAllowance === 0) {
-      continue;
-    }
+    if (remainingAllowance === 0) continue;
 
     await getQueue('discovery').add(
       'discover-campaign',
@@ -105,9 +98,7 @@ async function handleDiscoveryJob(job: Job): Promise<Record<string, unknown>> {
 
   const campaignId = typeof job.data?.campaignId === 'string' ? job.data.campaignId : '';
   const campaign = campaignId ? await getCampaign(campaignId) : null;
-  if (!campaign || campaign.status !== 'running') {
-    return { skipped: true, reason: 'campaign_not_running' };
-  }
+  if (!campaign || campaign.status !== 'running') return { skipped: true, reason: 'campaign_not_running' };
 
   const dayStart = startOfUtcDayIso();
   const [campaignAcquiredToday, globalAcquiredToday] = await Promise.all([
@@ -120,9 +111,7 @@ async function handleDiscoveryJob(job: Job): Promise<Record<string, unknown>> {
     campaign.dailyHardLimit,
     settings.dailyHardLimit,
   );
-  if (remainingAllowance === 0) {
-    return { skipped: true, reason: 'daily_hard_limit_reached' };
-  }
+  if (remainingAllowance === 0) return { skipped: true, reason: 'daily_hard_limit_reached' };
 
   const provider = typeof job.data?.provider === 'string' ? job.data.provider : 'brave';
   const requestedAllowance = Number(job.data?.remainingAllowance);
@@ -134,25 +123,18 @@ async function handleDiscoveryJob(job: Job): Promise<Record<string, unknown>> {
   let crawlJobsQueued = 0;
   for (const candidateId of result.candidateIdsCreated) {
     await setCandidateStatus(candidateId, 'queued_for_crawl');
-    if (await enqueueCrawlCandidate(candidateId, 'discovery')) {
-      crawlJobsQueued += 1;
-    }
+    if (await enqueueCrawlCandidate(candidateId, 'discovery')) crawlJobsQueued += 1;
   }
-
   return { ...result, crawlJobsQueued };
 }
 
 async function handleCrawlJob(job: Job): Promise<Record<string, unknown>> {
   const settings = await getSettings();
-  if (settings.runState === 'emergency_stopped' || settings.mode === 'off') {
-    return { skipped: true, reason: 'bot_stopped' };
-  }
+  if (settings.runState === 'emergency_stopped' || settings.mode === 'off') return { skipped: true, reason: 'bot_stopped' };
 
   const candidateId = typeof job.data?.candidateId === 'string' ? job.data.candidateId : '';
   const candidate = candidateId ? await getCandidate(candidateId) : null;
-  if (!candidate) {
-    throw new Error('Crawl candidate not found');
-  }
+  if (!candidate) throw new Error('Crawl candidate not found');
 
   if (await isSuppressed(candidate.canonicalDomain, 'do_not_crawl')) {
     await setCandidateStatus(candidate.id, 'suppressed');
@@ -163,15 +145,11 @@ async function handleCrawlJob(job: Job): Promise<Record<string, unknown>> {
     return { skipped: true, reason: 'do_not_crawl_suppression' };
   }
 
-  const claimed = await tryClaimDailyCrawlSlot(
-    settings.maxCrawlsPerDay,
-    env.ABSOLUTE_MAX_CRAWLS_PER_DAY,
-  );
+  const claimed = await tryClaimDailyCrawlSlot(settings.maxCrawlsPerDay, env.ABSOLUTE_MAX_CRAWLS_PER_DAY);
   if (!claimed) {
     await setCandidateStatus(candidate.id, 'queued_for_crawl');
     return { skipped: true, reason: 'crawl_daily_limit_reached', retryNextUtcDay: true };
   }
-
   return runShadowPipeline(candidate);
 }
 
@@ -186,11 +164,10 @@ async function pipelineIsDrained(): Promise<boolean> {
 
 async function handleReconcile(): Promise<Record<string, unknown>> {
   const settings = await getSettings();
+  const reassessedCompliance = await reassessPendingCompliance(100);
   const mayRecoverQueuedWork = settings.mode !== 'off'
     && (settings.runState === 'running' || settings.runState === 'paused');
-  const recoveredCrawls = mayRecoverQueuedWork
-    ? await reconcileQueuedCrawlCandidates()
-    : 0;
+  const recoveredCrawls = mayRecoverQueuedWork ? await reconcileQueuedCrawlCandidates() : 0;
 
   if (settings.runState === 'draining') {
     await heartbeat('draining');
@@ -198,21 +175,18 @@ async function handleReconcile(): Promise<Record<string, unknown>> {
       const updated = await patchSettings({ runState: 'stopped' }, 'system-reconciler');
       await recordAuditEvent('system-reconciler', 'bot.drain_completed');
       await heartbeat('ready');
-      return { reconciled: true, drainCompleted: true, runState: updated.runState, recoveredCrawls };
+      return { reconciled: true, drainCompleted: true, runState: updated.runState, recoveredCrawls, reassessedCompliance };
     }
-    return { reconciled: true, drainCompleted: false, recoveredCrawls };
+    return { reconciled: true, drainCompleted: false, recoveredCrawls, reassessedCompliance };
   }
-  return { reconciled: true, runState: settings.runState, recoveredCrawls };
+  return { reconciled: true, runState: settings.runState, recoveredCrawls, reassessedCompliance };
 }
 
 async function processOrchestrationJob(job: Job): Promise<Record<string, unknown>> {
   switch (job.name) {
-    case 'coverage-plan':
-      return handleCoveragePlan(job);
-    case 'system-reconcile':
-      return handleReconcile();
-    default:
-      throw new Error(`Unknown orchestration job: ${job.name}`);
+    case 'coverage-plan': return handleCoveragePlan(job);
+    case 'system-reconcile': return handleReconcile();
+    default: throw new Error(`Unknown orchestration job: ${job.name}`);
   }
 }
 
@@ -239,31 +213,16 @@ async function registerSchedulers(): Promise<void> {
 }
 
 function attachWorkerLogging(worker: Worker, label: string): void {
-  worker.on('completed', job => {
-    logger.info({ queue: label, jobId: job.id, jobName: job.name }, 'Supplier Bot job completed');
-  });
-  worker.on('failed', (job, error) => {
-    logger.error({ queue: label, jobId: job?.id, jobName: job?.name, err: error }, 'Supplier Bot job failed');
-  });
-  worker.on('error', error => {
-    logger.error({ queue: label, err: error }, 'Supplier Bot worker error');
-  });
+  worker.on('completed', job => logger.info({ queue: label, jobId: job.id, jobName: job.name }, 'Supplier Bot job completed'));
+  worker.on('failed', (job, error) => logger.error({ queue: label, jobId: job?.id, jobName: job?.name, err: error }, 'Supplier Bot job failed'));
+  worker.on('error', error => logger.error({ queue: label, err: error }, 'Supplier Bot worker error'));
 }
 
 function startWorkers(): void {
   const shared = { connection: getRedis(), prefix: env.BOT_QUEUE_NAMESPACE };
-  const orchestration = new Worker(QUEUE_NAMES.orchestration, processOrchestrationJob, {
-    ...shared,
-    concurrency: 2,
-  });
-  const discovery = new Worker(QUEUE_NAMES.discovery, handleDiscoveryJob, {
-    ...shared,
-    concurrency: 1,
-  });
-  const crawl = new Worker(QUEUE_NAMES.crawl, handleCrawlJob, {
-    ...shared,
-    concurrency: 2,
-  });
+  const orchestration = new Worker(QUEUE_NAMES.orchestration, processOrchestrationJob, { ...shared, concurrency: 2 });
+  const discovery = new Worker(QUEUE_NAMES.discovery, handleDiscoveryJob, { ...shared, concurrency: 1 });
+  const crawl = new Worker(QUEUE_NAMES.crawl, handleCrawlJob, { ...shared, concurrency: 2 });
   workers.push(orchestration, discovery, crawl);
   attachWorkerLogging(orchestration, 'orchestration');
   attachWorkerLogging(discovery, 'discovery');
@@ -276,20 +235,16 @@ async function start(): Promise<void> {
   await heartbeat('starting');
   await registerSchedulers();
   startWorkers();
-
   await heartbeat('ready');
   heartbeatTimer = setInterval(() => {
     void heartbeat('ready').catch(error => logger.error({ err: error }, 'Worker heartbeat failed'));
   }, 30_000);
   heartbeatTimer.unref();
-
   logger.info({ workerId, workers: workers.length }, 'Supplier Bot workers ready');
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Supplier Bot worker process shutting down');
-    if (heartbeatTimer) {
-      clearInterval(heartbeatTimer);
-    }
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
     await heartbeat('stopping').catch(() => undefined);
     await Promise.all(workers.map(item => item.close()));
     await closeQueues();
@@ -297,7 +252,6 @@ async function start(): Promise<void> {
     await closeMongo();
     process.exit(0);
   };
-
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
   process.once('SIGINT', () => void shutdown('SIGINT'));
 }
