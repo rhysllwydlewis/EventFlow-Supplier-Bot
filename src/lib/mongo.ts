@@ -48,6 +48,8 @@ export async function ensureMongoIndexes(): Promise<void> {
     db.collection('dedup_assessments').createIndex({ candidateId: 1 }, { unique: true }),
     db.collection('dedup_assessments').createIndex({ decision: 1, assessedAt: -1 }),
     db.collection('suppression').createIndex({ key: 1, type: 1 }, { unique: true }),
+    db.collection('eventflow_ingestions').createIndex({ candidateId: 1 }, { unique: true }),
+    db.collection('eventflow_ingestions').createIndex({ status: 1, nextRetryAt: 1, updatedAt: -1 }),
   ]);
 }
 
