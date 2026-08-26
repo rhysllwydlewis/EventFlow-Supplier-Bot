@@ -186,7 +186,9 @@ async function pipelineIsDrained(): Promise<boolean> {
 
 async function handleReconcile(): Promise<Record<string, unknown>> {
   const settings = await getSettings();
-  const recoveredCrawls = settings.mode !== 'off' && settings.runState !== 'emergency_stopped'
+  const mayRecoverQueuedWork = settings.mode !== 'off'
+    && (settings.runState === 'running' || settings.runState === 'paused');
+  const recoveredCrawls = mayRecoverQueuedWork
     ? await reconcileQueuedCrawlCandidates()
     : 0;
 
