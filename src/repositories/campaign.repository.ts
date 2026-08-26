@@ -45,18 +45,31 @@ export async function createCampaign(
   return campaign;
 }
 
+type MutableCampaign = Omit<Campaign, 'id' | 'createdAt'>;
+export type CampaignPatch = {
+  [Key in keyof MutableCampaign]?: MutableCampaign[Key] | undefined;
+};
+
 export async function updateCampaign(
-  id: string,
-  patch: Partial<Omit<Campaign, 'id' | 'createdAt'>>,
+  rawId: string | string[] | undefined,
+  patch: CampaignPatch,
 ): Promise<Campaign> {
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
+  if (!id) {
+    throw new Error('Campaign id is required');
+  }
+
   const store = await collection();
   const existing = await store.findOne({ id });
   if (!existing) {
     throw new Error('Campaign not found');
   }
+  const definedPatch = Object.fromEntries(
+    Object.entries(patch).filter(([, value]) => value !== undefined),
+  );
   const updated = campaignSchema.parse({
     ...existing,
-    ...patch,
+    ...definedPatch,
     id,
     createdAt: existing.createdAt,
     updatedAt: new Date().toISOString(),
