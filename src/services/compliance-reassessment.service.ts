@@ -13,13 +13,13 @@ import {
   assessShadowProfileCompliance,
   effectiveMinimumPublicationQuality,
 } from './compliance.service.js';
-import { reconcilePhase3Validation } from './phase3-validation.service.js';
 
 export async function reassessPendingCompliance(limit = 100): Promise<number> {
   const ids = await listPendingComplianceCandidateIds(limit);
+  if (ids.length === 0) return 0;
+
   const db = await getDatabase();
   let reassessed = 0;
-
   for (const candidateId of ids) {
     const completed = await withCompliancePolicyLock(`reassess:${candidateId}`, async () => {
       const [settings, rawProfile, candidate, evidence] = await Promise.all([
@@ -44,14 +44,5 @@ export async function reassessPendingCompliance(limit = 100): Promise<number> {
     });
     if (completed) reassessed += 1;
   }
-
-  // Phase 3 is deliberately piggy-backed on the existing five-minute system
-  // reconciliation cycle. This keeps validation autonomous without adding a
-  // second scheduler or weakening any production safety control. The validator
-  // only activates while the bot is in Shadow mode with publishing, marketing,
-  // claim notices and SEO indexing all disabled.
-  const settings = await getSettings();
-  await reconcilePhase3Validation(settings);
-
   return reassessed;
 }
