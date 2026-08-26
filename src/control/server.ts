@@ -14,7 +14,7 @@ import { closeRedis, connectRedis } from '../lib/redis.js';
 import { getQueue, getQueueCounts, closeQueues } from '../queues/index.js';
 import { createCampaign, ensurePilotCampaign, listCampaigns, updateCampaign } from '../repositories/campaign.repository.js';
 import { countCandidatesSince, listCandidates } from '../repositories/candidate.repository.js';
-import { listComplianceAssessments } from '../repositories/compliance-assessment.repository.js';
+import { getComplianceOverview, listComplianceAssessments } from '../repositories/compliance-assessment.repository.js';
 import { heartbeatIsFresh, listHeartbeats, writeHeartbeat } from '../repositories/heartbeat.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
 import { listShadowProfiles } from '../repositories/shadow-profile.repository.js';
@@ -274,6 +274,14 @@ app.get('/api/compliance-assessments', async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
     res.json({ items: await listComplianceAssessments(limit) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/compliance-overview', async (_req, res, next) => {
+  try {
+    res.json(await getComplianceOverview());
   } catch (error) {
     next(error);
   }
