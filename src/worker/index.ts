@@ -8,17 +8,21 @@ import { closeQueues, getQueue, getQueueCounts, QUEUE_NAMES, type QueueKey } fro
 import { getCampaign, listCampaigns } from '../repositories/campaign.repository.js';
 import {
   countCampaignCandidatesSince,
+  countCandidatesSince,
   getCandidate,
   setCandidateStatus,
 } from '../repositories/candidate.repository.js';
 import { writeHeartbeat } from '../repositories/heartbeat.repository.js';
 import { getSettings, patchSettings } from '../repositories/settings.repository.js';
 import { recordAuditEvent } from '../repositories/audit.repository.js';
+import { isSuppressed } from '../repositories/suppression.repository.js';
+import { tryClaimDailyCrawlSlot } from '../services/crawl-budget.service.js';
+import { enqueueCrawlCandidate, reconcileQueuedCrawlCandidates } from '../services/crawl-queue.service.js';
 import { remainingDailyAllowance } from '../services/daily-limit.service.js';
 import { runDiscoveryCycle } from '../services/discovery.service.js';
 import { runShadowPipeline } from '../services/shadow-pipeline.service.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const workerId = `worker-${hostname()}-${process.pid}`;
 const startedAt = new Date().toISOString();
 let heartbeatTimer: NodeJS.Timeout | null = null;
@@ -58,11 +62,13 @@ async function handleCoveragePlan(job: Job): Promise<Record<string, unknown>> {
   }
 
   const dayStart = startOfUtcDayIso();
+  const globalAcquiredToday = await countCandidatesSince(dayStart);
   const scheduled: Array<{ campaignId: string; remainingAllowance: number }> = [];
   for (const campaign of campaigns) {
-    const acquiredToday = await countCampaignCandidatesSince(campaign.id, dayStart);
+    const campaignAcquiredToday = await countCampaignCandidatesSince(campaign.id, dayStart);
     const remainingAllowance = remainingDailyAllowance(
-      acquiredToday,
+      campaignAcquiredToday,
+      globalAcquiredToday,
       campaign.dailyHardLimit,
       settings.dailyHardLimit,
     );
@@ -103,9 +109,14 @@ async function handleDiscoveryJob(job: Job): Promise<Record<string, unknown>> {
     return { skipped: true, reason: 'campaign_not_running' };
   }
 
-  const acquiredToday = await countCampaignCandidatesSince(campaign.id, startOfUtcDayIso());
+  const dayStart = startOfUtcDayIso();
+  const [campaignAcquiredToday, globalAcquiredToday] = await Promise.all([
+    countCampaignCandidatesSince(campaign.id, dayStart),
+    countCandidatesSince(dayStart),
+  ]);
   const remainingAllowance = remainingDailyAllowance(
-    acquiredToday,
+    campaignAcquiredToday,
+    globalAcquiredToday,
     campaign.dailyHardLimit,
     settings.dailyHardLimit,
   );
@@ -118,22 +129,17 @@ async function handleDiscoveryJob(job: Job): Promise<Record<string, unknown>> {
   const allowance = Number.isFinite(requestedAllowance)
     ? Math.min(remainingAllowance, Math.max(0, Math.floor(requestedAllowance)))
     : remainingAllowance;
-  const result = await runDiscoveryCycle(campaign, provider, allowance);
+  const result = await runDiscoveryCycle(campaign, provider, allowance, settings.dailyHardLimit);
 
+  let crawlJobsQueued = 0;
   for (const candidateId of result.candidateIdsCreated) {
     await setCandidateStatus(candidateId, 'queued_for_crawl');
-    await getQueue('crawl').add(
-      'crawl-candidate',
-      { candidateId, trigger: 'discovery' },
-      {
-        jobId: `crawl-${candidateId}`,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 30_000 },
-      },
-    );
+    if (await enqueueCrawlCandidate(candidateId, 'discovery')) {
+      crawlJobsQueued += 1;
+    }
   }
 
-  return { ...result, crawlJobsQueued: result.candidateIdsCreated.length };
+  return { ...result, crawlJobsQueued };
 }
 
 async function handleCrawlJob(job: Job): Promise<Record<string, unknown>> {
@@ -146,6 +152,24 @@ async function handleCrawlJob(job: Job): Promise<Record<string, unknown>> {
   const candidate = candidateId ? await getCandidate(candidateId) : null;
   if (!candidate) {
     throw new Error('Crawl candidate not found');
+  }
+
+  if (await isSuppressed(candidate.canonicalDomain, 'do_not_crawl')) {
+    await setCandidateStatus(candidate.id, 'suppressed');
+    await recordAuditEvent('crawl-worker', 'candidate.suppressed_before_crawl', {
+      candidateId: candidate.id,
+      domain: candidate.canonicalDomain,
+    });
+    return { skipped: true, reason: 'do_not_crawl_suppression' };
+  }
+
+  const claimed = await tryClaimDailyCrawlSlot(
+    settings.maxCrawlsPerDay,
+    env.ABSOLUTE_MAX_CRAWLS_PER_DAY,
+  );
+  if (!claimed) {
+    await setCandidateStatus(candidate.id, 'queued_for_crawl');
+    return { skipped: true, reason: 'crawl_daily_limit_reached', retryNextUtcDay: true };
   }
 
   return runShadowPipeline(candidate);
@@ -162,17 +186,23 @@ async function pipelineIsDrained(): Promise<boolean> {
 
 async function handleReconcile(): Promise<Record<string, unknown>> {
   const settings = await getSettings();
+  const mayRecoverQueuedWork = settings.mode !== 'off'
+    && (settings.runState === 'running' || settings.runState === 'paused');
+  const recoveredCrawls = mayRecoverQueuedWork
+    ? await reconcileQueuedCrawlCandidates()
+    : 0;
+
   if (settings.runState === 'draining') {
     await heartbeat('draining');
     if (await pipelineIsDrained()) {
       const updated = await patchSettings({ runState: 'stopped' }, 'system-reconciler');
       await recordAuditEvent('system-reconciler', 'bot.drain_completed');
       await heartbeat('ready');
-      return { reconciled: true, drainCompleted: true, runState: updated.runState };
+      return { reconciled: true, drainCompleted: true, runState: updated.runState, recoveredCrawls };
     }
-    return { reconciled: true, drainCompleted: false };
+    return { reconciled: true, drainCompleted: false, recoveredCrawls };
   }
-  return { reconciled: true, runState: settings.runState };
+  return { reconciled: true, runState: settings.runState, recoveredCrawls };
 }
 
 async function processOrchestrationJob(job: Job): Promise<Record<string, unknown>> {

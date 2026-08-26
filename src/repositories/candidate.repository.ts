@@ -63,11 +63,27 @@ export async function getCandidate(id: string): Promise<Candidate | null> {
   return record ? candidateSchema.parse(record) : null;
 }
 
+export async function getCandidateByCanonicalDomain(domain: string): Promise<Candidate | null> {
+  const store = await collection();
+  const record = await store.findOne({ canonicalDomain: domain.toLowerCase() });
+  return record ? candidateSchema.parse(record) : null;
+}
+
 export async function listCandidates(limit = 100): Promise<Candidate[]> {
   const store = await collection();
   const records = await store
     .find({})
     .sort({ updatedAt: -1 })
+    .limit(Math.min(Math.max(limit, 1), 500))
+    .toArray();
+  return records.map(record => candidateSchema.parse(record));
+}
+
+export async function listCandidatesByStatus(status: Candidate['status'], limit = 250): Promise<Candidate[]> {
+  const store = await collection();
+  const records = await store
+    .find({ status })
+    .sort({ updatedAt: 1 })
     .limit(Math.min(Math.max(limit, 1), 500))
     .toArray();
   return records.map(record => candidateSchema.parse(record));
