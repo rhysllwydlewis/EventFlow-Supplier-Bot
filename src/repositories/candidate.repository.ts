@@ -63,6 +63,12 @@ export async function getCandidate(id: string): Promise<Candidate | null> {
   return record ? candidateSchema.parse(record) : null;
 }
 
+export async function getCandidateByCanonicalDomain(domain: string): Promise<Candidate | null> {
+  const store = await collection();
+  const record = await store.findOne({ canonicalDomain: domain.toLowerCase() });
+  return record ? candidateSchema.parse(record) : null;
+}
+
 export async function listCandidates(limit = 100): Promise<Candidate[]> {
   const store = await collection();
   const records = await store
