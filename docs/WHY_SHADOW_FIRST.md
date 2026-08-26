@@ -1,0 +1,1 @@
+Shadow-first prevents the standalone acquisition system from writing unverified automation output into EventFlow while discovery, crawling, extraction, evidence and quality thresholds are still being calibrated.
