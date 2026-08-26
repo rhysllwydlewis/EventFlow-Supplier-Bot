@@ -211,7 +211,9 @@ async function handleReconcile(): Promise<Record<string, unknown>> {
   const reassessedCompliance = await reassessPendingCompliance(100);
   const mayRecoverQueuedWork =
     settings.mode !== 'off' &&
-    (settings.runState === 'running' || settings.runState === 'paused');
+    (settings.runState === 'running' ||
+      settings.runState === 'paused' ||
+      settings.runState === 'draining');
   const [recoveredCrawls, recoveredBrowserCrawls] = mayRecoverQueuedWork
     ? await Promise.all([reconcileQueuedCrawlCandidates(), reconcileQueuedBrowserCrawlCandidates()])
     : [0, 0];
