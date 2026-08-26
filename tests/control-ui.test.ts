@@ -9,10 +9,14 @@ const complianceRepository = readFileSync(
 );
 
 describe('Supplier Bot Control Centre review surface', () => {
-  it('loads compliance assessments alongside Shadow profiles', () => {
-    expect(html).toContain("request('/api/compliance-assessments?limit=100')");
-    expect(html).toContain("request('/api/shadow-profiles?limit=20')");
-    expect(html).toContain('new Map((compliance.items||[]).map(item=>[item.candidateId,item]))');
+  it('joins each displayed Shadow profile to its own compliance assessment', () => {
+    expect(html).toContain("request('/api/shadow-profile-reviews?limit=20')");
+    expect(html).not.toContain("request('/api/compliance-assessments?limit=100')");
+    expect(server).toContain("app.get('/api/shadow-profile-reviews'");
+    expect(server).toContain('getComplianceAssessmentsForCandidates(profiles.map(profile => profile.candidateId))');
+    expect(server).toContain('assessment: byCandidate.get(profile.candidateId) ?? null');
+    expect(complianceRepository).toContain('export async function getComplianceAssessmentsForCandidates');
+    expect(complianceRepository).toContain('candidateId: { $in: uniqueIds }');
   });
 
   it('uses a database-wide compliance overview instead of sampled UI counts', () => {
