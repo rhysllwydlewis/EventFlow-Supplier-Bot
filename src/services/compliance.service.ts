@@ -32,17 +32,25 @@ export function descriptionEvidenceSimilarity(description: string, evidence: Evi
   const descriptionShingles = shingles(description);
   if (descriptionShingles.size === 0) return 0;
 
-  let maximum = 0;
+  const matchedDescriptionShingles = new Set<string>();
   for (const fragment of evidence) {
     const sourceShingles = shingles(fragment.excerpt);
     if (sourceShingles.size === 0) continue;
-    let matches = 0;
     for (const item of descriptionShingles) {
-      if (sourceShingles.has(item)) matches += 1;
+      if (sourceShingles.has(item)) matchedDescriptionShingles.add(item);
     }
-    maximum = Math.max(maximum, matches / descriptionShingles.size);
   }
-  return Math.min(1, maximum);
+
+  return Math.min(1, matchedDescriptionShingles.size / descriptionShingles.size);
+}
+
+export function effectiveMinimumPublicationQuality(
+  globalMinimum: number,
+  campaignMinimum?: number | null,
+): number {
+  const globalFloor = Math.max(0, Math.min(100, globalMinimum));
+  const campaignFloor = Math.max(0, Math.min(100, campaignMinimum ?? 0));
+  return Math.max(globalFloor, campaignFloor);
 }
 
 export function applyDescriptionComplianceFallback(input: {
