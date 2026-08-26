@@ -21,6 +21,8 @@ The standalone bot can be operated from the Control Centre in Shadow mode and au
 15. expose operating controls, costs, queues, candidate states and Shadow reviews in the Control Centre,
 16. retry/reconcile/quarantine routine failure states without requiring per-supplier approval.
 
+The browser fallback is the final Phase 1 mop-up item and does not create a second content pipeline: rendered pages feed the same evidence, AI, quality, deduplication and compliance stages as HTTP-crawled pages.
+
 ## Phase boundary
 
 There is deliberately no EventFlow production write path in Phase 1. Ownerless/unclaimed supplier creation, EventFlow ingestion, claim verification, package handover and production publishing begin in Phase 2.
