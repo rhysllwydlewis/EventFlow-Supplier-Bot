@@ -129,7 +129,7 @@ async function handleDiscoveryJob(job: Job): Promise<Record<string, unknown>> {
   const allowance = Number.isFinite(requestedAllowance)
     ? Math.min(remainingAllowance, Math.max(0, Math.floor(requestedAllowance)))
     : remainingAllowance;
-  const result = await runDiscoveryCycle(campaign, provider, allowance);
+  const result = await runDiscoveryCycle(campaign, provider, allowance, settings.dailyHardLimit);
 
   let crawlJobsQueued = 0;
   for (const candidateId of result.candidateIdsCreated) {
