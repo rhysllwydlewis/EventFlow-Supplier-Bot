@@ -6,13 +6,15 @@ import { canonicalDomain, canonicalizePublicHttpUrl } from '../utils/url.js';
 
 const DEFAULT_PILOT_CAMPAIGN = 'campaign_south_wales_venues_pilot';
 
-export async function seedCandidate(input: {
+export interface ManualSeedInput {
   url: string;
-  campaignId?: string;
-  categoryHint?: string;
-  locationHint?: string;
-  titleHint?: string;
-}) {
+  campaignId?: string | undefined;
+  categoryHint?: string | undefined;
+  locationHint?: string | undefined;
+  titleHint?: string | undefined;
+}
+
+export async function seedCandidate(input: ManualSeedInput) {
   const campaignId = input.campaignId || DEFAULT_PILOT_CAMPAIGN;
   const campaign = await getCampaign(campaignId);
   if (!campaign) {
