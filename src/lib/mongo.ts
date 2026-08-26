@@ -37,6 +37,9 @@ export async function ensureMongoIndexes(): Promise<void> {
     db.collection('candidates').createIndex({ canonicalDomain: 1 }, { unique: true, sparse: true }),
     db.collection('candidates').createIndex({ status: 1, updatedAt: -1 }),
     db.collection('provider_usage').createIndex({ provider: 1, day: 1 }, { unique: true }),
+    db.collection('ai_usage').createIndex({ provider: 1, day: 1 }, { unique: true }),
+    db.collection('ai_extractions').createIndex({ candidateId: 1, createdAt: -1 }),
+    db.collection('provider_circuits').createIndex({ id: 1 }, { unique: true }),
     db.collection('runtime_counters').createIndex({ id: 1 }, { unique: true }),
     db.collection('suppression').createIndex({ key: 1, type: 1 }, { unique: true }),
   ]);
