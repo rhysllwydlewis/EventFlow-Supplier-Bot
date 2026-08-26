@@ -137,6 +137,9 @@ export async function processEventFlowPublication(candidateId: string): Promise<
       });
       return result;
     }
+    if (result.status !== 'failed') {
+      throw new Error(`Unexpected EventFlow ingestion result: ${result.status}`);
+    }
 
     const previous = await getEventFlowIngestion(candidateId);
     const nextAttempt = (previous?.attempts ?? 0) + 1;
