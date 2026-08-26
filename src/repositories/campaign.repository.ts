@@ -25,6 +25,12 @@ export async function listCampaigns(): Promise<Campaign[]> {
   return records.map(record => campaignSchema.parse(record));
 }
 
+export async function getCampaign(id: string): Promise<Campaign | null> {
+  const store = await collection();
+  const record = await store.findOne({ id });
+  return record ? campaignSchema.parse(record) : null;
+}
+
 export async function createCampaign(
   input: Pick<Campaign, 'name' | 'categories' | 'locations' | 'dailyTarget' | 'dailyHardLimit' | 'minimumPublicationQuality'> & Partial<Pick<Campaign, 'priority'>>,
 ): Promise<Campaign> {
