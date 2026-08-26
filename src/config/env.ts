@@ -39,7 +39,7 @@ const schema = z.object({
   OPENAI_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().min(2).max(50).default(5),
   OPENAI_CIRCUIT_OPEN_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
   EVENTFLOW_INTERNAL_BASE_URL: z.string().url().optional(),
-  EVENTFLOW_BOT_HMAC_SECRET: z.string().optional(),
+  EVENTFLOW_BOT_HMAC_SECRET: z.string().min(32).optional(),
 });
 
 const parsed = schema.safeParse(process.env);
