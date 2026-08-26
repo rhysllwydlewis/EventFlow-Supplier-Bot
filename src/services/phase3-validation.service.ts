@@ -5,6 +5,7 @@ import type { ShadowProfile } from '../domain/shadow-profile.js';
 import type { BotSettings } from '../domain/settings.js';
 import { getDatabase } from '../lib/mongo.js';
 import { recordAuditEvent } from '../repositories/audit.repository.js';
+import type { StoredAiExtraction } from '../repositories/ai-extraction.repository.js';
 import { getCampaign, listCampaigns } from '../repositories/campaign.repository.js';
 import { patchSettings } from '../repositories/settings.repository.js';
 
@@ -20,7 +21,8 @@ export interface Phase3ValidationRun {
   completedAt?: string | null;
   campaignId?: string | null;
   targetCandidates: number;
-  aiCostBaselineGbp?: number;
+  restartRequiredAt?: string | null;
+  restartReason?: string | null;
   updatedAt: string;
 }
 
@@ -142,13 +144,22 @@ export function summarizePhase3Validation(input: {
   let complianceBlocked = 0;
   let seoReady = 0;
   for (const candidate of candidates) {
+    // Identity duplicate decisions are terminal policy outcomes even when the
+    // pipeline intentionally never writes a Shadow profile for that candidate.
+    if (candidate.dedupDecision === 'strong_duplicate') {
+      complianceBlocked += 1;
+      continue;
+    }
+    if (candidate.dedupDecision === 'probable_duplicate') {
+      complianceReview += 1;
+      continue;
+    }
+
     if (!profileIds.has(candidate.id)) continue;
     const assessment = assessmentByCandidate.get(candidate.id);
     if (!assessment) continue;
     if (candidate.dedupDecision === 'distinct' && assessment.publicationEligible) publicationEligible += 1;
-    if (candidate.dedupDecision === 'probable_duplicate') complianceReview += 1;
-    else if (candidate.dedupDecision === 'strong_duplicate') complianceBlocked += 1;
-    else if (assessment.status === 'review') complianceReview += 1;
+    if (assessment.status === 'review') complianceReview += 1;
     else if (assessment.status === 'block') complianceBlocked += 1;
     if (candidate.dedupDecision === 'distinct' && assessment.seoIndexEligible) seoReady += 1;
   }
@@ -156,9 +167,7 @@ export function summarizePhase3Validation(input: {
   const aiEstimatedCostGbp = Math.max(0, Number(input.aiEstimatedCostGbp) || 0);
   const target = input.run?.targetCandidates ?? PHASE3_TARGET_CANDIDATES;
   const targetReached = candidateCount >= target;
-  const finalised = Boolean(
-    input.run && ['ready_for_review', 'completed'].includes(input.run.status),
-  );
+  const finalised = Boolean(input.run && input.run.status === 'completed');
 
   return {
     run: input.run,
@@ -203,19 +212,41 @@ async function getRun(): Promise<Phase3ValidationRun | null> {
   return record ? { ...record, id: PHASE3_VALIDATION_ID } : null;
 }
 
-async function totalRecordedAiCostGbp(): Promise<number> {
+async function restartInvalidatedRun(
+  run: Phase3ValidationRun,
+  settings: BotSettings,
+): Promise<Phase3ValidationRun> {
+  if (!run.restartRequiredAt || settings.runState !== 'running') return run;
+  const campaignId = await resolvePhase3CampaignId(settings);
+  if (!campaignId) return run;
+
+  const now = new Date().toISOString();
+  const updates = {
+    status: 'collecting' as const,
+    startedAt: now,
+    completedAt: null,
+    campaignId,
+    restartRequiredAt: null,
+    restartReason: null,
+    updatedAt: now,
+  };
   const db = await getDatabase();
-  const rows = await db
-    .collection<{ provider: 'openai'; estimatedCostGbp?: number }>('ai_usage')
-    .find({ provider: 'openai' })
-    .project<{ estimatedCostGbp?: number }>({ _id: 0, estimatedCostGbp: 1 })
-    .toArray();
-  return rows.reduce((sum, item) => sum + Math.max(0, Number(item.estimatedCostGbp) || 0), 0);
+  await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
+    { id: PHASE3_VALIDATION_ID },
+    { $set: updates },
+  );
+  await recordAuditEvent('phase3-validator', 'phase3.validation_restarted', {
+    previousStartedAt: run.startedAt,
+    invalidatedAt: run.restartRequiredAt,
+    campaignId,
+    targetCandidates: run.targetCandidates,
+  });
+  return { ...run, ...updates };
 }
 
 async function ensureRun(settings: BotSettings): Promise<Phase3ValidationRun | null> {
   const existing = await getRun();
-  if (existing) return existing;
+  if (existing) return restartInvalidatedRun(existing, settings);
   if (settings.runState !== 'running') return null;
 
   const campaignId = await resolvePhase3CampaignId(settings);
@@ -229,26 +260,34 @@ async function ensureRun(settings: BotSettings): Promise<Phase3ValidationRun | n
     completedAt: null,
     campaignId,
     targetCandidates: PHASE3_TARGET_CANDIDATES,
-    aiCostBaselineGbp: await totalRecordedAiCostGbp(),
+    restartRequiredAt: null,
+    restartReason: null,
     updatedAt: now,
   };
   const db = await getDatabase();
-  await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
+  const result = await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
     { id: PHASE3_VALIDATION_ID },
     { $setOnInsert: run },
     { upsert: true },
   );
-  await recordAuditEvent('phase3-validator', 'phase3.validation_started', {
-    targetCandidates: PHASE3_TARGET_CANDIDATES,
-    campaignId,
-    aiCostBaselineGbp: run.aiCostBaselineGbp,
-  });
+  if (result.upsertedCount > 0) {
+    await recordAuditEvent('phase3-validator', 'phase3.validation_started', {
+      targetCandidates: PHASE3_TARGET_CANDIDATES,
+      campaignId,
+    });
+  }
   return (await getRun()) ?? run;
 }
 
 async function loadRunData(run: Phase3ValidationRun) {
+  if (run.restartRequiredAt) {
+    return { candidates: [], profiles: [], assessments: [], aiEstimatedCostGbp: 0 };
+  }
+
   const db = await getDatabase();
-  const candidateFilter: Filter<Candidate> = { discoveredAt: { $gte: run.startedAt } };
+  const discoveredAt: { $gte: string; $lte?: string } = { $gte: run.startedAt };
+  if (run.completedAt) discoveredAt.$lte = run.completedAt;
+  const candidateFilter: Filter<Candidate> = { discoveredAt };
   if (run.campaignId) candidateFilter.campaignId = run.campaignId;
 
   const candidates = await db
@@ -258,7 +297,7 @@ async function loadRunData(run: Phase3ValidationRun) {
     .limit(250)
     .toArray();
   const ids = candidates.map(item => item.id);
-  const [profiles, assessments, currentAiCostGbp] = await Promise.all([
+  const [profiles, assessments, aiExtractions] = await Promise.all([
     ids.length > 0
       ? db.collection<ShadowProfile>('shadow_profiles').find({ candidateId: { $in: ids } }).toArray()
       : Promise.resolve([]),
@@ -268,15 +307,23 @@ async function loadRunData(run: Phase3ValidationRun) {
           .find({ candidateId: { $in: ids } })
           .toArray()
       : Promise.resolve([]),
-    totalRecordedAiCostGbp(),
+    ids.length > 0
+      ? db
+          .collection<StoredAiExtraction>('ai_extractions')
+          .find({ candidateId: { $in: ids } })
+          .project<Pick<StoredAiExtraction, 'estimatedCostGbp'>>({ _id: 0, estimatedCostGbp: 1 })
+          .toArray()
+      : Promise.resolve([]),
   ]);
 
-  const aiCostBaselineGbp = Math.max(0, Number(run.aiCostBaselineGbp) || 0);
   return {
     candidates,
     profiles,
     assessments,
-    aiEstimatedCostGbp: Math.max(0, currentAiCostGbp - aiCostBaselineGbp),
+    aiEstimatedCostGbp: aiExtractions.reduce(
+      (sum, item) => sum + Math.max(0, Number(item.estimatedCostGbp) || 0),
+      0,
+    ),
   };
 }
 
@@ -297,25 +344,70 @@ export async function getPhase3ValidationReport(
   return summarizePhase3Validation({ settings, run, ...data });
 }
 
+async function invalidateUnsafeRun(
+  run: Phase3ValidationRun,
+  settings: BotSettings,
+): Promise<Phase3ValidationRun> {
+  if (run.status === 'completed' || run.restartRequiredAt) return run;
+  const now = new Date().toISOString();
+  const updates = {
+    restartRequiredAt: now,
+    restartReason: 'safety_contract_broken',
+    updatedAt: now,
+  };
+  const db = await getDatabase();
+  await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
+    { id: PHASE3_VALIDATION_ID },
+    { $set: updates },
+  );
+
+  await patchSettings(
+    {
+      mode: 'shadow',
+      runState: 'emergency_stopped',
+      publishingEnabled: false,
+      claimNoticesEnabled: false,
+      marketingEnabled: false,
+      seoIndexingEnabled: false,
+    },
+    'phase3-validator-fail-closed',
+  );
+  await recordAuditEvent('phase3-validator', 'phase3.validation_invalidated', {
+    startedAt: run.startedAt,
+    invalidatedAt: now,
+    reason: 'safety_contract_broken',
+    observedSettings: {
+      mode: settings.mode,
+      publishingEnabled: settings.publishingEnabled,
+      claimNoticesEnabled: settings.claimNoticesEnabled,
+      marketingEnabled: settings.marketingEnabled,
+      seoIndexingEnabled: settings.seoIndexingEnabled,
+    },
+  });
+  return { ...run, ...updates };
+}
+
 async function markCompleted(run: Phase3ValidationRun): Promise<boolean> {
   if (run.status === 'completed') return true;
-  if (run.status !== 'draining') return false;
+  if (run.status !== 'draining' || run.restartRequiredAt) return false;
 
   const data = await loadRunData(run);
   if (data.candidates.length < run.targetCandidates) return false;
 
   const now = new Date().toISOString();
   const db = await getDatabase();
-  await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
-    { id: PHASE3_VALIDATION_ID, status: 'draining' },
+  const result = await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
+    { id: PHASE3_VALIDATION_ID, status: 'draining', restartRequiredAt: null },
     { $set: { status: 'completed', completedAt: now, updatedAt: now } },
   );
+  if (result.modifiedCount === 0) return false;
   await recordAuditEvent('phase3-validator', 'phase3.validation_completed', {
     startedAt: run.startedAt,
     completedAt: now,
     targetCandidates: run.targetCandidates,
     candidateCount: data.candidates.length,
     shadowProfileCount: data.profiles.length,
+    aiEstimatedCostGbp: data.aiEstimatedCostGbp,
   });
   return true;
 }
@@ -327,7 +419,8 @@ export async function reconcilePhase3Validation(settings: BotSettings): Promise<
 }> {
   const safety = phase3Safety(settings);
   if (!safety.safeToValidate) {
-    const run = await getRun();
+    const existing = await getRun();
+    const run = existing ? await invalidateUnsafeRun(existing, settings) : existing;
     const data = run
       ? await loadRunData(run)
       : { candidates: [], profiles: [], assessments: [], aiEstimatedCostGbp: 0 };
@@ -346,6 +439,20 @@ export async function reconcilePhase3Validation(settings: BotSettings): Promise<
       report: summarizePhase3Validation({
         settings,
         run: null,
+        candidates: [],
+        profiles: [],
+        assessments: [],
+      }),
+    };
+  }
+
+  if (run.restartRequiredAt) {
+    return {
+      active: false,
+      transitionedToDraining: false,
+      report: summarizePhase3Validation({
+        settings,
+        run,
         candidates: [],
         profiles: [],
         assessments: [],
@@ -373,10 +480,20 @@ export async function reconcilePhase3Validation(settings: BotSettings): Promise<
 
   const now = new Date().toISOString();
   const db = await getDatabase();
-  await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
-    { id: PHASE3_VALIDATION_ID, status: 'collecting' },
+  const result = await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
+    { id: PHASE3_VALIDATION_ID, status: 'collecting', restartRequiredAt: null },
     { $set: { status: 'draining', updatedAt: now } },
   );
+  if (result.modifiedCount === 0) {
+    const refreshed = (await getRun()) ?? currentRun;
+    const refreshedData = await loadRunData(refreshed);
+    return {
+      active: refreshed.status !== 'completed',
+      transitionedToDraining: false,
+      report: summarizePhase3Validation({ settings, run: refreshed, ...refreshedData }),
+    };
+  }
+
   await patchSettings({ runState: 'draining' }, 'phase3-validator');
   await recordAuditEvent('phase3-validator', 'phase3.validation_target_reached', {
     candidateCount: report.metrics.candidateCount,
