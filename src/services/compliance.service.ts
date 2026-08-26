@@ -77,6 +77,10 @@ export function assessShadowProfileCompliance(input: {
   const similarity = descriptionEvidenceSimilarity(profile.description, input.evidence);
   const reasons: string[] = [];
   const fallbacks: ComplianceAssessment['fallbacks'] = [];
+  const suppliedEvidenceIds = new Set(input.evidence.map(item => item.id));
+  const linkedEvidenceCount = new Set(
+    profile.evidenceIds.filter(id => suppliedEvidenceIds.has(id)),
+  ).size;
 
   if (input.descriptionFallbackApplied) {
     fallbacks.push({
@@ -98,7 +102,8 @@ export function assessShadowProfileCompliance(input: {
   });
 
   if (profile.publicationQuality < input.minimumPublicationQuality) reasons.push('quality_below_publication_threshold');
-  if (!profile.evidenceIds.length) reasons.push('missing_source_evidence');
+  if (linkedEvidenceCount === 0) reasons.push('missing_source_evidence');
+  if (linkedEvidenceCount !== new Set(profile.evidenceIds).size) reasons.push('unresolved_evidence_reference');
   if (!profile.businessName || !profile.website || !profile.category) reasons.push('missing_core_identity');
   if (similarity >= COPY_BLOCK_THRESHOLD) reasons.push('description_too_similar_to_source');
   if (!profile.location) reasons.push('missing_location');
@@ -108,6 +113,7 @@ export function assessShadowProfileCompliance(input: {
   const blockingReasons = new Set([
     'quality_below_publication_threshold',
     'missing_source_evidence',
+    'unresolved_evidence_reference',
     'missing_core_identity',
     'description_too_similar_to_source',
   ]);
@@ -118,7 +124,7 @@ export function assessShadowProfileCompliance(input: {
     && profile.description.length >= 160
     && Boolean(profile.location)
     && profile.services.length > 0
-    && profile.evidenceIds.length >= 2
+    && linkedEvidenceCount >= 2
     && similarity < SEO_COPY_THRESHOLD;
 
   if (publicationEligible && !seoIndexEligible) reasons.push('seo_noindex_until_richer_profile');
