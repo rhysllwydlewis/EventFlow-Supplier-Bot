@@ -12,6 +12,10 @@ import {
 } from '../src/services/phase3-validation.service.js';
 
 const workerSource = readFileSync(new URL('../src/worker/index.ts', import.meta.url), 'utf8');
+const phase3Source = readFileSync(
+  new URL('../src/services/phase3-validation.service.ts', import.meta.url),
+  'utf8',
+);
 
 function candidate(id: string, overrides: Partial<Candidate> = {}): Candidate {
   return {
@@ -186,9 +190,19 @@ describe('Phase 3 shadow validation', () => {
     expect(workerSource).toContain(
       'phase3.transitionedToDraining ? await getSettings() : initialSettings',
     );
+    expect(workerSource).toContain("settings.runState === 'draining'");
     expect(workerSource).toContain('await completePhase3ValidationRun()');
     expect(workerSource.indexOf('await completePhase3ValidationRun()')).toBeGreaterThan(
       workerSource.indexOf('if (await pipelineIsDrained())'),
     );
+  });
+
+  it('binds a new validation run to a running South Wales venue campaign only', () => {
+    expect(phase3Source).toContain("campaign.status !== 'running'");
+    expect(phase3Source).toContain("categories.includes('venues')");
+    expect(phase3Source).toContain("locations.includes('south wales')");
+    expect(phase3Source).toContain('const campaignId = await resolvePhase3CampaignId(settings)');
+    expect(phase3Source).toContain('if (!campaignId) return null');
+    expect(phase3Source).toContain('candidateFilter.campaignId = run.campaignId');
   });
 });
