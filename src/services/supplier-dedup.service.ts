@@ -11,8 +11,9 @@ function clean(value: string | null | undefined): string | null {
 }
 
 export function normalizeBusinessName(value: string): string {
-  const normalized = clean(value) || '';
-  return normalized.replace(/\b(limited|ltd|plc|llp|company|co)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalized = clean(value) || value.trim().toLowerCase();
+  const stripped = normalized.replace(/\b(limited|ltd|plc|llp|company|co)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  return stripped || normalized;
 }
 
 export function normalizeEmail(value: string | null): string | null {
@@ -60,8 +61,7 @@ function compareIdentity(candidate: SupplierIdentity, existing: SupplierIdentity
   const strong = candidate.canonicalDomain === existing.canonicalDomain
     || (sameName && sameEmail)
     || (sameName && samePhone)
-    || (sameName && sameLocation && sameCategory)
-    || (sameEmail && samePhone);
+    || (sameEmail && samePhone && sameLocation);
   const probable = !strong && (sameEmail || samePhone || (sameName && (sameLocation || sameCategory)));
   return { score: Math.min(100, score), signals, strong, probable };
 }
