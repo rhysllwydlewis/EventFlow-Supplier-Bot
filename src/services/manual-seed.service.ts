@@ -30,12 +30,17 @@ export async function seedCandidate(input: {
     provider: 'manual_seed',
     discoveryQuery: 'manual_seed',
     sourceUrl: canonicalUrl.href,
-    titleHint: input.titleHint,
-    categoryHint: input.categoryHint || campaign.categories[0],
-    locationHint: input.locationHint || campaign.locations[0],
+    ...(input.titleHint ? { titleHint: input.titleHint } : {}),
+    ...(input.categoryHint || campaign.categories[0]
+      ? { categoryHint: input.categoryHint || campaign.categories[0] }
+      : {}),
+    ...(input.locationHint || campaign.locations[0]
+      ? { locationHint: input.locationHint || campaign.locations[0] }
+      : {}),
   });
 
-  if (saved.created || saved.candidate.status === 'discovered') {
+  const shouldQueue = saved.created || saved.candidate.status === 'discovered';
+  if (shouldQueue) {
     await setCandidateStatus(saved.candidate.id, 'queued_for_crawl');
     await getQueue('crawl').add(
       'crawl-candidate',
@@ -49,8 +54,11 @@ export async function seedCandidate(input: {
   }
 
   return {
-    candidate: { ...saved.candidate, status: saved.created ? 'queued_for_crawl' : saved.candidate.status },
+    candidate: {
+      ...saved.candidate,
+      status: shouldQueue ? 'queued_for_crawl' : saved.candidate.status,
+    },
     created: saved.created,
-    crawlQueued: saved.created || saved.candidate.status === 'discovered',
+    crawlQueued: shouldQueue,
   };
 }
