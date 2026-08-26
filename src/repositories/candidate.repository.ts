@@ -73,6 +73,16 @@ export async function listCandidates(limit = 100): Promise<Candidate[]> {
   return records.map(record => candidateSchema.parse(record));
 }
 
+export async function listCandidatesByStatus(status: Candidate['status'], limit = 250): Promise<Candidate[]> {
+  const store = await collection();
+  const records = await store
+    .find({ status })
+    .sort({ updatedAt: 1 })
+    .limit(Math.min(Math.max(limit, 1), 500))
+    .toArray();
+  return records.map(record => candidateSchema.parse(record));
+}
+
 export async function countCandidatesSince(isoTimestamp: string): Promise<number> {
   const store = await collection();
   return store.countDocuments({ discoveredAt: { $gte: isoTimestamp } });
