@@ -1,0 +1,50 @@
+import { MongoClient, type Db } from 'mongodb';
+import { env } from '../config/env.js';
+import { logger } from './logger.js';
+
+let client: MongoClient | null = null;
+let database: Db | null = null;
+
+export async function getDatabase(): Promise<Db> {
+  if (database) {
+    return database;
+  }
+
+  client = new MongoClient(env.MONGODB_URI, {
+    appName: 'eventflow-supplier-bot',
+    maxPoolSize: 20,
+    minPoolSize: 0,
+    serverSelectionTimeoutMS: 10_000,
+  });
+
+  await client.connect();
+  database = client.db(env.BOT_DB_NAME);
+  logger.info({ dbName: env.BOT_DB_NAME }, 'Connected to Supplier Bot MongoDB');
+  return database;
+}
+
+export async function ensureMongoIndexes(): Promise<void> {
+  const db = await getDatabase();
+
+  await Promise.all([
+    db.collection('bot_settings').createIndex({ id: 1 }, { unique: true }),
+    db.collection('campaigns').createIndex({ id: 1 }, { unique: true }),
+    db.collection('campaigns').createIndex({ status: 1, priority: -1 }),
+    db.collection('worker_heartbeats').createIndex({ workerId: 1 }, { unique: true }),
+    db.collection('worker_heartbeats').createIndex({ updatedAt: -1 }),
+    db.collection('audit_events').createIndex({ createdAt: -1 }),
+    db.collection('audit_events').createIndex({ actor: 1, createdAt: -1 }),
+    db.collection('candidates').createIndex({ canonicalDomain: 1 }, { unique: true, sparse: true }),
+    db.collection('candidates').createIndex({ status: 1, updatedAt: -1 }),
+    db.collection('provider_usage').createIndex({ provider: 1, day: 1 }, { unique: true }),
+    db.collection('suppression').createIndex({ key: 1, type: 1 }, { unique: true }),
+  ]);
+}
+
+export async function closeMongo(): Promise<void> {
+  if (client) {
+    await client.close();
+  }
+  client = null;
+  database = null;
+}
