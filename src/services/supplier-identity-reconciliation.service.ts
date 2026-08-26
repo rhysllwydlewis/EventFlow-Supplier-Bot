@@ -49,7 +49,7 @@ async function assessAndIndexProfile(profile: ShadowProfile) {
 
 async function runHistoricalReconciliation(): Promise<{ processed: number; duplicates: number; probable: number }> {
   const db = await getDatabase();
-  const cursor = db.collection<{ id: string; discoveredAt?: string }>('candidates')
+  const cursor = db.collection<{ id: string; discoveredAt?: string; dedupDecision?: string }>('candidates')
     .find({ dedupDecision: { $exists: false } })
     .sort({ discoveredAt: 1, id: 1 })
     .batchSize(250);
