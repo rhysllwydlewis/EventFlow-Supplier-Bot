@@ -13,8 +13,11 @@ import { closeMongo, ensureMongoIndexes, getDatabase } from '../lib/mongo.js';
 import { closeRedis, connectRedis } from '../lib/redis.js';
 import { getQueue, getQueueCounts, closeQueues } from '../queues/index.js';
 import { createCampaign, ensurePilotCampaign, listCampaigns, updateCampaign } from '../repositories/campaign.repository.js';
+import { countCandidatesSince, listCandidates } from '../repositories/candidate.repository.js';
 import { heartbeatIsFresh, listHeartbeats, writeHeartbeat } from '../repositories/heartbeat.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
+import { listShadowProfiles } from '../repositories/shadow-profile.repository.js';
+import { seedCandidate } from '../services/manual-seed.service.js';
 import {
   drainBot,
   emergencyStopBot,
@@ -24,7 +27,7 @@ import {
 } from '../services/runtime-control.service.js';
 import { loginWithAdminKey, logout, requireCsrf, requireSession, sessionInfo } from './auth.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const app = express();
 
 const settingsPatchSchema = botSettingsSchema
@@ -43,6 +46,19 @@ const campaignCreateSchema = campaignSchema
 const campaignPatchSchema = campaignSchema
   .omit({ id: true, createdAt: true })
   .partial();
+const manualSeedSchema = z.object({
+  url: z.string().url(),
+  campaignId: z.string().min(1).optional(),
+  categoryHint: z.string().min(1).max(100).optional(),
+  locationHint: z.string().min(1).max(180).optional(),
+  titleHint: z.string().min(1).max(300).optional(),
+});
+
+function startOfUtcDayIso(): string {
+  const value = new Date();
+  value.setUTCHours(0, 0, 0, 0);
+  return value.toISOString();
+}
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 function loginRateLimit(req: Request, res: Response, next: NextFunction): void {
@@ -91,10 +107,11 @@ app.use('/api', requireSession);
 
 app.get('/api/status', async (_req, res, next) => {
   try {
-    const [settings, heartbeats, queues] = await Promise.all([
+    const [settings, heartbeats, queues, candidatesToday] = await Promise.all([
       getSettings(),
       listHeartbeats(),
       getQueueCounts(),
+      countCandidatesSince(startOfUtcDayIso()),
     ]);
     const now = Date.now();
     const workers = heartbeats.map(item => ({ ...item, fresh: heartbeatIsFresh(item, now) }));
@@ -105,6 +122,7 @@ app.get('/api/status', async (_req, res, next) => {
       workers,
       workerHealthy,
       queues,
+      metrics: { candidatesToday },
       providerCapabilities: {
         braveConfigured: Boolean(env.BRAVE_API_KEY),
         bravePersistenceAllowed: env.BRAVE_PERSISTENCE_ALLOWED,
@@ -204,6 +222,34 @@ app.patch('/api/campaigns/:id', requireCsrf, async (req, res, next) => {
   try {
     const patch = campaignPatchSchema.parse(req.body);
     res.json(await updateCampaign(req.params.id, patch));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/candidates', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    res.json({ items: await listCandidates(limit) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/candidates/seed', requireCsrf, async (req, res, next) => {
+  try {
+    const input = manualSeedSchema.parse(req.body);
+    const result = await seedCandidate(input);
+    res.status(result.created ? 201 : 200).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/shadow-profiles', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    res.json({ items: await listShadowProfiles(limit) });
   } catch (error) {
     next(error);
   }
