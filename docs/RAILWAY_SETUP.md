@@ -13,7 +13,7 @@ Use Railway private reference variables for Mongo/Redis. For Redis/ioredis the c
 
 The Control Centre needs `CONTROL_ADMIN_KEY` and a different `CONTROL_SESSION_SECRET`. Provider/API secrets belong in Railway variables, never GitHub.
 
-`npm run install:browser` runs `playwright install --with-deps chromium`, which installs Chromium and its Linux system libraries. Railway also documents the official Playwright Docker image as the most predictable option if a standard build image cannot install or retain those dependencies.
+`npm run install:browser` runs `playwright install --with-deps chromium`, which installs Chromium and its Linux system libraries. Railway also documents the official Playwright Docker image as the most predictable option if the standard build environment cannot install or retain those dependencies. If that happens, move only the worker service to a Playwright-based Dockerfile; the Control Centre does not need Chromium.
 
 Browser fallback uses Chromium only for JS-heavy sites. Keep `BROWSER_ALLOW_NO_SANDBOX=false` initially. If Railway's runtime cannot launch Chromium with sandboxing, change only that worker variable to `true`; the browser still runs inside the isolated worker service with public-network request guards and concurrency 1.
 
