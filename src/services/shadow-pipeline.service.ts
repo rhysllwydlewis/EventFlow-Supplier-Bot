@@ -2,11 +2,18 @@ import type { Candidate } from '../domain/candidate.js';
 import { crawlSupplierSite } from '../crawler/site-crawler.js';
 import { createEvidenceFragment } from '../evidence/evidence.js';
 import { extractBasicFacts } from '../extraction/basic-extractor.js';
+import { getCampaign } from '../repositories/campaign.repository.js';
+import { saveComplianceAssessment } from '../repositories/compliance-assessment.repository.js';
 import { saveEvidenceFragments } from '../repositories/evidence.repository.js';
 import { saveShadowProfile } from '../repositories/shadow-profile.repository.js';
 import { setCandidateStatus } from '../repositories/candidate.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
 import { enrichShadowProfileWithAi } from './ai-enrichment.service.js';
+import {
+  applyDescriptionComplianceFallback,
+  assessShadowProfileCompliance,
+  effectiveMinimumPublicationQuality,
+} from './compliance.service.js';
 import { composeDeterministicShadowProfile } from './shadow-profile-composer.service.js';
 import { scoreShadowProfile } from './quality.service.js';
 
@@ -33,23 +40,43 @@ export async function runShadowPipeline(candidate: Candidate) {
       extraction,
       evidenceIds: evidence.map(item => item.id),
     });
-    const settings = await getSettings();
+    const [settings, campaign] = await Promise.all([
+      getSettings(),
+      getCampaign(candidate.campaignId),
+    ]);
+    const minimumPublicationQuality = effectiveMinimumPublicationQuality(
+      settings.minimumPublicationQuality,
+      campaign?.minimumPublicationQuality,
+    );
     const ai = await enrichShadowProfileWithAi({
       profile: deterministicProfile,
       evidence,
       hardBudgetGbp: settings.hardAiSpendGbpPerDay,
     });
 
-    const quality = scoreShadowProfile(ai.profile);
+    const compliantDescription = applyDescriptionComplianceFallback({
+      profile: ai.profile,
+      deterministicProfile,
+      evidence,
+    });
+    const quality = scoreShadowProfile(compliantDescription.profile);
     const finalProfile = await saveShadowProfile({
-      ...ai.profile,
+      ...compliantDescription.profile,
       publicationQuality: quality.total,
     });
+    const compliance = await saveComplianceAssessment(assessShadowProfileCompliance({
+      profile: finalProfile,
+      evidence,
+      minimumPublicationQuality,
+      descriptionFallbackApplied: compliantDescription.fallbackApplied,
+    }));
+
     await setCandidateStatus(candidate.id, 'shadow_ready');
 
     return {
       profile: finalProfile,
       quality,
+      compliance,
       ai: {
         status: ai.status,
         model: ai.model,
