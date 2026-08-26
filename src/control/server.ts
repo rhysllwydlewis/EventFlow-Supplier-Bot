@@ -17,6 +17,9 @@ import { countCandidatesSince, listCandidates } from '../repositories/candidate.
 import { heartbeatIsFresh, listHeartbeats, writeHeartbeat } from '../repositories/heartbeat.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
 import { listShadowProfiles } from '../repositories/shadow-profile.repository.js';
+import { getTodayAiReservedGbp } from '../services/ai-budget.service.js';
+import { getTodayAiUsage } from '../services/ai-usage.service.js';
+import { getTodayCrawlCount } from '../services/crawl-budget.service.js';
 import { seedCandidate } from '../services/manual-seed.service.js';
 import {
   drainBot,
@@ -27,7 +30,7 @@ import {
 } from '../services/runtime-control.service.js';
 import { loginWithAdminKey, logout, requireCsrf, requireSession, sessionInfo } from './auth.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const app = express();
 
 const settingsPatchSchema = botSettingsSchema
@@ -107,11 +110,14 @@ app.use('/api', requireSession);
 
 app.get('/api/status', async (_req, res, next) => {
   try {
-    const [settings, heartbeats, queues, candidatesToday] = await Promise.all([
+    const [settings, heartbeats, queues, candidatesToday, crawlsToday, aiReservedGbp, aiUsage] = await Promise.all([
       getSettings(),
       listHeartbeats(),
       getQueueCounts(),
       countCandidatesSince(startOfUtcDayIso()),
+      getTodayCrawlCount(),
+      getTodayAiReservedGbp(),
+      getTodayAiUsage(),
     ]);
     const now = Date.now();
     const workers = heartbeats.map(item => ({ ...item, fresh: heartbeatIsFresh(item, now) }));
@@ -122,7 +128,15 @@ app.get('/api/status', async (_req, res, next) => {
       workers,
       workerHealthy,
       queues,
-      metrics: { candidatesToday },
+      metrics: {
+        candidatesToday,
+        crawlsToday,
+        aiReservedGbp,
+        aiCallsToday: aiUsage?.calls ?? 0,
+        aiInputTokensToday: aiUsage?.inputTokens ?? 0,
+        aiOutputTokensToday: aiUsage?.outputTokens ?? 0,
+        aiEstimatedCostGbpToday: aiUsage?.estimatedCostGbp ?? 0,
+      },
       providerCapabilities: {
         braveConfigured: Boolean(env.BRAVE_API_KEY),
         bravePersistenceAllowed: env.BRAVE_PERSISTENCE_ALLOWED,
