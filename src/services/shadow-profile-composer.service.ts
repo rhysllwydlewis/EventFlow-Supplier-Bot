@@ -21,7 +21,7 @@ export function composeDeterministicShadowProfile(input: {
   const email = structured.email || input.extraction.emails[0] || null;
   const phone = structured.telephone || input.extraction.phones[0] || null;
   const locationPhrase = location ? ` serving ${location}` : '';
-  const description = `${businessName} is listed by EventFlow as a ${category.toLowerCase()} supplier${locationPhrase}. This Shadow-mode summary is generated only from observed public business facts and has not been published to EventFlow.`;
+  const description = `${businessName} is listed on EventFlow as a ${category.toLowerCase()} supplier${locationPhrase}. This profile has been compiled from publicly available business information and can be claimed by the business owner.`;
 
   let confidence = 35;
   if (structured.name) confidence += 20;
