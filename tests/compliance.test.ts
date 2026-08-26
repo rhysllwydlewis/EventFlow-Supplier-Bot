@@ -5,6 +5,7 @@ import {
   applyDescriptionComplianceFallback,
   assessShadowProfileCompliance,
   descriptionEvidenceSimilarity,
+  effectiveMinimumPublicationQuality,
 } from '../src/services/compliance.service.js';
 
 const evidence: EvidenceFragment[] = [
@@ -65,6 +66,21 @@ describe('Shadow compliance gate', () => {
     expect(result.fallbackApplied).toBe(true);
     expect(result.profile.description).toBe(deterministic.description);
     expect(result.profile.description).not.toContain('Shadow-mode');
+  });
+
+  it('aggregates copied passages across different source pages', () => {
+    const copiedDescription = 'alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango';
+    const splitEvidence: EvidenceFragment[] = [
+      { ...evidence[0]!, id: 'split_1', excerpt: 'alpha bravo charlie delta echo foxtrot golf hotel india juliet' },
+      { ...evidence[1]!, id: 'split_2', excerpt: 'kilo lima mike november oscar papa quebec romeo sierra tango' },
+    ];
+    expect(descriptionEvidenceSimilarity(copiedDescription, splitEvidence)).toBeGreaterThanOrEqual(0.65);
+  });
+
+  it('uses the stricter global or campaign publication quality floor', () => {
+    expect(effectiveMinimumPublicationQuality(85, 95)).toBe(95);
+    expect(effectiveMinimumPublicationQuality(90, 80)).toBe(90);
+    expect(effectiveMinimumPublicationQuality(75, null)).toBe(75);
   });
 
   it('separates publication eligibility from stricter SEO index eligibility', () => {
