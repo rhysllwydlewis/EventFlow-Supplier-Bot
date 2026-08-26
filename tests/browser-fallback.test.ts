@@ -23,6 +23,7 @@ describe('browser fallback detection', () => {
       }],
     }, extraction('Loading'));
     expect(decision.required).toBe(true);
+    expect(decision.reason).toBe('javascript_app_shell_with_sparse_static_content');
   });
 
   it('keeps useful static supplier sites on the HTTP path', () => {
@@ -38,6 +39,20 @@ describe('browser fallback detection', () => {
         html: '<p>hello@example.com</p>',
       }],
     }, extraction('Example Manor wedding venue in Cardiff. '.repeat(30), true));
+    expect(decision.required).toBe(false);
+    expect(decision.reason).toBeNull();
+  });
+
+  it('does not escalate a short static page when a public business fact is already present', () => {
+    const decision = assessBrowserFallback({
+      rootUrl: 'https://example.com',
+      finalRootUrl: 'https://example.com/',
+      failures: [],
+      pages: [{
+        url: 'https://example.com/', contentType: 'text/html', bytes: 800,
+        html: '<html><body><script src="/app.js"></script><p>Call us</p></body></html>',
+      }],
+    }, extraction('Call us', true));
     expect(decision.required).toBe(false);
   });
 });
