@@ -44,7 +44,7 @@ describe('Supplier Bot Control Centre review surface', () => {
 
   it('surfaces operating guardrail telemetry', () => {
     for (const id of ['crawlMetric', 'aiCallsMetric', 'aiCostMetric', 'aiReservedMetric']) {
-      expect(html).toContain(`id=\"${id}\"`);
+      expect(html).toContain(`id="${id}"`);
     }
     expect(html).toContain('status.metrics?.crawlsToday');
     expect(html).toContain('status.metrics?.aiEstimatedCostGbpToday');

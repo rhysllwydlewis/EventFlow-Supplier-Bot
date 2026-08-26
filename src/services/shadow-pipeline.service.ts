@@ -17,6 +17,10 @@ import {
   assessShadowProfileCompliance,
   effectiveMinimumPublicationQuality,
 } from './compliance.service.js';
+import {
+  enqueueEventFlowPublication,
+  markEventFlowPublicationPending,
+} from './eventflow-publication-queue.service.js';
 import { assessAndPersistSupplierDuplicate } from './supplier-identity-reconciliation.service.js';
 import { composeDeterministicShadowProfile } from './shadow-profile-composer.service.js';
 import { scoreShadowProfile } from './quality.service.js';
@@ -103,12 +107,15 @@ async function completeShadowProfile(
     };
   }
 
+  await markEventFlowPublicationPending(candidate.id, 'shadow_profile_ready');
+  const publicationQueued = await enqueueEventFlowPublication(candidate.id, 'shadow-profile-ready');
   await setCandidateStatus(candidate.id, 'shadow_ready');
   return {
     profile: finalProfile,
     quality,
     compliance,
     dedup: dedup.assessment,
+    eventFlowPublication: { status: 'pending', queued: publicationQueued },
     ai: { status: ai.status, model: ai.model, responseId: ai.responseId },
     crawlFailures: crawl.failures,
     crawlMethod,

@@ -72,7 +72,7 @@ export function robotsAllows(policy: RobotsPolicy, url: string | URL): boolean {
   let best: { allow: boolean; length: number } | null = null;
   for (const rule of policy.rules) {
     if (!ruleRegex(rule.pattern).test(path)) continue;
-    const length = rule.pattern.replace(/[\*$]/g, '').length;
+    const length = rule.pattern.replace(/[*$]/g, '').length;
     if (!best || length > best.length || (length === best.length && rule.allow)) best = { allow: rule.allow, length };
   }
   return best?.allow ?? true;
