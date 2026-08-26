@@ -8,12 +8,14 @@ import { saveEvidenceFragments } from '../repositories/evidence.repository.js';
 import { saveShadowProfile } from '../repositories/shadow-profile.repository.js';
 import { setCandidateStatus } from '../repositories/candidate.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
+import { upsertSupplierIdentity } from '../repositories/supplier-identity.repository.js';
 import { enrichShadowProfileWithAi } from './ai-enrichment.service.js';
 import {
   applyDescriptionComplianceFallback,
   assessShadowProfileCompliance,
   effectiveMinimumPublicationQuality,
 } from './compliance.service.js';
+import { assessAndPersistSupplierDuplicate } from './supplier-identity-reconciliation.service.js';
 import { composeDeterministicShadowProfile } from './shadow-profile-composer.service.js';
 import { scoreShadowProfile } from './quality.service.js';
 
@@ -60,10 +62,24 @@ export async function runShadowPipeline(candidate: Candidate) {
       evidence,
     });
     const quality = scoreShadowProfile(compliantDescription.profile);
-    const finalProfile = await saveShadowProfile({
+    const candidateProfile = {
       ...compliantDescription.profile,
       publicationQuality: quality.total,
-    });
+    };
+
+    const dedup = await assessAndPersistSupplierDuplicate(candidateProfile);
+    if (dedup.assessment.decision === 'strong_duplicate') {
+      await setCandidateStatus(candidate.id, 'duplicate');
+      return {
+        duplicate: true,
+        dedup: dedup.assessment,
+        quality,
+        ai: { status: ai.status, model: ai.model, responseId: ai.responseId },
+        crawlFailures: crawl.failures,
+      };
+    }
+
+    const finalProfile = await saveShadowProfile(candidateProfile);
     const compliance = await saveComplianceAssessment(assessShadowProfileCompliance({
       profile: finalProfile,
       evidence,
@@ -71,17 +87,28 @@ export async function runShadowPipeline(candidate: Candidate) {
       descriptionFallbackApplied: compliantDescription.fallbackApplied,
     }));
 
+    if (dedup.assessment.decision === 'probable_duplicate') {
+      await setCandidateStatus(candidate.id, 'quarantined');
+      return {
+        profile: finalProfile,
+        quality,
+        compliance,
+        dedup: dedup.assessment,
+        quarantined: true,
+        ai: { status: ai.status, model: ai.model, responseId: ai.responseId },
+        crawlFailures: crawl.failures,
+      };
+    }
+
+    await upsertSupplierIdentity(dedup.identity);
     await setCandidateStatus(candidate.id, 'shadow_ready');
 
     return {
       profile: finalProfile,
       quality,
       compliance,
-      ai: {
-        status: ai.status,
-        model: ai.model,
-        responseId: ai.responseId,
-      },
+      dedup: dedup.assessment,
+      ai: { status: ai.status, model: ai.model, responseId: ai.responseId },
       crawlFailures: crawl.failures,
     };
   } catch (error) {
