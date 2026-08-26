@@ -37,6 +37,16 @@ export async function listComplianceAssessments(limit = 100): Promise<Compliance
   return records.map(record => complianceAssessmentSchema.parse(record));
 }
 
+export async function getComplianceAssessmentsForCandidates(
+  candidateIds: string[],
+): Promise<ComplianceAssessment[]> {
+  const uniqueIds = [...new Set(candidateIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return [];
+  const store = await collection();
+  const records = await store.find({ candidateId: { $in: uniqueIds } }).toArray();
+  return records.map(record => complianceAssessmentSchema.parse(record));
+}
+
 export async function getComplianceOverview(): Promise<ComplianceOverview> {
   const store = await collection();
   const rows = await store.aggregate<{
