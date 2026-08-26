@@ -78,6 +78,11 @@ export async function countCandidatesSince(isoTimestamp: string): Promise<number
   return store.countDocuments({ discoveredAt: { $gte: isoTimestamp } });
 }
 
+export async function countCampaignCandidatesSince(campaignId: string, isoTimestamp: string): Promise<number> {
+  const store = await collection();
+  return store.countDocuments({ campaignId, discoveredAt: { $gte: isoTimestamp } });
+}
+
 export async function setCandidateStatus(id: string, status: Candidate['status']): Promise<void> {
   const store = await collection();
   await store.updateOne({ id }, { $set: { status, updatedAt: new Date().toISOString() } });
