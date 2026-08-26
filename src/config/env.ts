@@ -25,6 +25,13 @@ const schema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_EXTRACTION_MODEL: z.string().min(1).default('gpt-5.6-luna'),
   OPENAI_ESCALATION_MODEL: z.string().min(1).default('gpt-5.6-terra'),
+  OPENAI_MAX_EVIDENCE_FRAGMENTS: z.coerce.number().int().min(1).max(20).default(8),
+  OPENAI_MAX_EVIDENCE_CHARS: z.coerce.number().int().min(1000).max(50000).default(14000),
+  OPENAI_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5000).max(120000).default(45000),
+  OPENAI_BUDGET_RESERVATION_GBP_PER_CALL: z.coerce.number().positive().max(10).default(0.10),
+  OPENAI_ESTIMATED_GBP_PER_MILLION_TOKENS: z.coerce.number().positive().max(100).default(8),
+  OPENAI_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().min(2).max(50).default(5),
+  OPENAI_CIRCUIT_OPEN_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
   EVENTFLOW_INTERNAL_BASE_URL: z.string().url().optional(),
   EVENTFLOW_BOT_HMAC_SECRET: z.string().optional(),
 });
