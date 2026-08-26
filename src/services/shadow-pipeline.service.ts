@@ -5,6 +5,8 @@ import { extractBasicFacts } from '../extraction/basic-extractor.js';
 import { saveEvidenceFragments } from '../repositories/evidence.repository.js';
 import { saveShadowProfile } from '../repositories/shadow-profile.repository.js';
 import { setCandidateStatus } from '../repositories/candidate.repository.js';
+import { getSettings } from '../repositories/settings.repository.js';
+import { enrichShadowProfileWithAi } from './ai-enrichment.service.js';
 import { composeDeterministicShadowProfile } from './shadow-profile-composer.service.js';
 import { scoreShadowProfile } from './quality.service.js';
 
@@ -26,18 +28,33 @@ export async function runShadowPipeline(candidate: Candidate) {
     }));
     await saveEvidenceFragments(evidence);
 
-    const profile = composeDeterministicShadowProfile({
+    const deterministicProfile = composeDeterministicShadowProfile({
       candidate,
       extraction,
       evidenceIds: evidence.map(item => item.id),
     });
-    const quality = scoreShadowProfile(profile);
-    const finalProfile = await saveShadowProfile({ ...profile, publicationQuality: quality.total });
+    const settings = await getSettings();
+    const ai = await enrichShadowProfileWithAi({
+      profile: deterministicProfile,
+      evidence,
+      hardBudgetGbp: settings.hardAiSpendGbpPerDay,
+    });
+
+    const quality = scoreShadowProfile(ai.profile);
+    const finalProfile = await saveShadowProfile({
+      ...ai.profile,
+      publicationQuality: quality.total,
+    });
     await setCandidateStatus(candidate.id, 'shadow_ready');
 
     return {
       profile: finalProfile,
       quality,
+      ai: {
+        status: ai.status,
+        model: ai.model,
+        responseId: ai.responseId,
+      },
       crawlFailures: crawl.failures,
     };
   } catch (error) {
