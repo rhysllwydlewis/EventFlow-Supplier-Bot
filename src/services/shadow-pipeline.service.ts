@@ -2,6 +2,7 @@ import type { Candidate } from '../domain/candidate.js';
 import { crawlSupplierSite } from '../crawler/site-crawler.js';
 import { createEvidenceFragment } from '../evidence/evidence.js';
 import { extractBasicFacts } from '../extraction/basic-extractor.js';
+import { getCampaign } from '../repositories/campaign.repository.js';
 import { saveComplianceAssessment } from '../repositories/compliance-assessment.repository.js';
 import { saveEvidenceFragments } from '../repositories/evidence.repository.js';
 import { saveShadowProfile } from '../repositories/shadow-profile.repository.js';
@@ -11,6 +12,7 @@ import { enrichShadowProfileWithAi } from './ai-enrichment.service.js';
 import {
   applyDescriptionComplianceFallback,
   assessShadowProfileCompliance,
+  effectiveMinimumPublicationQuality,
 } from './compliance.service.js';
 import { composeDeterministicShadowProfile } from './shadow-profile-composer.service.js';
 import { scoreShadowProfile } from './quality.service.js';
@@ -38,7 +40,14 @@ export async function runShadowPipeline(candidate: Candidate) {
       extraction,
       evidenceIds: evidence.map(item => item.id),
     });
-    const settings = await getSettings();
+    const [settings, campaign] = await Promise.all([
+      getSettings(),
+      getCampaign(candidate.campaignId),
+    ]);
+    const minimumPublicationQuality = effectiveMinimumPublicationQuality(
+      settings.minimumPublicationQuality,
+      campaign?.minimumPublicationQuality,
+    );
     const ai = await enrichShadowProfileWithAi({
       profile: deterministicProfile,
       evidence,
@@ -58,7 +67,7 @@ export async function runShadowPipeline(candidate: Candidate) {
     const compliance = await saveComplianceAssessment(assessShadowProfileCompliance({
       profile: finalProfile,
       evidence,
-      minimumPublicationQuality: settings.minimumPublicationQuality,
+      minimumPublicationQuality,
       descriptionFallbackApplied: compliantDescription.fallbackApplied,
     }));
 
