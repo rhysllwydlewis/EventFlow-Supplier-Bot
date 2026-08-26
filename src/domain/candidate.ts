@@ -6,6 +6,8 @@ export const candidateStatusSchema = z.enum([
   'duplicate',
   'queued_for_crawl',
   'crawling',
+  'queued_for_browser_crawl',
+  'browser_crawling',
   'crawled',
   'extracting',
   'ready_for_quality',
