@@ -14,6 +14,7 @@ import {
 import { writeHeartbeat } from '../repositories/heartbeat.repository.js';
 import { getSettings, patchSettings } from '../repositories/settings.repository.js';
 import { recordAuditEvent } from '../repositories/audit.repository.js';
+import { remainingDailyAllowance } from '../services/daily-limit.service.js';
 import { runDiscoveryCycle } from '../services/discovery.service.js';
 import { runShadowPipeline } from '../services/shadow-pipeline.service.js';
 
@@ -60,8 +61,11 @@ async function handleCoveragePlan(job: Job): Promise<Record<string, unknown>> {
   const scheduled: Array<{ campaignId: string; remainingAllowance: number }> = [];
   for (const campaign of campaigns) {
     const acquiredToday = await countCampaignCandidatesSince(campaign.id, dayStart);
-    const hardLimit = Math.min(campaign.dailyHardLimit, settings.dailyHardLimit);
-    const remainingAllowance = Math.max(0, hardLimit - acquiredToday);
+    const remainingAllowance = remainingDailyAllowance(
+      acquiredToday,
+      campaign.dailyHardLimit,
+      settings.dailyHardLimit,
+    );
     if (remainingAllowance === 0) {
       continue;
     }
@@ -100,8 +104,11 @@ async function handleDiscoveryJob(job: Job): Promise<Record<string, unknown>> {
   }
 
   const acquiredToday = await countCampaignCandidatesSince(campaign.id, startOfUtcDayIso());
-  const hardLimit = Math.min(campaign.dailyHardLimit, settings.dailyHardLimit);
-  const remainingAllowance = Math.max(0, hardLimit - acquiredToday);
+  const remainingAllowance = remainingDailyAllowance(
+    acquiredToday,
+    campaign.dailyHardLimit,
+    settings.dailyHardLimit,
+  );
   if (remainingAllowance === 0) {
     return { skipped: true, reason: 'daily_hard_limit_reached' };
   }
