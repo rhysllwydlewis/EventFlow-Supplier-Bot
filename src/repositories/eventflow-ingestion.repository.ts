@@ -1,4 +1,4 @@
-import type { Collection } from 'mongodb';
+import type { Collection, UpdateFilter } from 'mongodb';
 import { getDatabase } from '../lib/mongo.js';
 
 export type EventFlowIngestionStatus =
@@ -27,7 +27,8 @@ async function collection(): Promise<Collection<EventFlowIngestionRecord>> {
 }
 
 export async function getEventFlowIngestion(candidateId: string): Promise<EventFlowIngestionRecord | null> {
-  return collection().then(store => store.findOne({ candidateId }));
+  const store = await collection();
+  return store.findOne({ candidateId });
 }
 
 export async function saveEventFlowIngestionState(input: {
@@ -41,7 +42,13 @@ export async function saveEventFlowIngestionState(input: {
 }): Promise<void> {
   const store = await collection();
   const now = new Date().toISOString();
-  const update: Record<string, unknown> = {
+  const setOnInsert: Partial<EventFlowIngestionRecord> = {
+    candidateId: input.candidateId,
+    createdAt: now,
+  };
+  if (!input.incrementAttempts) setOnInsert.attempts = 0;
+
+  const update: UpdateFilter<EventFlowIngestionRecord> = {
     $set: {
       status: input.status,
       supplierId: input.supplierId ?? null,
@@ -50,15 +57,9 @@ export async function saveEventFlowIngestionState(input: {
       nextRetryAt: input.nextRetryAt ?? null,
       updatedAt: now,
     },
-    $setOnInsert: {
-      candidateId: input.candidateId,
-      attempts: 0,
-      createdAt: now,
-    },
+    $setOnInsert: setOnInsert,
   };
-  if (input.incrementAttempts) {
-    update.$inc = { attempts: 1 };
-  }
+  if (input.incrementAttempts) update.$inc = { attempts: 1 };
   await store.updateOne({ candidateId: input.candidateId }, update, { upsert: true });
 }
 
@@ -74,11 +75,7 @@ export async function listRetryableEventFlowCandidateIds(limit = 100): Promise<s
         as: 'ingestions',
       },
     },
-    {
-      $set: {
-        ingestion: { $arrayElemAt: ['$ingestions', 0] },
-      },
-    },
+    { $set: { ingestion: { $arrayElemAt: ['$ingestions', 0] } } },
     {
       $match: {
         $or: [
