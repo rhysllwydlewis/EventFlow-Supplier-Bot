@@ -46,7 +46,11 @@ export async function getQueueCounts(): Promise<Record<string, Record<string, nu
   const result: Record<string, Record<string, number>> = {};
   for (const key of Object.keys(QUEUE_NAMES) as QueueKey[]) {
     const queue = getQueue(key);
-    result[key] = await queue.getJobCounts('waiting', 'active', 'delayed', 'completed', 'failed', 'paused');
+    const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'completed', 'failed');
+    result[key] = {
+      ...counts,
+      paused: (await queue.isPaused()) ? 1 : 0,
+    };
   }
   return result;
 }
