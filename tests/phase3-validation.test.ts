@@ -142,7 +142,9 @@ describe('Phase 3 shadow validation', () => {
     expect(report.metrics.rejectedCandidates).toBe(1);
     expect(report.metrics.publicationEligible).toBe(1);
     expect(report.metrics.complianceReview).toBe(1);
-    expect(report.metrics.complianceBlocked).toBe(2);
+    // Candidate c is a dedupe block and has no Shadow profile/compliance assessment.
+    // It is counted in strongDuplicates, not double-counted as a compliance block.
+    expect(report.metrics.complianceBlocked).toBe(1);
     expect(report.metrics.seoReady).toBe(1);
     expect(report.metrics.aiEstimatedCostGbp).toBe(2);
     expect(report.metrics.aiCostPerCandidateGbp).toBe(0.5);
