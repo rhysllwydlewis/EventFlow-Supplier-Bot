@@ -54,12 +54,12 @@ const RESPONSE_JSON_SCHEMA = {
     services: {
       type: 'array',
       maxItems: 30,
-      items: listFactJsonSchema(180),
+      items: listFactJsonSchema(120),
     },
     advertisedPrices: {
       type: 'array',
       maxItems: 50,
-      items: listFactJsonSchema(180),
+      items: listFactJsonSchema(80),
     },
     packages: {
       type: 'array',
