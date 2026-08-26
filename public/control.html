@@ -117,9 +117,9 @@
       </div>
 
       <div class="card span-12">
-        <div class="section-head"><div><h2>Compliance overview</h2><p class="muted">Latest policy decision for each researched profile shown below.</p></div></div>
+        <div class="section-head"><div><h2>Compliance overview</h2><p class="muted">Database-wide latest compliance decision for every researched profile.</p></div></div>
         <div class="metric-grid">
-          <div class="metric"><strong id="publishReadyMetric">0</strong><span>Publish ready</span></div>
+          <div class="metric"><strong id="publishReadyMetric">0</strong><span>Publication eligible</span></div>
           <div class="metric"><strong id="reviewMetric">0</strong><span>Needs review</span></div>
           <div class="metric"><strong id="blockedMetric">0</strong><span>Blocked</span></div>
           <div class="metric"><strong id="seoReadyMetric">0</strong><span>SEO ready</span></div>
@@ -154,15 +154,14 @@ async function request(url,options={}){const headers={'Content-Type':'applicatio
 function showLogin(){$('loginView').classList.remove('hidden');$('appView').classList.add('hidden');}function showApp(){$('loginView').classList.add('hidden');$('appView').classList.remove('hidden');}
 function escapeHtml(value){const div=document.createElement('div');div.textContent=String(value??'');return div.innerHTML;}
 function money(value){const number=Number(value)||0;return `£${number.toFixed(number<1?2:1)}`;}
-function complianceSummary(items){return{publishReady:items.filter(item=>item.publicationEligible).length,review:items.filter(item=>item.status==='review').length,blocked:items.filter(item=>item.status==='block').length,seoReady:items.filter(item=>item.seoIndexEligible).length};}
 function displayReason(item){if(!item)return 'Assessment pending';const reasons=(item.reasons||[]).filter(reason=>reason!=='pricing_not_publicly_available');return reasons.length?reasons.slice(0,3).map(reason=>reason.replaceAll('_',' ')).join(' · '):'Ready';}
 async function refresh(){
-  const [status,campaigns,candidates,profiles,compliance]=await Promise.all([request('/api/status'),request('/api/campaigns'),request('/api/candidates?limit=12'),request('/api/shadow-profiles?limit=20'),request('/api/compliance-assessments?limit=100')]);const s=status.settings;
+  const [status,campaigns,candidates,profiles,compliance,overview]=await Promise.all([request('/api/status'),request('/api/campaigns'),request('/api/candidates?limit=12'),request('/api/shadow-profiles?limit=20'),request('/api/compliance-assessments?limit=100'),request('/api/compliance-overview')]);const s=status.settings;
   $('mode').value=s.mode;$('quality').value=s.minimumPublicationQuality;$('dailyTarget').value=s.dailyTarget;$('dailyHardLimit').value=s.dailyHardLimit;$('maxCrawls').value=s.maxCrawlsPerDay;$('softAi').value=s.softAiSpendGbpPerDay;$('hardAi').value=s.hardAiSpendGbpPerDay;
   ['discoveryEnabled','refreshEnabled','publishingEnabled','claimNoticesEnabled','marketingEnabled','seoIndexingEnabled'].forEach(id=>$(id).checked=!!s[id]);
   $('statusText').textContent=s.runState.replaceAll('_',' ').toUpperCase();$('statusDot').className=`dot ${s.runState==='running'&&status.workerHealthy?'running':s.runState==='stopped'?'':'warning'}`;
   $('workerMetric').textContent=status.workerHealthy?'Healthy':'Offline';$('modeMetric').textContent=s.mode.replaceAll('_',' ');$('todayMetric').textContent=status.metrics?.candidatesToday??0;$('crawlMetric').textContent=status.metrics?.crawlsToday??0;$('aiCallsMetric').textContent=status.metrics?.aiCallsToday??0;$('aiCostMetric').textContent=money(status.metrics?.aiEstimatedCostGbpToday);$('aiReservedMetric').textContent=money(status.metrics?.aiReservedGbp);$('capMetric').textContent=s.dailyHardLimit;
-  const summary=complianceSummary(compliance.items||[]);$('publishReadyMetric').textContent=summary.publishReady;$('reviewMetric').textContent=summary.review;$('blockedMetric').textContent=summary.blocked;$('seoReadyMetric').textContent=summary.seoReady;
+  $('publishReadyMetric').textContent=overview.publicationEligible??0;$('reviewMetric').textContent=overview.review??0;$('blockedMetric').textContent=overview.blocked??0;$('seoReadyMetric').textContent=overview.seoReady??0;
   const p=status.providerCapabilities;$('providerInfo').textContent=`OpenAI ${p.openAiConfigured?'configured':'not configured'} · Brave ${p.braveConfigured?'configured':'not configured'} · persistence ${p.bravePersistenceAllowed?'allowed':'gated'}`;
   $('campaignRows').innerHTML=campaigns.items.map(c=>`<tr><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.categories.join(', '))}</td><td>${escapeHtml(c.locations.join(', '))}</td><td>${c.dailyTarget}/${c.dailyHardLimit}</td><td><span class="status">${escapeHtml(c.status)}</span></td><td><button class="small campaign-toggle" data-id="${escapeHtml(c.id)}" data-next="${c.status==='running'?'paused':'running'}">${c.status==='running'?'Pause':'Run'}</button></td></tr>`).join('');
   $('queueRows').innerHTML=Object.entries(status.queues).map(([name,c])=>`<tr><td>${escapeHtml(name)}</td><td>${c.waiting||0}</td><td>${c.active||0}</td><td>${c.failed||0}</td></tr>`).join('');
