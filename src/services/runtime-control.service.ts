@@ -5,6 +5,7 @@ import {
   invalidateAllComplianceAssessments,
   withCompliancePolicyLock,
 } from '../repositories/compliance-assessment.repository.js';
+import { reconcilePhase3Validation } from './phase3-validation.service.js';
 
 const PIPELINE_QUEUE_KEYS = (Object.keys(QUEUE_NAMES) as QueueKey[]).filter(key => key !== 'orchestration');
 
@@ -19,6 +20,10 @@ async function resumePipelineQueues(): Promise<void> {
 export async function playBot(actor: string) {
   await resumePipelineQueues();
   const settings = await patchSettings({ runState: 'running' }, actor);
+  // Start the Phase 3 sample window at the same instant the bot is allowed to
+  // acquire work. Waiting for the periodic reconciler could otherwise omit
+  // candidates discovered in the first few minutes after an operator presses Run.
+  await reconcilePhase3Validation(settings);
   await recordAuditEvent(actor, 'bot.play', { mode: settings.mode });
   return settings;
 }
