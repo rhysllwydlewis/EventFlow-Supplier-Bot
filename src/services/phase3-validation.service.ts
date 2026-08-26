@@ -19,6 +19,7 @@ export interface Phase3ValidationRun {
   completedAt?: string | null;
   campaignId?: string | null;
   targetCandidates: number;
+  aiCostBaselineGbp?: number;
   updatedAt: string;
 }
 
@@ -130,12 +131,16 @@ export function summarizePhase3Validation(input: {
 
   const aiEstimatedCostGbp = Math.max(0, Number(input.aiEstimatedCostGbp) || 0);
   const target = input.run?.targetCandidates ?? PHASE3_TARGET_CANDIDATES;
+  const targetReached = candidateCount >= target;
+  const finalised = Boolean(
+    input.run && ['ready_for_review', 'completed'].includes(input.run.status),
+  );
 
   return {
     run: input.run,
     safety: phase3Safety(input.settings),
-    targetReached: candidateCount >= target,
-    readyForReview: candidateCount >= target && profileCount > 0,
+    targetReached,
+    readyForReview: targetReached && profileCount > 0 && finalised,
     metrics: {
       candidateCount,
       shadowProfileCount: profileCount,
@@ -145,7 +150,10 @@ export function summarizePhase3Validation(input: {
       evidenceCoveragePct: pct(profiles.filter(item => item.evidenceIds.length > 0).length, profileCount),
       publicEmailCoveragePct: pct(profiles.filter(item => isPopulated(item.publicEmail)).length, profileCount),
       publicPhoneCoveragePct: pct(profiles.filter(item => isPopulated(item.publicPhone)).length, profileCount),
-      advertisedPriceCoveragePct: pct(profiles.filter(item => item.advertisedPrices.length > 0).length, profileCount),
+      advertisedPriceCoveragePct: pct(
+        profiles.filter(item => item.advertisedPrices.length > 0).length,
+        profileCount,
+      ),
       packageCoveragePct: pct(profiles.filter(item => item.packages.length > 0).length, profileCount),
       distinctCandidates,
       probableDuplicates,
@@ -157,15 +165,28 @@ export function summarizePhase3Validation(input: {
       complianceBlocked,
       seoReady,
       aiEstimatedCostGbp: round(aiEstimatedCostGbp, 4),
-      aiCostPerCandidateGbp: candidateCount > 0 ? round(aiEstimatedCostGbp / candidateCount, 4) : 0,
+      aiCostPerCandidateGbp:
+        candidateCount > 0 ? round(aiEstimatedCostGbp / candidateCount, 4) : 0,
     },
   };
 }
 
 async function getRun(): Promise<Phase3ValidationRun | null> {
   const db = await getDatabase();
-  const record = await db.collection<Phase3ValidationRun>('validation_runs').findOne({ id: PHASE3_VALIDATION_ID });
+  const record = await db
+    .collection<Phase3ValidationRun>('validation_runs')
+    .findOne({ id: PHASE3_VALIDATION_ID });
   return record ? { ...record, id: PHASE3_VALIDATION_ID } : null;
+}
+
+async function totalRecordedAiCostGbp(): Promise<number> {
+  const db = await getDatabase();
+  const rows = await db
+    .collection<{ provider: 'openai'; estimatedCostGbp?: number }>('ai_usage')
+    .find({ provider: 'openai' })
+    .project<{ estimatedCostGbp?: number }>({ _id: 0, estimatedCostGbp: 1 })
+    .toArray();
+  return rows.reduce((sum, item) => sum + Math.max(0, Number(item.estimatedCostGbp) || 0), 0);
 }
 
 async function ensureRun(settings: BotSettings): Promise<Phase3ValidationRun | null> {
@@ -181,6 +202,7 @@ async function ensureRun(settings: BotSettings): Promise<Phase3ValidationRun | n
     completedAt: null,
     campaignId: settings.activeCampaignId,
     targetCandidates: PHASE3_TARGET_CANDIDATES,
+    aiCostBaselineGbp: await totalRecordedAiCostGbp(),
     updatedAt: now,
   };
   const db = await getDatabase();
@@ -192,6 +214,7 @@ async function ensureRun(settings: BotSettings): Promise<Phase3ValidationRun | n
   await recordAuditEvent('phase3-validator', 'phase3.validation_started', {
     targetCandidates: PHASE3_TARGET_CANDIDATES,
     campaignId: settings.activeCampaignId,
+    aiCostBaselineGbp: run.aiCostBaselineGbp,
   });
   return (await getRun()) ?? run;
 }
@@ -201,54 +224,73 @@ async function loadRunData(run: Phase3ValidationRun) {
   const candidateFilter: Filter<Candidate> = { discoveredAt: { $gte: run.startedAt } };
   if (run.campaignId) candidateFilter.campaignId = run.campaignId;
 
-  const candidates = await db.collection<Candidate>('candidates')
+  const candidates = await db
+    .collection<Candidate>('candidates')
     .find(candidateFilter)
     .sort({ discoveredAt: 1 })
     .limit(250)
     .toArray();
   const ids = candidates.map(item => item.id);
-  const [profiles, assessments, aiUsage] = await Promise.all([
+  const [profiles, assessments, currentAiCostGbp] = await Promise.all([
     ids.length > 0
       ? db.collection<ShadowProfile>('shadow_profiles').find({ candidateId: { $in: ids } }).toArray()
       : Promise.resolve([]),
     ids.length > 0
-      ? db.collection<ComplianceAssessment>('compliance_assessments').find({ candidateId: { $in: ids } }).toArray()
+      ? db
+          .collection<ComplianceAssessment>('compliance_assessments')
+          .find({ candidateId: { $in: ids } })
+          .toArray()
       : Promise.resolve([]),
-    db.collection<{ provider: 'openai'; day: string; estimatedCostGbp?: number }>('ai_usage')
-      .find({ provider: 'openai', day: { $gte: run.startedAt.slice(0, 10) } })
-      .toArray(),
+    totalRecordedAiCostGbp(),
   ]);
 
+  const aiCostBaselineGbp = Math.max(0, Number(run.aiCostBaselineGbp) || 0);
   return {
     candidates,
     profiles,
     assessments,
-    aiEstimatedCostGbp: aiUsage.reduce((sum, item) => sum + Math.max(0, Number(item.estimatedCostGbp) || 0), 0),
+    aiEstimatedCostGbp: Math.max(0, currentAiCostGbp - aiCostBaselineGbp),
   };
 }
 
-export async function getPhase3ValidationReport(settings: BotSettings): Promise<Phase3ValidationReport> {
+export async function getPhase3ValidationReport(
+  settings: BotSettings,
+): Promise<Phase3ValidationReport> {
   const run = await getRun();
   if (!run) {
-    return summarizePhase3Validation({ settings, run: null, candidates: [], profiles: [], assessments: [] });
+    return summarizePhase3Validation({
+      settings,
+      run: null,
+      candidates: [],
+      profiles: [],
+      assessments: [],
+    });
   }
   const data = await loadRunData(run);
   return summarizePhase3Validation({ settings, run, ...data });
 }
 
-async function markCompleted(run: Phase3ValidationRun): Promise<void> {
-  if (run.status === 'completed') return;
+async function markCompleted(run: Phase3ValidationRun): Promise<boolean> {
+  if (run.status === 'completed') return true;
+  if (run.status !== 'draining') return false;
+
+  const data = await loadRunData(run);
+  if (data.candidates.length < run.targetCandidates) return false;
+
   const now = new Date().toISOString();
   const db = await getDatabase();
   await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
-    { id: PHASE3_VALIDATION_ID },
+    { id: PHASE3_VALIDATION_ID, status: 'draining' },
     { $set: { status: 'completed', completedAt: now, updatedAt: now } },
   );
   await recordAuditEvent('phase3-validator', 'phase3.validation_completed', {
     startedAt: run.startedAt,
     completedAt: now,
     targetCandidates: run.targetCandidates,
+    candidateCount: data.candidates.length,
+    shadowProfileCount: data.profiles.length,
   });
+  return true;
 }
 
 export async function reconcilePhase3Validation(settings: BotSettings): Promise<{
@@ -258,10 +300,14 @@ export async function reconcilePhase3Validation(settings: BotSettings): Promise<
 }> {
   const safety = phase3Safety(settings);
   if (!safety.safeToValidate) {
+    const run = await getRun();
+    const data = run
+      ? await loadRunData(run)
+      : { candidates: [], profiles: [], assessments: [], aiEstimatedCostGbp: 0 };
     return {
       active: false,
       transitionedToDraining: false,
-      report: summarizePhase3Validation({ settings, run: await getRun(), candidates: [], profiles: [], assessments: [] }),
+      report: summarizePhase3Validation({ settings, run, ...data }),
     };
   }
 
@@ -270,7 +316,13 @@ export async function reconcilePhase3Validation(settings: BotSettings): Promise<
     return {
       active: false,
       transitionedToDraining: false,
-      report: summarizePhase3Validation({ settings, run: null, candidates: [], profiles: [], assessments: [] }),
+      report: summarizePhase3Validation({
+        settings,
+        run: null,
+        candidates: [],
+        profiles: [],
+        assessments: [],
+      }),
     };
   }
 
@@ -281,14 +333,21 @@ export async function reconcilePhase3Validation(settings: BotSettings): Promise<
   const currentRun = (await getRun()) ?? run;
   const data = await loadRunData(currentRun);
   const report = summarizePhase3Validation({ settings, run: currentRun, ...data });
-  if (!report.targetReached || ['draining', 'ready_for_review', 'completed'].includes(currentRun.status)) {
-    return { active: currentRun.status !== 'completed', transitionedToDraining: false, report };
+  if (
+    !report.targetReached ||
+    ['draining', 'ready_for_review', 'completed'].includes(currentRun.status)
+  ) {
+    return {
+      active: currentRun.status !== 'completed',
+      transitionedToDraining: false,
+      report,
+    };
   }
 
   const now = new Date().toISOString();
   const db = await getDatabase();
   await db.collection<Phase3ValidationRun>('validation_runs').updateOne(
-    { id: PHASE3_VALIDATION_ID },
+    { id: PHASE3_VALIDATION_ID, status: 'collecting' },
     { $set: { status: 'draining', updatedAt: now } },
   );
   await patchSettings({ runState: 'draining' }, 'phase3-validator');
@@ -300,7 +359,7 @@ export async function reconcilePhase3Validation(settings: BotSettings): Promise<
   return { active: true, transitionedToDraining: true, report };
 }
 
-export async function completePhase3ValidationRun(): Promise<void> {
+export async function completePhase3ValidationRun(): Promise<boolean> {
   const run = await getRun();
-  if (run) await markCompleted(run);
+  return run ? markCompleted(run) : false;
 }
