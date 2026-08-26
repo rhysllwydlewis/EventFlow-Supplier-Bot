@@ -57,19 +57,37 @@ async function heartbeat(status: 'starting' | 'ready' | 'draining' | 'stopping')
 }
 
 async function handleCoveragePlan(job: Job): Promise<Record<string, unknown>> {
-  const settings = await getSettings();
-  if (settings.runState !== 'running') {
-    return { skipped: true, reason: `run_state_${settings.runState}` };
+  const initialSettings = await getSettings();
+  if (initialSettings.runState !== 'running') {
+    return { skipped: true, reason: `run_state_${initialSettings.runState}` };
   }
-  if (!settings.discoveryEnabled || settings.mode === 'off') {
+  if (!initialSettings.discoveryEnabled || initialSettings.mode === 'off') {
     return { skipped: true, reason: 'discovery_disabled' };
   }
+
   const campaigns = (await listCampaigns()).filter(item => item.status === 'running');
   if (campaigns.length === 0) return { skipped: true, reason: 'no_running_campaigns' };
+
+  // No discovery batch is admitted until the Phase 3 ledger has had a chance
+  // to bind to the currently running South Wales venue campaign. This closes
+  // the gap between an operator starting a campaign and the periodic
+  // reconciler's next tick.
+  const phase3 = await reconcilePhase3Validation(initialSettings);
+  const settings = phase3.transitionedToDraining ? await getSettings() : initialSettings;
+  if (settings.runState !== 'running') {
+    return { skipped: true, reason: `run_state_${settings.runState}`, phase3 };
+  }
+  if (settings.mode === 'shadow' && !phase3.active && !phase3.report.run) {
+    return { skipped: true, reason: 'phase3_validation_not_initialized', phase3 };
+  }
+
   const dayStart = startOfUtcDayIso();
   const globalAcquiredToday = await countCandidatesSince(dayStart);
   const scheduled: Array<{ campaignId: string; remainingAllowance: number }> = [];
   for (const campaign of campaigns) {
+    // During Phase 3, only the campaign bound to the validation run may admit
+    // candidates. Other running campaigns remain untouched but are not sampled.
+    if (settings.mode === 'shadow' && phase3.report.run?.campaignId !== campaign.id) continue;
     const campaignAcquiredToday = await countCampaignCandidatesSince(campaign.id, dayStart);
     const remainingAllowance = remainingDailyAllowance(
       campaignAcquiredToday,
@@ -94,7 +112,7 @@ async function handleCoveragePlan(job: Job): Promise<Record<string, unknown>> {
     );
     scheduled.push({ campaignId: campaign.id, remainingAllowance });
   }
-  return { planned: true, campaignCount: campaigns.length, scheduled };
+  return { planned: true, campaignCount: campaigns.length, scheduled, phase3 };
 }
 
 async function handleDiscoveryJob(job: Job): Promise<Record<string, unknown>> {
