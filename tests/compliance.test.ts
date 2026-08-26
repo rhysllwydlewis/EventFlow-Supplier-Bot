@@ -79,6 +79,18 @@ describe('Shadow compliance gate', () => {
     expect(assessment.logoStrategy).toBe('initials_tile');
   });
 
+  it('does not invent or require pricing for an otherwise factual listing', () => {
+    const profile = { ...deterministic, advertisedPrices: [], packages: [] };
+    const assessment = assessShadowProfileCompliance({
+      profile,
+      evidence,
+      minimumPublicationQuality: 75,
+    });
+    expect(profile.packages).toEqual([]);
+    expect(assessment.publicationEligible).toBe(true);
+    expect(assessment.reasons).toContain('pricing_not_publicly_available');
+  });
+
   it('blocks publication below the configured quality floor', () => {
     const assessment = assessShadowProfileCompliance({
       profile: { ...deterministic, publicationQuality: 60 },
