@@ -14,6 +14,12 @@ export async function saveShadowProfile(profile: ShadowProfile): Promise<ShadowP
   return validated;
 }
 
+export async function getShadowProfile(candidateId: string): Promise<ShadowProfile | null> {
+  const store = await collection();
+  const record = await store.findOne({ candidateId });
+  return record ? shadowProfileSchema.parse(record) : null;
+}
+
 export async function listShadowProfiles(limit = 100): Promise<ShadowProfile[]> {
   const store = await collection();
   const records = await store.find({}).sort({ generatedAt: -1 }).limit(Math.min(Math.max(limit, 1), 500)).toArray();
