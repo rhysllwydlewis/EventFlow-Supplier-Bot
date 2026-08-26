@@ -23,7 +23,21 @@ export async function playBot(actor: string) {
   // Start the Phase 3 sample window at the same instant the bot is allowed to
   // acquire work. Waiting for the periodic reconciler could otherwise omit
   // candidates discovered in the first few minutes after an operator presses Run.
-  await reconcilePhase3Validation(settings);
+  try {
+    await reconcilePhase3Validation(settings);
+  } catch (error) {
+    // Do not leave discovery running if the validation ledger could not be
+    // initialized. Revert the persisted state and pause pipeline queues before
+    // surfacing the error so a failed safety/telemetry write cannot create an
+    // unmeasured Phase 3 sample.
+    await patchSettings({ runState: 'stopped' }, 'phase3-validator-fail-closed');
+    await pausePipelineQueues();
+    await recordAuditEvent('phase3-validator', 'phase3.validation_start_failed', {
+      requestedBy: actor,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
   await recordAuditEvent(actor, 'bot.play', { mode: settings.mode });
   return settings;
 }
