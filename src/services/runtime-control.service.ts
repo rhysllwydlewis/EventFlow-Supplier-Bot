@@ -1,6 +1,7 @@
 import { getQueue, QUEUE_NAMES, type QueueKey } from '../queues/index.js';
 import { patchSettings, type SettingsPatch } from '../repositories/settings.repository.js';
 import { recordAuditEvent } from '../repositories/audit.repository.js';
+import { invalidateAllComplianceAssessments } from '../repositories/compliance-assessment.repository.js';
 
 const PIPELINE_QUEUE_KEYS = (Object.keys(QUEUE_NAMES) as QueueKey[]).filter(key => key !== 'orchestration');
 
@@ -43,14 +44,16 @@ export async function emergencyStopBot(actor: string) {
     actor,
   );
   await pausePipelineQueues();
-  await recordAuditEvent(actor, 'bot.emergency_stop', {
-    queuesPaused: PIPELINE_QUEUE_KEYS,
-  });
+  await recordAuditEvent(actor, 'bot.emergency_stop', { queuesPaused: PIPELINE_QUEUE_KEYS });
   return settings;
 }
 
 export async function updateRuntimeSettings(patch: SettingsPatch, actor: string) {
   const settings = await patchSettings(patch, actor);
-  await recordAuditEvent(actor, 'settings.update', { patch });
+  let invalidatedCompliance = 0;
+  if (patch.minimumPublicationQuality !== undefined) {
+    invalidatedCompliance = await invalidateAllComplianceAssessments();
+  }
+  await recordAuditEvent(actor, 'settings.update', { patch, invalidatedCompliance });
   return settings;
 }

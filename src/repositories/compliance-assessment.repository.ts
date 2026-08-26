@@ -22,9 +22,7 @@ async function collection(): Promise<Collection<ComplianceAssessment>> {
   return db.collection<ComplianceAssessment>('compliance_assessments');
 }
 
-export async function saveComplianceAssessment(
-  assessment: ComplianceAssessment,
-): Promise<ComplianceAssessment> {
+export async function saveComplianceAssessment(assessment: ComplianceAssessment): Promise<ComplianceAssessment> {
   const validated = complianceAssessmentSchema.parse(assessment);
   const store = await collection();
   await store.replaceOne({ candidateId: validated.candidateId }, validated, { upsert: true });
@@ -35,6 +33,41 @@ export async function listComplianceAssessments(limit = 100): Promise<Compliance
   const store = await collection();
   const records = await store.find({}).sort({ assessedAt: -1 }).limit(Math.min(Math.max(limit, 1), 500)).toArray();
   return records.map(record => complianceAssessmentSchema.parse(record));
+}
+
+export async function invalidateAllComplianceAssessments(): Promise<number> {
+  const store = await collection();
+  const result = await store.deleteMany({});
+  return result.deletedCount;
+}
+
+export async function invalidateComplianceAssessmentsForCampaign(campaignId: string): Promise<number> {
+  const db = await getDatabase();
+  const candidates = await db.collection<Candidate>('candidates')
+    .find({ campaignId })
+    .project<{ id: string }>({ id: 1, _id: 0 })
+    .toArray();
+  const ids = candidates.map(item => item.id).filter(Boolean);
+  if (ids.length === 0) return 0;
+  const store = await collection();
+  let deleted = 0;
+  for (let index = 0; index < ids.length; index += 500) {
+    const result = await store.deleteMany({ candidateId: { $in: ids.slice(index, index + 500) } });
+    deleted += result.deletedCount;
+  }
+  return deleted;
+}
+
+export async function listPendingComplianceCandidateIds(limit = 100): Promise<string[]> {
+  const db = await getDatabase();
+  const rows = await db.collection('shadow_profiles').aggregate<{ candidateId: string }>([
+    { $lookup: { from: 'compliance_assessments', localField: 'candidateId', foreignField: 'candidateId', as: 'assessments' } },
+    { $match: { assessments: { $size: 0 } } },
+    { $sort: { generatedAt: 1 } },
+    { $limit: Math.min(Math.max(limit, 1), 500) },
+    { $project: { _id: 0, candidateId: 1 } },
+  ]).toArray();
+  return rows.map(row => row.candidateId).filter(Boolean);
 }
 
 export async function getComplianceAssessmentsForCandidates(candidateIds: string[]): Promise<ComplianceAssessment[]> {
@@ -77,12 +110,7 @@ export async function getComplianceOverview(): Promise<ComplianceOverview> {
         hasDedup: { $ne: [{ $ifNull: [{ $arrayElemAt: ['$candidates.dedupDecision', 0] }, null] }, null] },
       },
     },
-    {
-      $set: {
-        dedupDecision: '$candidate.dedupDecision',
-        fullyAssessed: { $and: ['$hasAssessment', '$hasDedup'] },
-      },
-    },
+    { $set: { dedupDecision: '$candidate.dedupDecision', fullyAssessed: { $and: ['$hasAssessment', '$hasDedup'] } } },
     {
       $group: {
         _id: null,
@@ -105,7 +133,5 @@ export async function getComplianceOverview(): Promise<ComplianceOverview> {
     review: row.review,
     blocked: row.blocked,
     seoReady: row.seoReady,
-  } : {
-    totalProfiles: 0, assessed: 0, pending: 0, publicationEligible: 0, review: 0, blocked: 0, seoReady: 0,
-  };
+  } : { totalProfiles: 0, assessed: 0, pending: 0, publicationEligible: 0, review: 0, blocked: 0, seoReady: 0 };
 }

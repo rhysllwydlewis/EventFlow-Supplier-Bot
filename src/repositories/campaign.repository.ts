@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Collection } from 'mongodb';
 import { campaignSchema, southWalesVenuePilot, type Campaign } from '../domain/campaign.js';
 import { getDatabase } from '../lib/mongo.js';
+import { invalidateComplianceAssessmentsForCampaign } from './compliance-assessment.repository.js';
 
 async function collection(): Promise<Collection<Campaign>> {
   const db = await getDatabase();
@@ -12,9 +13,7 @@ export async function ensurePilotCampaign(): Promise<Campaign> {
   const store = await collection();
   const pilot = southWalesVenuePilot();
   const existing = await store.findOne({ id: pilot.id });
-  if (existing) {
-    return campaignSchema.parse(existing);
-  }
+  if (existing) return campaignSchema.parse(existing);
   await store.insertOne(pilot);
   return pilot;
 }
@@ -43,36 +42,25 @@ export async function createCampaign(
     createdAt: now,
     updatedAt: now,
   });
-  if (campaign.dailyTarget > campaign.dailyHardLimit) {
-    throw new Error('Campaign daily target cannot exceed its hard limit');
-  }
+  if (campaign.dailyTarget > campaign.dailyHardLimit) throw new Error('Campaign daily target cannot exceed its hard limit');
   const store = await collection();
   await store.insertOne(campaign);
   return campaign;
 }
 
 type MutableCampaign = Omit<Campaign, 'id' | 'createdAt'>;
-export type CampaignPatch = {
-  [Key in keyof MutableCampaign]?: MutableCampaign[Key] | undefined;
-};
+export type CampaignPatch = { [Key in keyof MutableCampaign]?: MutableCampaign[Key] | undefined };
 
 export async function updateCampaign(
   rawId: string | string[] | undefined,
   patch: CampaignPatch,
 ): Promise<Campaign> {
   const id = Array.isArray(rawId) ? rawId[0] : rawId;
-  if (!id) {
-    throw new Error('Campaign id is required');
-  }
-
+  if (!id) throw new Error('Campaign id is required');
   const store = await collection();
   const existing = await store.findOne({ id });
-  if (!existing) {
-    throw new Error('Campaign not found');
-  }
-  const definedPatch = Object.fromEntries(
-    Object.entries(patch).filter(([, value]) => value !== undefined),
-  );
+  if (!existing) throw new Error('Campaign not found');
+  const definedPatch = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
   const updated = campaignSchema.parse({
     ...existing,
     ...definedPatch,
@@ -80,9 +68,10 @@ export async function updateCampaign(
     createdAt: existing.createdAt,
     updatedAt: new Date().toISOString(),
   });
-  if (updated.dailyTarget > updated.dailyHardLimit) {
-    throw new Error('Campaign daily target cannot exceed its hard limit');
-  }
+  if (updated.dailyTarget > updated.dailyHardLimit) throw new Error('Campaign daily target cannot exceed its hard limit');
   await store.replaceOne({ id }, updated);
+  if (patch.minimumPublicationQuality !== undefined && patch.minimumPublicationQuality !== existing.minimumPublicationQuality) {
+    await invalidateComplianceAssessmentsForCampaign(id);
+  }
   return updated;
 }
