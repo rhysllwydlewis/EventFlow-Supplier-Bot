@@ -6,7 +6,9 @@ import {
 import { getDatabase } from '../lib/mongo.js';
 
 export type ComplianceOverview = {
-  total: number;
+  totalProfiles: number;
+  assessed: number;
+  pending: number;
   publicationEligible: number;
   review: number;
   blocked: number;
@@ -48,32 +50,60 @@ export async function getComplianceAssessmentsForCandidates(
 }
 
 export async function getComplianceOverview(): Promise<ComplianceOverview> {
-  const store = await collection();
-  const rows = await store.aggregate<{
+  const db = await getDatabase();
+  const rows = await db.collection('shadow_profiles').aggregate<{
     _id: null;
-    total: number;
+    totalProfiles: number;
+    assessed: number;
+    pending: number;
     publicationEligible: number;
     review: number;
     blocked: number;
     seoReady: number;
   }>([
     {
+      $lookup: {
+        from: 'compliance_assessments',
+        localField: 'candidateId',
+        foreignField: 'candidateId',
+        as: 'assessments',
+      },
+    },
+    {
+      $set: {
+        assessment: { $arrayElemAt: ['$assessments', 0] },
+        hasAssessment: { $gt: [{ $size: '$assessments' }, 0] },
+      },
+    },
+    {
       $group: {
         _id: null,
-        total: { $sum: 1 },
-        publicationEligible: { $sum: { $cond: ['$publicationEligible', 1, 0] } },
-        review: { $sum: { $cond: [{ $eq: ['$status', 'review'] }, 1, 0] } },
-        blocked: { $sum: { $cond: [{ $eq: ['$status', 'block'] }, 1, 0] } },
-        seoReady: { $sum: { $cond: ['$seoIndexEligible', 1, 0] } },
+        totalProfiles: { $sum: 1 },
+        assessed: { $sum: { $cond: ['$hasAssessment', 1, 0] } },
+        pending: { $sum: { $cond: ['$hasAssessment', 0, 1] } },
+        publicationEligible: { $sum: { $cond: ['$assessment.publicationEligible', 1, 0] } },
+        review: { $sum: { $cond: [{ $eq: ['$assessment.status', 'review'] }, 1, 0] } },
+        blocked: { $sum: { $cond: [{ $eq: ['$assessment.status', 'block'] }, 1, 0] } },
+        seoReady: { $sum: { $cond: ['$assessment.seoIndexEligible', 1, 0] } },
       },
     },
   ]).toArray();
   const row = rows[0];
   if (!row) {
-    return { total: 0, publicationEligible: 0, review: 0, blocked: 0, seoReady: 0 };
+    return {
+      totalProfiles: 0,
+      assessed: 0,
+      pending: 0,
+      publicationEligible: 0,
+      review: 0,
+      blocked: 0,
+      seoReady: 0,
+    };
   }
   return {
-    total: row.total,
+    totalProfiles: row.totalProfiles,
+    assessed: row.assessed,
+    pending: row.pending,
     publicationEligible: row.publicationEligible,
     review: row.review,
     blocked: row.blocked,
