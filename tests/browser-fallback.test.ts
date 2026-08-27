@@ -8,6 +8,7 @@ function extraction(text: string, facts = false) {
     advertisedPrices: [],
     jsonLd: [],
     pageText: [{ url: 'https://example.com/', text }],
+    media: [],
   };
 }
 

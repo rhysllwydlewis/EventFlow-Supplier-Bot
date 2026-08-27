@@ -2,7 +2,7 @@ import { getDatabase } from '../lib/mongo.js';
 import { recordAuditEvent } from '../repositories/audit.repository.js';
 import { PHASE3_VALIDATION_ID } from './phase3-validation.service.js';
 
-const DISCOVERY_QUALITY_REVISION = 2;
+const DISCOVERY_QUALITY_REVISION = 3;
 
 interface Phase3RevisionRecord {
   id: string;
@@ -50,7 +50,7 @@ export async function applyPhase3DiscoveryQualityRevision(): Promise<{
     previousStartedAt: run.startedAt,
     restartedAt: now,
     revision: DISCOVERY_QUALITY_REVISION,
-    reason: 'discovery_supplier_quality_gate',
+    reason: 'supplier_media_and_discovery_audit_pipeline',
   });
   return { reset: true, revision: DISCOVERY_QUALITY_REVISION };
 }

@@ -52,6 +52,9 @@ function profile(id: string, overrides: Partial<ShadowProfile> = {}): ShadowProf
     services: ['Wedding venue'],
     packages: [{ name: 'Venue hire', price: '£1,000', features: ['Exclusive use'] }],
     evidenceIds: [`ev_${id}`],
+    coverImage: `https://${id}.example.com/hero.jpg`,
+    images: [`https://${id}.example.com/hero.jpg`, `https://${id}.example.com/gallery.jpg`],
+    mediaEvidence: [],
     dataConfidence: 90,
     publicationQuality: 92,
     generatedAt: '2026-08-27T00:10:00.000Z',
@@ -105,7 +108,7 @@ describe('Phase 3 shadow validation', () => {
     expect(phase3Safety({ ...settings, mode: 'live' }).safeToValidate).toBe(false);
   });
 
-  it('summarises quality, evidence, extraction, dedup and compliance signals', () => {
+  it('summarises quality, evidence, media, extraction, dedup and compliance signals', () => {
     const settings = defaultSettings();
     const candidates = [
       candidate('a'),
@@ -115,8 +118,8 @@ describe('Phase 3 shadow validation', () => {
     ];
     const profiles = [
       profile('a'),
-      profile('b', { publicPhone: null, packages: [], advertisedPrices: [] }),
-      profile('d', { publicEmail: null, evidenceIds: [], publicationQuality: 70, dataConfidence: 80 }),
+      profile('b', { publicPhone: null, packages: [], advertisedPrices: [], images: [], coverImage: null }),
+      profile('d', { publicEmail: null, evidenceIds: [], publicationQuality: 70, dataConfidence: 80, images: ['https://d.example.com/hero.jpg'], coverImage: 'https://d.example.com/hero.jpg' }),
     ];
     const assessments = [
       assessment('a', { seoIndexEligible: true }),
@@ -140,6 +143,8 @@ describe('Phase 3 shadow validation', () => {
     expect(report.metrics.averagePublicationQuality).toBe(84.7);
     expect(report.metrics.averageDataConfidence).toBe(86.7);
     expect(report.metrics.evidenceCoveragePct).toBe(66.7);
+    expect(report.metrics.imageCoveragePct).toBe(66.7);
+    expect(report.metrics.averageImagesPerProfile).toBe(1);
     expect(report.metrics.publicEmailCoveragePct).toBe(66.7);
     expect(report.metrics.publicPhoneCoveragePct).toBe(66.7);
     expect(report.metrics.advertisedPriceCoveragePct).toBe(66.7);
@@ -165,13 +170,7 @@ describe('Phase 3 shadow validation', () => {
     const profiles = candidates.map(item => profile(item.id));
     const assessments = candidates.map(item => assessment(item.id));
 
-    const collectingReport = summarizePhase3Validation({
-      settings,
-      run,
-      candidates,
-      profiles,
-      assessments,
-    });
+    const collectingReport = summarizePhase3Validation({ settings, run, candidates, profiles, assessments });
     expect(collectingReport.targetReached).toBe(true);
     expect(collectingReport.readyForReview).toBe(false);
 
@@ -184,18 +183,15 @@ describe('Phase 3 shadow validation', () => {
     });
     expect(completedReport.readyForReview).toBe(true);
     expect(completedReport.metrics.profileYieldPct).toBe(100);
+    expect(completedReport.metrics.imageCoveragePct).toBe(100);
   });
 
   it('is wired into the production reconciler and completes after a safe drain', () => {
     expect(workerSource).toContain('reconcilePhase3Validation(initialSettings)');
-    expect(workerSource).toContain(
-      'phase3.transitionedToDraining ? await getSettings() : initialSettings',
-    );
+    expect(workerSource).toContain('phase3.transitionedToDraining ? await getSettings() : initialSettings');
     expect(workerSource).toContain("settings.runState === 'draining'");
     expect(workerSource).toContain('await completePhase3ValidationRun()');
-    expect(workerSource.indexOf('await completePhase3ValidationRun()')).toBeGreaterThan(
-      workerSource.indexOf('if (await pipelineIsDrained())'),
-    );
+    expect(workerSource.indexOf('await completePhase3ValidationRun()')).toBeGreaterThan(workerSource.indexOf('if (await pipelineIsDrained())'));
   });
 
   it('binds a new validation run to a running South Wales venue campaign only', () => {
@@ -211,9 +207,7 @@ describe('Phase 3 shadow validation', () => {
     expect(workerSource).toContain('const phase3 = await reconcilePhase3Validation(initialSettings)');
     expect(workerSource).toContain("reason: 'phase3_validation_not_initialized'");
     expect(workerSource).toContain('phase3.report.run?.campaignId !== campaign.id');
-    expect(workerSource.indexOf('const phase3 = await reconcilePhase3Validation(initialSettings)')).toBeLessThan(
-      workerSource.indexOf("getQueue('discovery').add"),
-    );
+    expect(workerSource.indexOf('const phase3 = await reconcilePhase3Validation(initialSettings)')).toBeLessThan(workerSource.indexOf("getQueue('discovery').add"));
   });
 
   it('freezes completed metrics and attributes AI spend to sampled candidates only', () => {

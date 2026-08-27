@@ -17,3 +17,10 @@ export async function listCandidateEvidence(candidateId: string): Promise<Eviden
   const store = await collection();
   return store.find({ candidateId }).sort({ observedAt: 1 }).toArray();
 }
+
+export async function listEvidenceForCandidateIds(candidateIds: string[]): Promise<EvidenceFragment[]> {
+  const ids = [...new Set(candidateIds.filter(Boolean))].slice(0, 500);
+  if (ids.length === 0) return [];
+  const store = await collection();
+  return store.find({ candidateId: { $in: ids } }).sort({ observedAt: 1 }).toArray();
+}

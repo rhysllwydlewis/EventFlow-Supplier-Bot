@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EventFlow Supplier Bot</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f6f8;
+      color: #15171b;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f5f6f8; }
+    button, input, select { font: inherit; }
+    a { color: #2455a4; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .shell { max-width: 1460px; margin: 0 auto; padding: 28px; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-bottom: 22px; }
+    .brand h1 { margin: 0; font-size: 26px; letter-spacing: -.03em; }
+    .brand p { margin: 5px 0 0; color: #686d76; font-size: 14px; }
+    .top-actions { display: flex; gap: 9px; align-items: center; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid #dddfe4; background: white; padding: 8px 12px; border-radius: 999px; font-weight: 700; font-size: 13px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #8b9098; }
+    .dot.running { background: #149647; }
+    .dot.warning { background: #c67a00; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .card { background: white; border: 1px solid #e3e5e9; border-radius: 16px; padding: 18px; box-shadow: 0 5px 18px rgba(20,22,26,.035); overflow: hidden; }
+    .span-12 { grid-column: span 12; }
+    .span-8 { grid-column: span 8; }
+    .span-6 { grid-column: span 6; }
+    .span-4 { grid-column: span 4; }
+    h2 { margin: 0 0 14px; font-size: 16px; }
+    .section-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
+    .section-head h2 { margin: 0; }
+    .section-head p { margin: 3px 0 0; }
+    .controls { display: flex; flex-wrap: wrap; gap: 9px; }
+    button { border: 1px solid #d8dbe0; background: #fff; border-radius: 10px; padding: 10px 14px; cursor: pointer; font-weight: 700; }
+    button.small { padding: 6px 9px; border-radius: 8px; font-size: 12px; }
+    button.primary { background: #17191d; border-color: #17191d; color: white; }
+    button.danger { background: #fff4f4; color: #a52222; border-color: #efcaca; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
+    .seed-grid { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 10px; align-items: end; }
+    label { display: grid; gap: 6px; color: #5f646d; font-size: 12px; font-weight: 700; }
+    input, select { width: 100%; border: 1px solid #dfe2e7; border-radius: 9px; padding: 10px 11px; background: white; color: #16181c; }
+    .toggle-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-top: 14px; }
+    .toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; color: #4f545d; font-size: 12px; font-weight: 700; }
+    .toggle input { width: auto; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; }
+    .metric-grid.compact { grid-template-columns: repeat(4,1fr); }
+    .metric-grid.compliance-grid { grid-template-columns: repeat(5,1fr); }
+    .metric-grid.phase3-grid { grid-template-columns: repeat(8,1fr); }
+    .metric { background: #f7f8fa; border-radius: 12px; padding: 13px; min-width: 0; }
+    .metric strong { display: block; font-size: 22px; letter-spacing: -.03em; overflow: hidden; text-overflow: ellipsis; }
+    .metric span { color: #70757e; font-size: 12px; }
+    .table-wrap { overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 760px; }
+    table.audit-table { min-width: 1250px; }
+    table.review-table { min-width: 1180px; }
+    th, td { padding: 9px 7px; border-bottom: 1px solid #eceef1; text-align: left; vertical-align: top; }
+    th { color: #777c84; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+    .muted { color: #777c84; font-size: 13px; }
+    .tiny { color: #777c84; font-size: 11px; line-height: 1.4; }
+    .status { display: inline-flex; padding: 4px 7px; border-radius: 7px; background: #f0f1f3; font-size: 11px; font-weight: 800; text-transform: uppercase; white-space: nowrap; }
+    .status.pass,.status.ready,.status.index,.status.distinct,.status.completed,.status.shadow_ready { background: #edf8f1; color: #17683a; }
+    .status.review,.status.noindex,.status.pending,.status.probable_duplicate,.status.collecting,.status.draining,.status.queued_for_crawl,.status.crawling,.status.extracting { background: #fff6e7; color: #8a5a00; }
+    .status.block,.status.hold,.status.strong_duplicate,.status.quarantined,.status.rejected { background: #fff0f0; color: #9c2c2c; }
+    .reason-list { max-width: 280px; color: #676c74; font-size: 12px; line-height: 1.4; }
+    .login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .login-card { width: min(420px,100%); background: white; border: 1px solid #e3e5e9; border-radius: 18px; padding: 24px; box-shadow: 0 10px 30px rgba(20,22,26,.08); }
+    .login-card h1 { margin: 0 0 8px; }
+    .login-card p { color: #686d76; margin: 0 0 18px; }
+    .login-card button { width: 100%; margin-top: 12px; }
+    .hidden { display: none !important; }
+    .error { color: #a52222; font-size: 13px; margin-top: 10px; }
+    .notice { padding: 10px 12px; border-radius: 10px; background: #f0f5ff; color: #31466c; font-size: 13px; margin-top: 12px; }
+    .feedback { min-height: 22px; margin-top: 10px; color: #536170; font-size: 13px; }
+    .feedback.error { color: #a52222; }
+    .audit-link { display: inline-block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+    .link-stack { display: grid; gap: 4px; }
+    .photo-count { font-weight: 800; }
+    .revision-note { font-size: 12px; color: #6b7280; margin-top: 7px; }
+    @media (max-width: 1100px) { .metric-grid.phase3-grid { grid-template-columns: repeat(4,1fr); } }
+    @media (max-width: 900px) {
+      .span-8,.span-4,.span-6 { grid-column: span 12; }
+      .form-grid,.metric-grid,.metric-grid.compact,.metric-grid.compliance-grid,.metric-grid.phase3-grid,.toggle-row,.seed-grid { grid-template-columns: 1fr; }
+      .shell { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <section id="loginView" class="login hidden">
+    <form id="loginForm" class="login-card">
+      <h1>Supplier Bot</h1>
+      <p>EventFlow autonomous supplier acquisition control centre.</p>
+      <label>Admin key<input id="adminKey" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">Sign in</button>
+      <div id="loginError" class="error"></div>
+    </form>
+  </section>
+
+  <main id="appView" class="shell hidden">
+    <header class="topbar">
+      <div class="brand">
+        <h1>EventFlow Supplier Bot</h1>
+        <p>Autonomous acquisition · controlled by guardrails</p>
+      </div>
+      <div class="top-actions">
+        <div class="pill"><span id="statusDot" class="dot"></span><span id="statusText">Loading</span></div>
+        <button id="refreshBtn">Refresh</button>
+        <button id="logoutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <section class="grid">
+      <div class="card span-12">
+        <h2>Bot controls</h2>
+        <div class="controls">
+          <button id="playBtn" class="primary">▶ Run</button>
+          <button id="pauseBtn">Ⅱ Pause</button>
+          <button id="drainBtn">Drain safely</button>
+          <button id="runNowBtn">Run planning cycle now</button>
+          <button id="stopBtn" class="danger">Emergency stop</button>
+        </div>
+        <div id="controlFeedback" class="feedback" aria-live="polite"></div>
+        <div class="notice">Shadow mode researches real suppliers without publishing anything to EventFlow. Discovery URLs, pages visited and supplier-site media references are retained for authenticated review. Publishing, outreach and SEO remain separately gated.</div>
+      </div>
+
+      <div class="card span-8">
+        <h2>Operating settings</h2>
+        <form id="settingsForm">
+          <div class="form-grid">
+            <label>Mode<select id="mode"><option value="off">Off</option><option value="dry_run">Dry Run</option><option value="shadow">Shadow</option><option value="live">Live</option></select></label>
+            <label>Minimum publication quality<input id="quality" type="number" min="0" max="100" step="1"></label>
+            <label>Daily target<input id="dailyTarget" type="number" min="0" step="1"></label>
+            <label>Daily hard maximum<input id="dailyHardLimit" type="number" min="1" step="1"></label>
+            <label>Maximum crawls/day<input id="maxCrawls" type="number" min="0" step="1"></label>
+            <label>AI soft budget (£/day)<input id="softAi" type="number" min="0" step="0.1"></label>
+            <label>AI hard budget (£/day)<input id="hardAi" type="number" min="0" step="0.1"></label>
+          </div>
+          <div class="toggle-row">
+            <label class="toggle">Discovery<input id="discoveryEnabled" type="checkbox"></label>
+            <label class="toggle">Refresh<input id="refreshEnabled" type="checkbox"></label>
+            <label class="toggle">Publishing<input id="publishingEnabled" type="checkbox"></label>
+            <label class="toggle">Claim notices<input id="claimNoticesEnabled" type="checkbox"></label>
+            <label class="toggle">Marketing<input id="marketingEnabled" type="checkbox"></label>
+            <label class="toggle">SEO indexing<input id="seoIndexingEnabled" type="checkbox"></label>
+          </div>
+          <div class="controls" style="margin-top:14px"><button class="primary" type="submit">Save settings</button></div>
+        </form>
+      </div>
+
+      <div class="card span-4">
+        <div class="section-head"><div><h2>System</h2><p class="muted">Today’s operating load</p></div></div>
+        <div class="metric-grid compact">
+          <div class="metric"><strong id="workerMetric">—</strong><span>Worker</span></div>
+          <div class="metric"><strong id="modeMetric">—</strong><span>Mode</span></div>
+          <div class="metric"><strong id="todayMetric">—</strong><span>Candidates</span></div>
+          <div class="metric"><strong id="crawlMetric">—</strong><span>Crawls</span></div>
+          <div class="metric"><strong id="aiCallsMetric">—</strong><span>AI calls</span></div>
+          <div class="metric"><strong id="aiCostMetric">—</strong><span>AI est. cost</span></div>
+          <div class="metric"><strong id="capMetric">—</strong><span>Daily max</span></div>
+          <div class="metric"><strong id="aiReservedMetric">—</strong><span>AI reserved</span></div>
+        </div>
+        <p id="providerInfo" class="muted"></p>
+      </div>
+
+      <div class="card span-12">
+        <div class="section-head">
+          <div><h2>Phase 3 · Shadow validation</h2><p id="phase3Scope" class="muted">Waiting for validation run…</p></div>
+          <span id="phase3Status" class="status pending">Not started</span>
+        </div>
+        <div class="metric-grid phase3-grid">
+          <div class="metric"><strong id="phase3Candidates">0/100</strong><span>Candidates</span></div>
+          <div class="metric"><strong id="phase3Profiles">0</strong><span>Shadow profiles</span></div>
+          <div class="metric"><strong id="phase3Quality">0%</strong><span>Avg quality</span></div>
+          <div class="metric"><strong id="phase3Evidence">0%</strong><span>Evidence coverage</span></div>
+          <div class="metric"><strong id="phase3Media">0%</strong><span>Photo coverage</span></div>
+          <div class="metric"><strong id="phase3Images">0</strong><span>Avg photos/profile</span></div>
+          <div class="metric"><strong id="phase3Duplicates">0%</strong><span>Duplicate rate</span></div>
+          <div class="metric"><strong id="phase3Cost">£0.00</strong><span>AI cost</span></div>
+        </div>
+        <p id="phase3Safety" class="muted">Safety contract not checked yet.</p>
+      </div>
+
+      <div class="card span-12">
+        <div class="section-head"><div><h2>Compliance overview</h2><p id="complianceScope" class="muted">Loading profile coverage…</p></div></div>
+        <div class="metric-grid compliance-grid">
+          <div class="metric"><strong id="publishReadyMetric">0</strong><span>Publication eligible</span></div>
+          <div class="metric"><strong id="reviewMetric">0</strong><span>Needs review</span></div>
+          <div class="metric"><strong id="pendingMetric">0</strong><span>Pending assessment</span></div>
+          <div class="metric"><strong id="blockedMetric">0</strong><span>Blocked</span></div>
+          <div class="metric"><strong id="seoReadyMetric">0</strong><span>SEO ready</span></div>
+        </div>
+      </div>
+
+      <div class="card span-12">
+        <h2>Seed a supplier into Shadow mode</h2>
+        <form id="seedForm" class="seed-grid">
+          <label>Public supplier website<input id="seedUrl" type="url" placeholder="https://supplier.example" required></label>
+          <label>Category<input id="seedCategory" value="Venues"></label>
+          <label>Location<input id="seedLocation" value="South Wales"></label>
+          <button class="primary" type="submit">Seed & crawl</button>
+        </form>
+        <div id="seedResult" class="muted" style="margin-top:9px"></div>
+      </div>
+
+      <div class="card span-6"><h2>Campaigns</h2><div class="table-wrap"><table><thead><tr><th>Name</th><th>Category</th><th>Area</th><th>Target</th><th>Status</th><th></th></tr></thead><tbody id="campaignRows"></tbody></table></div></div>
+      <div class="card span-6"><h2>Queues</h2><div class="table-wrap"><table><thead><tr><th>Queue</th><th>Waiting</th><th>Active</th><th>Failed</th></tr></thead><tbody id="queueRows"></tbody></table></div></div>
+
+      <div class="card span-12">
+        <div class="section-head">
+          <div>
+            <h2>Discovery & crawl audit</h2>
+            <p class="muted">Search result → identified supplier website → pages visited → photo references → Shadow profile.</p>
+            <p class="revision-note">Photo links are supplier-site-declared references for review; the bot does not download or rehost image files in Phase 3.</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="audit-table">
+            <thead><tr><th>Search result</th><th>Identified website</th><th>Search query</th><th>Status</th><th>Pages visited</th><th>Photos identified</th><th>Shadow profile</th></tr></thead>
+            <tbody id="auditRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card span-12">
+        <h2>Latest candidates</h2>
+        <div class="table-wrap"><table><thead><tr><th>Business/domain</th><th>Website</th><th>Category</th><th>Location</th><th>Source</th><th>Status</th><th>Identity dedup</th></tr></thead><tbody id="candidateRows"></tbody></table></div>
+      </div>
+
+      <div class="card span-12">
+        <div class="section-head"><div><h2>Shadow profile review</h2><p class="muted">Quality, compliance, publication and indexing are deliberately separate gates.</p></div></div>
+        <div class="table-wrap"><table class="review-table"><thead><tr><th>Business</th><th>Website</th><th>Photos</th><th>Category</th><th>Location</th><th>Quality</th><th>Compliance</th><th>Publish</th><th>SEO</th><th>Similarity</th><th>Reason</th></tr></thead><tbody id="shadowRows"></tbody></table></div>
+      </div>
+    </section>
+  </main>
+
+<script>
+let csrfToken='';
+const $=id=>document.getElementById(id);
+function escapeHtml(value){const div=document.createElement('div');div.textContent=String(value??'');return div.innerHTML;}
+function escapeAttr(value){return String(value??'').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll("'",'&#39;').replaceAll('<','&lt;').replaceAll('>','&gt;');}
+function safeHttpUrl(value){try{const url=new URL(String(value));return ['http:','https:'].includes(url.protocol)?url.href:null;}catch{return null;}}
+function externalLink(value,label){const url=safeHttpUrl(value);if(!url)return escapeHtml(label||value||'—');return `<a class="audit-link" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escapeAttr(url)}">${escapeHtml(label||url)}</a>`;}
+function money(value){const number=Number(value)||0;return `£${number.toFixed(number<1?2:1)}`;}
+function setFeedback(message,isError=false){$('controlFeedback').textContent=message||'';$('controlFeedback').className=`feedback${isError?' error':''}`;}
+function displayReason(item){if(!item)return 'Assessment pending';const reasons=(item.reasons||[]).filter(reason=>reason!=='pricing_not_publicly_available');return reasons.length?reasons.slice(0,3).map(reason=>reason.replaceAll('_',' ')).join(' · '):'Ready';}
+function dedupLabel(candidate){if(!candidate.dedupDecision)return 'Pending';const signals=(candidate.dedupSignals||[]).map(value=>value.replaceAll('_',' ')).join(' · ');const match=candidate.duplicateOfCandidateId?` · match ${candidate.duplicateOfCandidateId}`:'';return `${candidate.dedupDecision.replaceAll('_',' ')} · ${candidate.dedupScore??0}%${match}${signals?` · ${signals}`:''}`;}
+function urlStack(values,max=3){const urls=(values||[]).map(safeHttpUrl).filter(Boolean);if(!urls.length)return '<span class="muted">—</span>';const shown=urls.slice(0,max);const links=shown.map((url,index)=>externalLink(url,index===0?new URL(url).pathname||'/':`page ${index+1}`)).join('');const extra=urls.length>max?`<span class="tiny">+${urls.length-max} more</span>`:'';return `<div class="link-stack">${links}${extra}</div>`;}
+function photoStack(item,max=3){const urls=item?.profile?.images||[];if(!urls.length)return '<span class="muted">0</span>';const links=urls.slice(0,max).map((url,index)=>externalLink(url,`photo ${index+1}`)).join('');const extra=urls.length>max?`<span class="tiny">+${urls.length-max} more</span>`:'';return `<div class="link-stack"><span class="photo-count">${urls.length}</span>${links}${extra}</div>`;}
+async function request(url,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(csrfToken&&['POST','PUT','PATCH','DELETE'].includes((options.method||'GET').toUpperCase()))headers['x-csrf-token']=csrfToken;const response=await fetch(url,{credentials:'same-origin',...options,headers});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||`Request failed (${response.status})`);return body;}
+function showLogin(){$('loginView').classList.remove('hidden');$('appView').classList.add('hidden');}
+function showApp(){$('loginView').classList.add('hidden');$('appView').classList.remove('hidden');}
+
+async function refresh(){
+  const [status,campaigns,candidates,reviews,overview,phase3,audit]=await Promise.all([
+    request('/api/status'),
+    request('/api/campaigns'),
+    request('/api/candidates?limit=20'),
+    request('/api/shadow-profile-reviews?limit=30'),
+    request('/api/compliance-overview'),
+    request('/api/phase3-validation'),
+    request('/api/discovery-audit?limit=50'),
+  ]);
+  const s=status.settings;
+  $('mode').value=s.mode;$('quality').value=s.minimumPublicationQuality;$('dailyTarget').value=s.dailyTarget;$('dailyHardLimit').value=s.dailyHardLimit;$('maxCrawls').value=s.maxCrawlsPerDay;$('softAi').value=s.softAiSpendGbpPerDay;$('hardAi').value=s.hardAiSpendGbpPerDay;
+  ['discoveryEnabled','refreshEnabled','publishingEnabled','claimNoticesEnabled','marketingEnabled','seoIndexingEnabled'].forEach(id=>$(id).checked=!!s[id]);
+  $('statusText').textContent=s.runState.replaceAll('_',' ').toUpperCase();$('statusDot').className=`dot ${s.runState==='running'&&status.workerHealthy?'running':s.runState==='stopped'?'':'warning'}`;
+  $('workerMetric').textContent=status.workerHealthy?'Healthy':'Offline';$('modeMetric').textContent=s.mode.replaceAll('_',' ');$('todayMetric').textContent=status.metrics?.candidatesToday??0;$('crawlMetric').textContent=status.metrics?.crawlsToday??0;$('aiCallsMetric').textContent=status.metrics?.aiCallsToday??0;$('aiCostMetric').textContent=money(status.metrics?.aiEstimatedCostGbpToday);$('aiReservedMetric').textContent=money(status.metrics?.aiReservedGbp);$('capMetric').textContent=s.dailyHardLimit;
+  $('publishReadyMetric').textContent=overview.publicationEligible??0;$('reviewMetric').textContent=overview.review??0;$('pendingMetric').textContent=overview.pending??0;$('blockedMetric').textContent=overview.blocked??0;$('seoReadyMetric').textContent=overview.seoReady??0;$('complianceScope').textContent=`${overview.assessed??0} assessed of ${overview.totalProfiles??0} profiles`;
+  const p=status.providerCapabilities;$('providerInfo').textContent=`OpenAI ${p.openAiConfigured?'configured':'not configured'} · Brave ${p.braveConfigured?'configured':'not configured'} · persistence ${p.bravePersistenceAllowed?'allowed':'gated'} · EventFlow ${p.eventFlowIntegrationConfigured?'configured':'not configured'}`;
+  const pm=phase3.metrics||{};const run=phase3.run;const phase3State=run?.status||'pending';const candidateTotal=pm.candidateCount||0;const duplicateTotal=(pm.probableDuplicates||0)+(pm.strongDuplicates||0);const duplicatePct=candidateTotal?Math.round((duplicateTotal/candidateTotal)*1000)/10:0;const target=run?.targetCandidates||100;
+  $('phase3Status').textContent=run?phase3State.replaceAll('_',' '):'Not started';$('phase3Status').className=`status ${escapeHtml(phase3State)}`;$('phase3Candidates').textContent=`${candidateTotal}/${target}`;$('phase3Profiles').textContent=pm.shadowProfileCount||0;$('phase3Quality').textContent=`${Math.round(pm.averagePublicationQuality||0)}%`;$('phase3Evidence').textContent=`${Math.round(pm.evidenceCoveragePct||0)}%`;$('phase3Media').textContent=`${Math.round(pm.imageCoveragePct||0)}%`;$('phase3Images').textContent=Number(pm.averageImagesPerProfile||0).toFixed(1);$('phase3Duplicates').textContent=`${duplicatePct}%`;$('phase3Cost').textContent=money(pm.aiEstimatedCostGbp);$('phase3Scope').textContent=run?`Started ${new Date(run.startedAt).toLocaleString()} · ${phase3.readyForReview?'sample ready for review':phase3.targetReached?'target reached; draining':'collecting real venue candidates'}`:'Starts automatically the first time the safe Shadow campaign runs.';
+  const safe=phase3.safety||{};$('phase3Safety').textContent=safe.safeToValidate?'Safety contract healthy: Shadow mode · Publishing off · Marketing off · Claim notices off · SEO indexing off.':'Phase 3 paused by safety contract — restore Shadow mode with Publishing, Marketing, Claim notices and SEO indexing all off.';
+
+  $('campaignRows').innerHTML=(campaigns.items||[]).map(c=>`<tr><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.categories.join(', '))}</td><td>${escapeHtml(c.locations.join(', '))}</td><td>${c.dailyTarget}/${c.dailyHardLimit}</td><td><span class="status">${escapeHtml(c.status)}</span></td><td><button class="small campaign-toggle" data-id="${escapeAttr(c.id)}" data-next="${c.status==='running'?'paused':'running'}">${c.status==='running'?'Pause':'Run'}</button></td></tr>`).join('');
+  $('queueRows').innerHTML=Object.entries(status.queues||{}).map(([name,c])=>`<tr><td>${escapeHtml(name)}</td><td>${c.waiting||0}</td><td>${c.active||0}</td><td>${c.failed||0}</td></tr>`).join('');
+
+  $('auditRows').innerHTML=(audit.items||[]).map(item=>{const profile=item.profile;const statusClass=escapeAttr(item.status||'pending');const profileCell=profile?`<strong>${escapeHtml(profile.businessName)}</strong><div class="tiny">Quality ${Math.round(profile.publicationQuality||0)}%</div>`:'<span class="muted">Not built yet</span>';return `<tr><td><strong>${escapeHtml(item.searchResultTitle||item.canonicalDomain)}</strong><div class="tiny">${escapeHtml(item.provider)}</div></td><td>${externalLink(item.canonicalUrl,item.canonicalDomain)}<div class="tiny">search result: ${externalLink(item.sourceUrl,'open result')}</div></td><td class="reason-list">${escapeHtml(item.discoveryQuery)}</td><td><span class="status ${statusClass}">${escapeHtml(String(item.status||'pending').replaceAll('_',' '))}</span></td><td>${urlStack(item.pagesVisited,3)}</td><td>${photoStack(item,3)}</td><td>${profileCell}</td></tr>`;}).join('')||'<tr><td colspan="7" class="muted">No discovered supplier websites yet.</td></tr>';
+
+  $('candidateRows').innerHTML=(candidates.items||[]).map(c=>{const d=c.dedupDecision||'pending';return `<tr><td>${escapeHtml(c.titleHint||c.canonicalDomain)}</td><td>${externalLink(c.canonicalUrl,c.canonicalDomain)}</td><td>${escapeHtml(c.categoryHint||'—')}</td><td>${escapeHtml(c.locationHint||'—')}</td><td>${escapeHtml(c.provider)}</td><td><span class="status ${escapeAttr(c.status)}">${escapeHtml(c.status.replaceAll('_',' '))}</span></td><td class="reason-list"><span class="status ${escapeAttr(d)}">${escapeHtml(d.replaceAll('_',' '))}</span><div style="margin-top:4px">${escapeHtml(dedupLabel(c))}</div></td></tr>`;}).join('')||'<tr><td colspan="7" class="muted">No candidates yet.</td></tr>';
+
+  $('shadowRows').innerHTML=(reviews.items||[]).map(item=>{const profile=item.profile;const assessment=item.assessment;const complianceState=assessment?.status||'pending';const publishState=assessment?.publicationEligible?'ready':'hold';const seoState=assessment?.seoIndexEligible?'index':'noindex';const similarity=assessment?`${Math.round((assessment.descriptionSimilarity||0)*100)}%`:'—';const photoLinks=(profile.images||[]).slice(0,2).map((url,index)=>externalLink(url,`photo ${index+1}`)).join('');const photoCell=(profile.images||[]).length?`<div class="link-stack"><span class="photo-count">${profile.images.length}</span>${photoLinks}</div>`:'<span class="muted">0</span>';return `<tr><td>${escapeHtml(profile.businessName)}</td><td>${externalLink(profile.website,'website')}</td><td>${photoCell}</td><td>${escapeHtml(profile.category)}</td><td>${escapeHtml(profile.location||'—')}</td><td>${Math.round(profile.publicationQuality)}%</td><td><span class="status ${escapeAttr(complianceState)}">${escapeHtml(complianceState)}</span></td><td><span class="status ${publishState}">${publishState==='ready'?'Ready':'Hold'}</span></td><td><span class="status ${seoState}">${seoState==='index'?'Index':'Noindex'}</span></td><td>${similarity}</td><td class="reason-list">${escapeHtml(displayReason(assessment))}</td></tr>`;}).join('')||'<tr><td colspan="11" class="muted">No Shadow profiles yet.</td></tr>';
+
+  document.querySelectorAll('.campaign-toggle').forEach(button=>button.addEventListener('click',async()=>{try{setFeedback('Updating campaign…');await request(`/api/campaigns/${encodeURIComponent(button.dataset.id)}`,{method:'PATCH',body:JSON.stringify({status:button.dataset.next})});setFeedback('Campaign updated.');await refresh();}catch(error){setFeedback(error.message,true);}}));
+}
+
+$('loginForm').addEventListener('submit',async event=>{event.preventDefault();$('loginError').textContent='';try{const data=await request('/api/auth/login',{method:'POST',body:JSON.stringify({key:$('adminKey').value})});csrfToken=data.csrfToken;showApp();await refresh();}catch(error){$('loginError').textContent=error.message;}});
+$('settingsForm').addEventListener('submit',async event=>{event.preventDefault();const body={mode:$('mode').value,minimumPublicationQuality:Number($('quality').value),dailyTarget:Number($('dailyTarget').value),dailyHardLimit:Number($('dailyHardLimit').value),maxCrawlsPerDay:Number($('maxCrawls').value),softAiSpendGbpPerDay:Number($('softAi').value),hardAiSpendGbpPerDay:Number($('hardAi').value),discoveryEnabled:$('discoveryEnabled').checked,refreshEnabled:$('refreshEnabled').checked,publishingEnabled:$('publishingEnabled').checked,claimNoticesEnabled:$('claimNoticesEnabled').checked,marketingEnabled:$('marketingEnabled').checked,seoIndexingEnabled:$('seoIndexingEnabled').checked};try{setFeedback('Saving settings…');await request('/api/settings',{method:'PUT',body:JSON.stringify(body)});setFeedback('Settings saved.');await refresh();}catch(error){setFeedback(error.message,true);}});
+$('seedForm').addEventListener('submit',async event=>{event.preventDefault();$('seedResult').textContent='Queuing…';try{const result=await request('/api/candidates/seed',{method:'POST',body:JSON.stringify({url:$('seedUrl').value,categoryHint:$('seedCategory').value,locationHint:$('seedLocation').value})});$('seedResult').textContent=result.created?'Candidate created and crawl queued.':'Candidate already exists; no duplicate created.';await refresh();}catch(error){$('seedResult').textContent=error.message;}});
+for(const [id,action,label] of [['playBtn','play','Starting bot…'],['pauseBtn','pause','Pausing bot…'],['drainBtn','drain','Starting safe drain…'],['stopBtn','emergency-stop','Emergency stop requested…']]){$(id).addEventListener('click',async()=>{try{setFeedback(label);await request(`/api/control/${action}`,{method:'POST',body:'{}'});setFeedback(`Control action completed: ${action.replaceAll('-',' ')}.`);await refresh();}catch(error){setFeedback(error.message,true);}});}
+$('runNowBtn').addEventListener('click',async()=>{try{setFeedback('Queuing planning cycle…');await request('/api/run-now',{method:'POST',body:'{}'});setFeedback('Planning cycle queued. The dashboard will update as jobs run.');await refresh();}catch(error){setFeedback(error.message,true);}});
+$('refreshBtn').addEventListener('click',async()=>{try{setFeedback('Refreshing…');await refresh();setFeedback(`Refreshed ${new Date().toLocaleTimeString()}.`);}catch(error){setFeedback(error.message,true);}});
+$('logoutBtn').addEventListener('click',async()=>{try{await request('/api/auth/logout',{method:'POST',body:'{}'});}finally{csrfToken='';showLogin();}});
+(async()=>{try{const session=await request('/api/auth/session');csrfToken=session.csrfToken;showApp();await refresh();setInterval(()=>void refresh().catch(()=>{}),15000);}catch{showLogin();}})();
+</script>
+</body>
+</html>
