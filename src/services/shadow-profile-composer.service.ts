@@ -22,6 +22,8 @@ export function composeDeterministicShadowProfile(input: {
   const phone = structured.telephone || input.extraction.phones[0] || null;
   const locationPhrase = location ? ` serving ${location}` : '';
   const description = `${businessName} is listed on EventFlow as a ${category.toLowerCase()} supplier${locationPhrase}. This profile has been compiled from publicly available business information and can be claimed by the business owner.`;
+  const images = input.extraction.media.slice(0, 12).map(item => item.url);
+  const coverImage = images[0] ?? null;
 
   let confidence = 35;
   if (structured.name) confidence += 20;
@@ -29,6 +31,7 @@ export function composeDeterministicShadowProfile(input: {
   if (email || phone) confidence += 10;
   if (input.extraction.advertisedPrices.length) confidence += 10;
   if (input.evidenceIds.length >= 2) confidence += 10;
+  if (images.length > 0) confidence += 5;
   confidence = Math.min(confidence, 95);
 
   return shadowProfileSchema.parse({
@@ -44,9 +47,12 @@ export function composeDeterministicShadowProfile(input: {
     services: [],
     packages: [],
     evidenceIds: input.evidenceIds,
+    coverImage,
+    images,
+    mediaEvidence: input.extraction.media,
     dataConfidence: confidence,
     publicationQuality: Math.min(confidence, 80),
     generatedAt: new Date().toISOString(),
-    generatorVersion: 'deterministic-shadow-v1',
+    generatorVersion: 'deterministic-shadow-media-v2',
   });
 }
