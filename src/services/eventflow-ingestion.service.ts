@@ -65,6 +65,11 @@ export async function ingestShadowProfileToEventFlow(input: {
     services: input.profile.services,
     packages: input.profile.packages,
     advertisedPrices: input.profile.advertisedPrices,
+    // Media remains provenance-controlled draft acquisition data on EventFlow.
+    // The receiver does not treat these references as proof of publication rights.
+    coverImage: input.profile.coverImage,
+    images: input.profile.images,
+    mediaEvidence: input.profile.mediaEvidence,
     publicationQuality: input.profile.publicationQuality,
     dataConfidence: input.profile.dataConfidence,
     complianceStatus: input.compliance.status,
