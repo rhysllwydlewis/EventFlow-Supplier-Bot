@@ -5,6 +5,7 @@ import {
   invalidateAllComplianceAssessments,
   withCompliancePolicyLock,
 } from '../repositories/compliance-assessment.repository.js';
+import { reconcilePhase3Validation } from './phase3-validation.service.js';
 
 const PIPELINE_QUEUE_KEYS = (Object.keys(QUEUE_NAMES) as QueueKey[]).filter(key => key !== 'orchestration');
 
@@ -19,6 +20,41 @@ async function resumePipelineQueues(): Promise<void> {
 export async function playBot(actor: string) {
   await resumePipelineQueues();
   const settings = await patchSettings({ runState: 'running' }, actor);
+  // Start/restart the Phase 3 sample window at the same instant the bot is
+  // allowed to acquire work. The worker coverage planner repeats this check
+  // before admitting each discovery batch.
+  try {
+    const phase3 = await reconcilePhase3Validation(settings);
+    if (
+      phase3.report.run &&
+      phase3.report.run.status !== 'completed' &&
+      !phase3.report.safety.safeToValidate
+    ) {
+      throw new Error('Phase 3 safety contract is not satisfied');
+    }
+  } catch (error) {
+    // Do not leave discovery running if the validation ledger could not be
+    // initialized safely. Revert the persisted state and pause pipeline queues
+    // before surfacing the error so a failed safety/telemetry write cannot
+    // create an unmeasured Phase 3 sample.
+    await patchSettings(
+      {
+        mode: 'shadow',
+        runState: 'stopped',
+        publishingEnabled: false,
+        claimNoticesEnabled: false,
+        marketingEnabled: false,
+        seoIndexingEnabled: false,
+      },
+      'phase3-validator-fail-closed',
+    );
+    await pausePipelineQueues();
+    await recordAuditEvent('phase3-validator', 'phase3.validation_start_failed', {
+      requestedBy: actor,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
   await recordAuditEvent(actor, 'bot.play', { mode: settings.mode });
   return settings;
 }
@@ -41,6 +77,7 @@ export async function emergencyStopBot(actor: string) {
     {
       runState: 'emergency_stopped',
       publishingEnabled: false,
+      claimNoticesEnabled: false,
       marketingEnabled: false,
       seoIndexingEnabled: false,
     },
@@ -54,8 +91,9 @@ export async function emergencyStopBot(actor: string) {
 export async function updateRuntimeSettings(patch: SettingsPatch, actor: string) {
   return withCompliancePolicyLock(`settings:${actor}`, async () => {
     const before = await getSettings();
-    const qualityFloorChanged = patch.minimumPublicationQuality !== undefined
-      && patch.minimumPublicationQuality !== before.minimumPublicationQuality;
+    const qualityFloorChanged =
+      patch.minimumPublicationQuality !== undefined &&
+      patch.minimumPublicationQuality !== before.minimumPublicationQuality;
     let invalidatedCompliance = 0;
     if (qualityFloorChanged) {
       invalidatedCompliance = await invalidateAllComplianceAssessments();

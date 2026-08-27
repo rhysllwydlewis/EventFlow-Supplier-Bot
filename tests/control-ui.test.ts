@@ -50,4 +50,23 @@ describe('Supplier Bot Control Centre review surface', () => {
     expect(html).toContain('status.metrics?.aiEstimatedCostGbpToday');
     expect(html).toContain('status.metrics?.aiReservedGbp');
   });
+
+  it('surfaces Phase 3 progress, cost, quality and the safety contract', () => {
+    for (const id of [
+      'phase3Candidates',
+      'phase3Profiles',
+      'phase3Quality',
+      'phase3Evidence',
+      'phase3Duplicates',
+      'phase3Cost',
+      'phase3Safety',
+    ]) {
+      expect(html).toContain(`id="${id}"`);
+    }
+    expect(html).toContain("request('/api/phase3-validation')");
+    expect(html).toContain('phase3.safety');
+    expect(html).toContain('phase3.readyForReview');
+    expect(server).toContain("app.get('/api/phase3-validation'");
+    expect(server).toContain('getPhase3ValidationReport(settings)');
+  });
 });

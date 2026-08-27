@@ -26,6 +26,7 @@ import { getTodayAiReservedGbp } from '../services/ai-budget.service.js';
 import { getTodayAiUsage } from '../services/ai-usage.service.js';
 import { getTodayCrawlCount } from '../services/crawl-budget.service.js';
 import { seedCandidate } from '../services/manual-seed.service.js';
+import { getPhase3ValidationReport } from '../services/phase3-validation.service.js';
 import {
   drainBot,
   emergencyStopBot,
@@ -35,7 +36,7 @@ import {
 } from '../services/runtime-control.service.js';
 import { loginWithAdminKey, logout, requireCsrf, requireSession, sessionInfo } from './auth.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.8.0';
 const app = express();
 
 const settingsPatchSchema = botSettingsSchema
@@ -303,6 +304,15 @@ app.get('/api/compliance-assessments', async (req, res, next) => {
 app.get('/api/compliance-overview', async (_req, res, next) => {
   try {
     res.json(await getComplianceOverview());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/phase3-validation', async (_req, res, next) => {
+  try {
+    const settings = await getSettings();
+    res.json(await getPhase3ValidationReport(settings));
   } catch (error) {
     next(error);
   }

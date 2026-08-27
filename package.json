@@ -17,6 +17,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "phase3:report": "node dist/scripts/phase3-validation-report.js",
     "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {

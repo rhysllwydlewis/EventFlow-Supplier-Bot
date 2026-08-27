@@ -39,6 +39,7 @@
     .metric-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
     .metric-grid.compact { grid-template-columns:repeat(4,1fr); }
     .metric-grid.compliance-grid { grid-template-columns:repeat(5,1fr); }
+    .metric-grid.phase3-grid { grid-template-columns:repeat(6,1fr); }
     .metric { background:#f7f8fa; border-radius:12px; padding:13px; min-width:0; }
     .metric strong { display:block; font-size:22px; letter-spacing:-.03em; overflow:hidden; text-overflow:ellipsis; }
     .metric span { color:#70757e; font-size:12px; }
@@ -49,8 +50,8 @@
     th { color:#777c84; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
     .muted { color:#777c84; font-size:13px; }
     .status { display:inline-flex; padding:4px 7px; border-radius:7px; background:#f0f1f3; font-size:11px; font-weight:800; text-transform:uppercase; white-space:nowrap; }
-    .status.pass,.status.ready,.status.index,.status.distinct { background:#edf8f1; color:#17683a; }
-    .status.review,.status.noindex,.status.pending,.status.probable_duplicate { background:#fff6e7; color:#8a5a00; }
+    .status.pass,.status.ready,.status.index,.status.distinct,.status.completed { background:#edf8f1; color:#17683a; }
+    .status.review,.status.noindex,.status.pending,.status.probable_duplicate,.status.collecting,.status.draining { background:#fff6e7; color:#8a5a00; }
     .status.block,.status.hold,.status.strong_duplicate { background:#fff0f0; color:#9c2c2c; }
     .reason-list { max-width:250px; color:#676c74; font-size:12px; line-height:1.35; }
     .login { min-height:100vh; display:grid; place-items:center; padding:24px; }
@@ -58,7 +59,7 @@
     .login-card h1 { margin:0 0 8px; } .login-card p { color:#686d76; margin:0 0 18px; } .login-card button { width:100%; margin-top:12px; }
     .hidden { display:none !important; } .error { color:#a52222; font-size:13px; margin-top:10px; }
     .notice { padding:10px 12px; border-radius:10px; background:#f0f5ff; color:#31466c; font-size:13px; margin-top:12px; }
-    @media (max-width:900px) { .span-8,.span-4,.span-6 { grid-column:span 12; } .form-grid,.metric-grid,.metric-grid.compact,.metric-grid.compliance-grid,.toggle-row,.seed-grid { grid-template-columns:1fr; } }
+    @media (max-width:900px) { .span-8,.span-4,.span-6 { grid-column:span 12; } .form-grid,.metric-grid,.metric-grid.compact,.metric-grid.compliance-grid,.metric-grid.phase3-grid,.toggle-row,.seed-grid { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -118,6 +119,19 @@
       </div>
 
       <div class="card span-12">
+        <div class="section-head"><div><h2>Phase 3 · Shadow validation</h2><p id="phase3Scope" class="muted">Waiting for validation run…</p></div><span id="phase3Status" class="status pending">Not started</span></div>
+        <div class="metric-grid phase3-grid">
+          <div class="metric"><strong id="phase3Candidates">0</strong><span>Candidates / 100</span></div>
+          <div class="metric"><strong id="phase3Profiles">0</strong><span>Shadow profiles</span></div>
+          <div class="metric"><strong id="phase3Quality">0%</strong><span>Avg quality</span></div>
+          <div class="metric"><strong id="phase3Evidence">0%</strong><span>Evidence coverage</span></div>
+          <div class="metric"><strong id="phase3Duplicates">0%</strong><span>Duplicate rate</span></div>
+          <div class="metric"><strong id="phase3Cost">£0.00</strong><span>AI cost</span></div>
+        </div>
+        <p id="phase3Safety" class="muted">Safety contract not checked yet.</p>
+      </div>
+
+      <div class="card span-12">
         <div class="section-head"><div><h2>Compliance overview</h2><p id="complianceScope" class="muted">Loading profile coverage…</p></div></div>
         <div class="metric-grid compliance-grid">
           <div class="metric"><strong id="publishReadyMetric">0</strong><span>Publication eligible</span></div>
@@ -159,13 +173,16 @@ function money(value){const number=Number(value)||0;return `£${number.toFixed(n
 function displayReason(item){if(!item)return 'Assessment pending';const reasons=(item.reasons||[]).filter(reason=>reason!=='pricing_not_publicly_available');return reasons.length?reasons.slice(0,3).map(reason=>reason.replaceAll('_',' ')).join(' · '):'Ready';}
 function dedupLabel(candidate){if(!candidate.dedupDecision)return 'Pending';const signals=(candidate.dedupSignals||[]).map(value=>value.replaceAll('_',' ')).join(' · ');const match=candidate.duplicateOfCandidateId?` · match ${candidate.duplicateOfCandidateId}`:'';return `${candidate.dedupDecision.replaceAll('_',' ')} · ${candidate.dedupScore??0}%${match}${signals?` · ${signals}`:''}`;}
 async function refresh(){
-  const [status,campaigns,candidates,reviews,overview]=await Promise.all([request('/api/status'),request('/api/campaigns'),request('/api/candidates?limit=12'),request('/api/shadow-profile-reviews?limit=20'),request('/api/compliance-overview')]);const s=status.settings;
+  const [status,campaigns,candidates,reviews,overview,phase3]=await Promise.all([request('/api/status'),request('/api/campaigns'),request('/api/candidates?limit=12'),request('/api/shadow-profile-reviews?limit=20'),request('/api/compliance-overview'),request('/api/phase3-validation')]);const s=status.settings;
   $('mode').value=s.mode;$('quality').value=s.minimumPublicationQuality;$('dailyTarget').value=s.dailyTarget;$('dailyHardLimit').value=s.dailyHardLimit;$('maxCrawls').value=s.maxCrawlsPerDay;$('softAi').value=s.softAiSpendGbpPerDay;$('hardAi').value=s.hardAiSpendGbpPerDay;
   ['discoveryEnabled','refreshEnabled','publishingEnabled','claimNoticesEnabled','marketingEnabled','seoIndexingEnabled'].forEach(id=>$(id).checked=!!s[id]);
   $('statusText').textContent=s.runState.replaceAll('_',' ').toUpperCase();$('statusDot').className=`dot ${s.runState==='running'&&status.workerHealthy?'running':s.runState==='stopped'?'':'warning'}`;
   $('workerMetric').textContent=status.workerHealthy?'Healthy':'Offline';$('modeMetric').textContent=s.mode.replaceAll('_',' ');$('todayMetric').textContent=status.metrics?.candidatesToday??0;$('crawlMetric').textContent=status.metrics?.crawlsToday??0;$('aiCallsMetric').textContent=status.metrics?.aiCallsToday??0;$('aiCostMetric').textContent=money(status.metrics?.aiEstimatedCostGbpToday);$('aiReservedMetric').textContent=money(status.metrics?.aiReservedGbp);$('capMetric').textContent=s.dailyHardLimit;
   $('publishReadyMetric').textContent=overview.publicationEligible??0;$('reviewMetric').textContent=overview.review??0;$('pendingMetric').textContent=overview.pending??0;$('blockedMetric').textContent=overview.blocked??0;$('seoReadyMetric').textContent=overview.seoReady??0;$('complianceScope').textContent=`${overview.assessed??0} assessed of ${overview.totalProfiles??0} profiles`;
-  const p=status.providerCapabilities;$('providerInfo').textContent=`OpenAI ${p.openAiConfigured?'configured':'not configured'} · Brave ${p.braveConfigured?'configured':'not configured'} · persistence ${p.bravePersistenceAllowed?'allowed':'gated'}`;
+  const p=status.providerCapabilities;$('providerInfo').textContent=`OpenAI ${p.openAiConfigured?'configured':'not configured'} · Brave ${p.braveConfigured?'configured':'not configured'} · persistence ${p.bravePersistenceAllowed?'allowed':'gated'} · EventFlow ${p.eventFlowIntegrationConfigured?'configured':'not configured'}`;
+  const pm=phase3.metrics||{};const run=phase3.run;const phase3State=run?.status||'pending';const candidateTotal=pm.candidateCount||0;const duplicateTotal=(pm.probableDuplicates||0)+(pm.strongDuplicates||0);const duplicatePct=candidateTotal?Math.round((duplicateTotal/candidateTotal)*1000)/10:0;
+  $('phase3Status').textContent=run?phase3State.replaceAll('_',' '):'Not started';$('phase3Status').className=`status ${escapeHtml(phase3State)}`;$('phase3Candidates').textContent=`${candidateTotal}/100`;$('phase3Profiles').textContent=pm.shadowProfileCount||0;$('phase3Quality').textContent=`${Math.round(pm.averagePublicationQuality||0)}%`;$('phase3Evidence').textContent=`${Math.round(pm.evidenceCoveragePct||0)}%`;$('phase3Duplicates').textContent=`${duplicatePct}%`;$('phase3Cost').textContent=money(pm.aiEstimatedCostGbp);$('phase3Scope').textContent=run?`Started ${new Date(run.startedAt).toLocaleString()} · ${phase3.readyForReview?'sample ready for review':phase3.targetReached?'target reached; draining':'collecting real venue candidates'}`:'Starts automatically the first time the safe Shadow campaign runs.';
+  const safe=phase3.safety||{};$('phase3Safety').textContent=safe.safeToValidate?'Safety contract healthy: Shadow mode · Publishing off · Marketing off · Claim notices off · SEO indexing off.':'Phase 3 paused by safety contract — restore Shadow mode with Publishing, Marketing, Claim notices and SEO indexing all off.';
   $('campaignRows').innerHTML=campaigns.items.map(c=>`<tr><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.categories.join(', '))}</td><td>${escapeHtml(c.locations.join(', '))}</td><td>${c.dailyTarget}/${c.dailyHardLimit}</td><td><span class="status">${escapeHtml(c.status)}</span></td><td><button class="small campaign-toggle" data-id="${escapeHtml(c.id)}" data-next="${c.status==='running'?'paused':'running'}">${c.status==='running'?'Pause':'Run'}</button></td></tr>`).join('');
   $('queueRows').innerHTML=Object.entries(status.queues).map(([name,c])=>`<tr><td>${escapeHtml(name)}</td><td>${c.waiting||0}</td><td>${c.active||0}</td><td>${c.failed||0}</td></tr>`).join('');
   $('candidateRows').innerHTML=candidates.items.map(c=>{const d=c.dedupDecision||'pending';return `<tr><td>${escapeHtml(c.titleHint||c.canonicalDomain)}</td><td>${escapeHtml(c.categoryHint||'—')}</td><td>${escapeHtml(c.locationHint||'—')}</td><td>${escapeHtml(c.provider)}</td><td><span class="status">${escapeHtml(c.status)}</span></td><td class="reason-list"><span class="status ${escapeHtml(d)}">${escapeHtml(d.replaceAll('_',' '))}</span><div style="margin-top:4px">${escapeHtml(dedupLabel(c))}</div></td></tr>`;}).join('')||'<tr><td colspan="6" class="muted">No candidates yet.</td></tr>';
