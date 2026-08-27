@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { supplierMediaEvidenceSchema } from './supplier-media.js';
 
 export const shadowProfileSchema = z.object({
   candidateId: z.string().min(1),
@@ -17,6 +18,11 @@ export const shadowProfileSchema = z.object({
     features: z.array(z.string().max(160)).max(30),
   })).max(20),
   evidenceIds: z.array(z.string()).max(100),
+  // Phase 3 stores supplier-site-declared media references and provenance only.
+  // It does not copy/rehost image bytes or grant any publication rights.
+  coverImage: z.string().url().max(2_048).nullable().default(null),
+  images: z.array(z.string().url().max(2_048)).max(12).default([]),
+  mediaEvidence: z.array(supplierMediaEvidenceSchema).max(20).default([]),
   dataConfidence: z.number().min(0).max(100),
   publicationQuality: z.number().min(0).max(100),
   generatedAt: z.string(),
