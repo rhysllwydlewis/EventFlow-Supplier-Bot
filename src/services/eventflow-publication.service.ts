@@ -17,7 +17,10 @@ import {
   assessShadowProfileCompliance,
   effectiveMinimumPublicationQuality,
 } from './compliance.service.js';
-import { ingestShadowProfileToEventFlow } from './eventflow-ingestion.service.js';
+import {
+  ingestShadowProfileToEventFlow,
+  PUBLIC_UNCLAIMED_SCOPE,
+} from './eventflow-ingestion.service.js';
 
 function integrationConfigured(): boolean {
   return Boolean(env.EVENTFLOW_INTERNAL_BASE_URL && env.EVENTFLOW_BOT_HMAC_SECRET);
@@ -26,6 +29,17 @@ function integrationConfigured(): boolean {
 function retryAt(attempt: number): string {
   const delayMs = Math.min(6 * 60 * 60_000, 30_000 * (2 ** Math.min(Math.max(attempt - 1, 0), 8)));
   return new Date(Date.now() + delayMs).toISOString();
+}
+
+function publicationControlBlockReason(settings: {
+  mode: string;
+  runState: string;
+  publishingEnabled: boolean;
+}): string | null {
+  if (settings.runState === 'emergency_stopped') return 'emergency_stopped';
+  if (settings.mode !== 'live') return 'mode_not_live';
+  if (!settings.publishingEnabled) return 'publishing_disabled';
+  return null;
 }
 
 export async function processEventFlowPublication(candidateId: string): Promise<Record<string, unknown>> {
@@ -66,11 +80,12 @@ export async function processEventFlowPublication(candidateId: string): Promise<
 
   return withCompliancePolicyLock(`eventflow-publication:${candidateId}`, async () => {
     const settings = await getSettings();
-    if (settings.runState === 'emergency_stopped' || !settings.publishingEnabled) {
+    const controlBlockReason = publicationControlBlockReason(settings);
+    if (controlBlockReason) {
       await saveEventFlowIngestionState({
         candidateId,
         status: 'pending',
-        reason: settings.runState === 'emergency_stopped' ? 'emergency_stopped' : 'publishing_disabled',
+        reason: controlBlockReason,
       });
       return { skipped: true, reason: 'publishing_not_authorized' };
     }
@@ -107,11 +122,12 @@ export async function processEventFlowPublication(candidateId: string): Promise<
     }
 
     const liveSettings = await getSettings();
-    if (liveSettings.runState === 'emergency_stopped' || !liveSettings.publishingEnabled) {
+    const liveControlBlockReason = publicationControlBlockReason(liveSettings);
+    if (liveControlBlockReason) {
       await saveEventFlowIngestionState({
         candidateId,
         status: 'pending',
-        reason: liveSettings.runState === 'emergency_stopped' ? 'emergency_stopped' : 'publishing_disabled',
+        reason: liveControlBlockReason,
       });
       return { skipped: true, reason: 'publishing_revoked_before_send' };
     }
@@ -131,14 +147,28 @@ export async function processEventFlowPublication(candidateId: string): Promise<
       profile,
       compliance,
       publishingEnabled: true,
+      publicationScope: PUBLIC_UNCLAIMED_SCOPE,
     });
 
     if (result.status === 'created' || result.status === 'existing') {
+      if (!result.publicProfilePath) {
+        await saveEventFlowIngestionState({
+          candidateId,
+          status: 'failed',
+          supplierId: result.supplierId,
+          slug: result.slug,
+          reason: 'eventflow_public_profile_path_missing',
+          incrementAttempts: true,
+          nextRetryAt: retryAt(1),
+        });
+        throw new Error('EventFlow publication succeeded without a public profile path');
+      }
       await saveEventFlowIngestionState({
         candidateId,
         status: result.status,
         supplierId: result.supplierId,
         slug: result.slug,
+        publicProfilePath: result.publicProfilePath,
       });
       return result;
     }
