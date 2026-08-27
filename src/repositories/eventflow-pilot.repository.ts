@@ -11,6 +11,7 @@ const pilotStateSchema = z.object({
   businessName: z.string().nullable().default(null),
   supplierId: z.string().nullable().default(null),
   slug: z.string().nullable().default(null),
+  publicProfilePath: z.string().nullable().default(null),
   reason: z.string().nullable().default(null),
   updatedAt: z.string(),
   publishedAt: z.string().nullable().default(null),
@@ -41,6 +42,10 @@ export async function saveEventFlowPilotState(
     businessName: patch.businessName !== undefined ? patch.businessName : previous?.businessName ?? null,
     supplierId: patch.supplierId !== undefined ? patch.supplierId : previous?.supplierId ?? null,
     slug: patch.slug !== undefined ? patch.slug : previous?.slug ?? null,
+    publicProfilePath:
+      patch.publicProfilePath !== undefined
+        ? patch.publicProfilePath
+        : previous?.publicProfilePath ?? null,
     reason: patch.reason !== undefined ? patch.reason : previous?.reason ?? null,
     updatedAt: now,
     publishedAt: patch.publishedAt !== undefined ? patch.publishedAt : previous?.publishedAt ?? null,
