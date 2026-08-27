@@ -5,6 +5,7 @@ import { crawlSupplierSiteWithBrowser } from '../crawler/browser-renderer.js';
 import { crawlSupplierSite } from '../crawler/site-crawler.js';
 import { createEvidenceFragment } from '../evidence/evidence.js';
 import { extractBasicFacts, type BasicExtraction } from '../extraction/basic-extractor.js';
+import { extractCommercialEvidence } from '../extraction/commercial-evidence-extractor.js';
 import { getCampaign } from '../repositories/campaign.repository.js';
 import { saveComplianceAssessment } from '../repositories/compliance-assessment.repository.js';
 import { saveEvidenceFragments } from '../repositories/evidence.repository.js';
@@ -32,14 +33,36 @@ async function completeShadowProfile(
   crawlMethod: 'http' | 'browser',
 ) {
   await setCandidateStatus(candidate.id, 'extracting');
-  const evidence = extraction.pageText.map(page => createEvidenceFragment({
+
+  // Commercial evidence is intentionally captured as compact blocks around a
+  // supplier-published price. This prevents package extraction from relying on
+  // the first 2,000 characters of a long page or associating an unrelated price
+  // with a service elsewhere on the page.
+  const commercialEvidence = extractCommercialEvidence(crawl).map(item => createEvidenceFragment({
+    candidateId: candidate.id,
+    sourceUrl: item.sourceUrl,
+    sourceType: 'supplier_website',
+    rawForHash: item.rawForHash,
+    excerpt: item.excerpt,
+    metadata: {
+      crawlMethod,
+      commercialCandidate: true,
+      commercialKindHint: item.kindHint,
+      priceTokens: item.priceTokens,
+      linkedPdfBrochures: item.pdfLinks,
+    },
+  }));
+
+  const pageEvidence = extraction.pageText.map(page => createEvidenceFragment({
     candidateId: candidate.id,
     sourceUrl: page.url,
     sourceType: 'supplier_website',
     rawForHash: page.text,
     excerpt: page.text.slice(0, 2_000),
-    metadata: { crawlMethod },
+    metadata: { crawlMethod, commercialCandidate: false },
   }));
+
+  const evidence = [...commercialEvidence, ...pageEvidence];
   await saveEvidenceFragments(evidence);
 
   const deterministicProfile = composeDeterministicShadowProfile({
