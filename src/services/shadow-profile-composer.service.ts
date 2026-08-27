@@ -3,6 +3,7 @@ import type { SupplierMediaEvidence } from '../domain/supplier-media.js';
 import { shadowProfileSchema, type ShadowProfile } from '../domain/shadow-profile.js';
 import type { BasicExtraction } from '../extraction/basic-extractor.js';
 import { extractStructuredBusinessFacts } from '../extraction/structured-data.js';
+import { normalizePhone } from './supplier-dedup.service.js';
 
 function cleanBusinessTitle(title: string | null): string | null {
   if (!title) return null;
@@ -34,6 +35,28 @@ function mergeMediaEvidence(
   return result;
 }
 
+// UK business sites occasionally publish their JSON-LD telephone already
+// mangled with a "+44" glued onto a number that still has its leading 0
+// (e.g. "+4401443665803"). normalizePhone() strips that back to a valid
+// local number; most EventFlow visitors are UK-based so a plain local
+// number reads better than an international +44 form either way.
+function cleanPublicPhone(raw: string | null): string | null {
+  return normalizePhone(raw);
+}
+
+// Combine town/village with county when both are present (e.g. "Hensol,
+// Vale of Glamorgan") instead of only ever keeping one via `||`, but don't
+// repeat the same value twice if a site sets both fields identically.
+function composeLocation(
+  structured: { locality: string | null; region: string | null },
+  fallback: string | null
+): string | null {
+  const combined = [structured.locality, structured.region]
+    .filter((part, index, all): part is string => Boolean(part) && all.indexOf(part) === index)
+    .join(', ');
+  return combined || fallback || null;
+}
+
 export function composeDeterministicShadowProfile(input: {
   candidate: Candidate;
   extraction: BasicExtraction;
@@ -42,11 +65,13 @@ export function composeDeterministicShadowProfile(input: {
   const structured = extractStructuredBusinessFacts(input.extraction.jsonLd);
   const businessName = structured.name || cleanBusinessTitle(input.candidate.titleHint) || input.candidate.canonicalDomain;
   const category = input.candidate.categoryHint || 'Other';
-  const location = structured.locality || structured.region || input.candidate.locationHint;
+  const location = composeLocation(structured, input.candidate.locationHint);
   const email = structured.email || input.extraction.emails[0] || null;
-  const phone = structured.telephone || input.extraction.phones[0] || null;
+  const phone = cleanPublicPhone(structured.telephone || input.extraction.phones[0] || null);
   const locationPhrase = location ? ` serving ${location}` : '';
-  const description = `${businessName} is listed on EventFlow as a ${category.toLowerCase()} supplier${locationPhrase}. This profile has been compiled from publicly available business information and can be claimed by the business owner.`;
+  const priceInfo = input.extraction.advertisedPrices[0] || structured.priceRange || null;
+  const pricePhrase = priceInfo ? ` Advertised pricing starts at ${priceInfo}.` : '';
+  const description = `${businessName} is a ${category.toLowerCase()} supplier${locationPhrase}, listed on EventFlow from publicly available business information.${pricePhrase} This profile can be claimed by the business owner to add full details, packages and photos.`;
   const images = input.extraction.media.slice(0, 12).map(item => item.url);
   const coverImage = images[0] ?? null;
   const logoCandidate = input.extraction.profileImageCandidate ?? null;
