@@ -47,7 +47,7 @@ describe('one-profile EventFlow production pilot', () => {
   });
 
   it('uses an explicit scoped ingestion bypass without enabling normal publication', () => {
-    expect(pilotSource).toContain('publishingEnabled: true');
+    expect(pilotSource).toContain('publishingEnabled: liveSettings.publishingEnabled');
     expect(pilotSource).toContain('publicationScope: PILOT_PUBLICATION_SCOPE');
     expect(ingestionSource).toContain("PILOT_UNCLAIMED_SCOPE = 'pilot_unclaimed'");
     expect(ingestionSource).toContain('publicationScope?: EventFlowPublicationScope');
@@ -55,6 +55,12 @@ describe('one-profile EventFlow production pilot', () => {
       '...(input.publicationScope ? { publicationScope: input.publicationScope } : {})'
     );
     expect(normalPublicationSource).toContain('!settings.publishingEnabled');
+  });
+
+  it('blocks the pilot on the same mode/publishing gate as normal publication', () => {
+    expect(pilotSource).toContain("if (settings.mode !== 'live') return 'mode_not_live'");
+    expect(pilotSource).toContain("if (!settings.publishingEnabled) return 'publishing_disabled'");
+    expect(pilotSource).not.toContain("if (settings.mode === 'off') return 'bot_off'");
   });
 
   it('uses the exact EventFlow public profile path and repairs an already-published legacy pilot state', () => {

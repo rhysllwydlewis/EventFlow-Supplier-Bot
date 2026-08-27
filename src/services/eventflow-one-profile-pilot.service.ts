@@ -22,9 +22,16 @@ const MIN_PILOT_CONFIDENCE = 70;
 const PILOT_REFRESH_RETRY_AFTER_MS = 5 * 60_000;
 const EVENTFLOW_ORIGIN = 'https://event-flow.co.uk';
 
+// Mirrors the generic publicationControlBlockReason gate (eventflow-publication.service.ts)
+// so the one-profile pilot can never publish under conditions the generic path would block.
 function pilotRunBlockReason(settings: BotSettings): string | null {
-  if (settings.mode === 'off') return 'bot_off';
-  if (settings.runState !== 'running') return `run_state_${settings.runState}`;
+  if (settings.runState !== 'running') {
+    return settings.runState === 'emergency_stopped'
+      ? 'emergency_stopped'
+      : `run_state_${settings.runState}`;
+  }
+  if (settings.mode !== 'live') return 'mode_not_live';
+  if (!settings.publishingEnabled) return 'publishing_disabled';
   return null;
 }
 
@@ -206,7 +213,10 @@ export async function runOneProfileEventFlowPilot(): Promise<EventFlowPilotState
   const result = await ingestShadowProfileToEventFlow({
     profile,
     compliance,
-    publishingEnabled: true,
+    // liveRunBlockReason above already proved liveSettings.publishingEnabled is true;
+    // passed through explicitly (not hardcoded) so this path can never drift from the
+    // real Control setting the way a literal `true` could.
+    publishingEnabled: liveSettings.publishingEnabled,
     publicationScope: PILOT_PUBLICATION_SCOPE,
   });
 
