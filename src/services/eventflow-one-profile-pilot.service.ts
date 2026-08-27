@@ -20,6 +20,7 @@ const PILOT_PUBLICATION_SCOPE = 'pilot_unclaimed' as const;
 const MIN_PILOT_QUALITY = 80;
 const MIN_PILOT_CONFIDENCE = 70;
 const PILOT_REFRESH_RETRY_AFTER_MS = 5 * 60_000;
+const EVENTFLOW_ORIGIN = 'https://event-flow.co.uk';
 
 function pilotRunBlockReason(settings: BotSettings): string | null {
   if (settings.mode === 'off') return 'bot_off';
@@ -63,13 +64,19 @@ async function queuePilotRefresh(input: {
 }
 
 export function pilotPublicProfileUrl(state: EventFlowPilotState | null): string | null {
-  if (!state?.slug || state.status !== 'published') return null;
-  return `https://event-flow.co.uk/supplier/${encodeURIComponent(state.slug)}`;
+  if (!state?.publicProfilePath || state.status !== 'published') return null;
+  try {
+    const url = new URL(state.publicProfilePath, EVENTFLOW_ORIGIN);
+    if (url.origin !== EVENTFLOW_ORIGIN || !url.pathname.startsWith('/supplier/')) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
 }
 
 export async function runOneProfileEventFlowPilot(): Promise<EventFlowPilotState> {
   const previous = await getEventFlowPilotState();
-  if (previous?.status === 'published') return previous;
+  if (previous?.status === 'published' && previous.publicProfilePath) return previous;
 
   const settings = await getSettings();
   const runBlockReason = pilotRunBlockReason(settings);
@@ -206,14 +213,25 @@ export async function runOneProfileEventFlowPilot(): Promise<EventFlowPilotState
   switch (result.status) {
     case 'created':
     case 'existing':
+      if (!result.publicProfilePath) {
+        return saveEventFlowPilotState({
+          status: 'waiting',
+          candidateId: candidate.id,
+          businessName: profile.businessName,
+          supplierId: result.supplierId,
+          slug: result.slug,
+          reason: 'eventflow_public_profile_path_missing',
+        });
+      }
       return saveEventFlowPilotState({
         status: 'published',
         candidateId: candidate.id,
         businessName: profile.businessName,
         supplierId: result.supplierId,
         slug: result.slug,
+        publicProfilePath: result.publicProfilePath,
         reason: null,
-        publishedAt: new Date().toISOString(),
+        publishedAt: previous?.publishedAt ?? new Date().toISOString(),
       });
     case 'failed':
     case 'disabled':

@@ -13,7 +13,10 @@ describe('one-profile EventFlow production pilot', () => {
     expect(pilotSource).toContain('getCandidateByCanonicalDomain(PILOT_DOMAIN)');
     expect(stateSource).toContain('eventflow-one-profile-pilot-v1');
     expect(stateSource).toContain("collection<EventFlowPilotState>('eventflow_pilot_state')");
-    expect(pilotSource).toContain("if (previous?.status === 'published') return previous");
+    expect(stateSource).toContain('publicProfilePath: z.string().nullable().default(null)');
+    expect(pilotSource).toContain(
+      "if (previous?.status === 'published' && previous.publicProfilePath) return previous"
+    );
   });
 
   it('re-runs the current crawl pipeline and recovers a stale refresh without fan-out', () => {
@@ -53,10 +56,14 @@ describe('one-profile EventFlow production pilot', () => {
     expect(normalPublicationSource).toContain('!settings.publishingEnabled');
   });
 
-  it('uses the EventFlow-returned slug rather than reconstructing a profile URL locally', () => {
-    expect(pilotSource).toContain('if (!state?.slug || state.status !== \'published\') return null');
-    expect(pilotSource).toContain('encodeURIComponent(state.slug)');
-    expect(pilotSource).not.toContain('createHash');
+  it('uses the exact EventFlow public profile path and repairs an already-published legacy pilot state', () => {
+    expect(ingestionSource).toContain('publicProfilePath: z.string().regex');
+    expect(ingestionSource).toContain('publicProfilePath: parsed.publicProfilePath ?? null');
+    expect(pilotSource).toContain('if (!state?.publicProfilePath || state.status !== \'published\') return null');
+    expect(pilotSource).toContain('new URL(state.publicProfilePath, EVENTFLOW_ORIGIN)');
+    expect(pilotSource).toContain("reason: 'eventflow_public_profile_path_missing'");
+    expect(pilotSource).toContain('publicProfilePath: result.publicProfilePath');
+    expect(pilotSource).toContain('publishedAt: previous?.publishedAt ?? new Date().toISOString()');
     expect(pilotSource).not.toContain('function publicSlug');
   });
 

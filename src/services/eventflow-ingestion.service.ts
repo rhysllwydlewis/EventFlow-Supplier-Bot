@@ -9,6 +9,7 @@ import { recordAuditEvent } from '../repositories/audit.repository.js';
 const responseSchema = z.object({
   supplierId: z.string().min(1),
   slug: z.string().min(1),
+  publicProfilePath: z.string().regex(/^\/supplier\/[a-z0-9-]+--[a-f0-9]{16}$/).nullable().optional(),
   status: z.literal('draft'),
   ownershipStatus: z.literal('unclaimed'),
   publicationScope: z.enum(['pilot_unclaimed']).nullable().optional(),
@@ -18,7 +19,12 @@ const responseSchema = z.object({
 
 export type EventFlowIngestionResult =
   | { status: 'disabled' | 'not_configured' | 'ineligible'; reason: string }
-  | { status: 'created' | 'existing'; supplierId: string; slug: string }
+  | {
+      status: 'created' | 'existing';
+      supplierId: string;
+      slug: string;
+      publicProfilePath: string | null;
+    }
   | { status: 'conflict' | 'failed'; reason: string };
 
 function integrationConfigured(): boolean {
@@ -119,11 +125,13 @@ export async function ingestShadowProfileToEventFlow(input: {
       supplierId: parsed.supplierId,
       created: parsed.created,
       publicationScope: parsed.publicationScope ?? null,
+      publicProfilePath: parsed.publicProfilePath ?? null,
     });
     return {
       status: parsed.created ? 'created' : 'existing',
       supplierId: parsed.supplierId,
       slug: parsed.slug,
+      publicProfilePath: parsed.publicProfilePath ?? null,
     };
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'eventflow_ingestion_failed';
