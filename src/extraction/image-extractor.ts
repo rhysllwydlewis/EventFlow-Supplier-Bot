@@ -92,12 +92,12 @@ function inlineStyleImages(style: string | undefined): string[] {
 }
 
 function textualHint(...values: Array<string | null | undefined>): string {
-  return values.filter(Boolean).join(' ').replace(/[\-_]+/g, ' ').slice(0, 1_000);
+  return values.filter(Boolean).join(' ').replace(/[-_]+/g, ' ').slice(0, 1_000);
 }
 
 function imageFilename(url: URL): string {
   const last = url.pathname.split('/').filter(Boolean).pop() ?? '';
-  return decodeURIComponent(last).replace(/[\-_]+/g, ' ');
+  return decodeURIComponent(last).replace(/[-_]+/g, ' ');
 }
 
 function scoreCandidate(input: {
@@ -131,7 +131,7 @@ function scoreCandidate(input: {
     if (input.width >= 1_200 && input.height >= 600) score += 8;
     else if (input.width >= 800 && input.height >= 450) score += 5;
   }
-  if (/\b(gallery|wedding|venue|events?)\b/i.test(input.pageUrl.pathname.replace(/[\/_-]+/g, ' '))) {
+  if (/\b(gallery|wedding|venue|events?)\b/i.test(input.pageUrl.pathname.replace(/[/_-]+/g, ' '))) {
     score += 5;
   }
   return { score: Math.min(100, score), sameSite: same };
