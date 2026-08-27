@@ -144,14 +144,19 @@ describe('Phase 3 autonomous runtime closeout', () => {
       readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
     ) as { scripts: Record<string, string> };
     const entrySource = readFileSync(new URL('../src/control/entry.ts', import.meta.url), 'utf8');
+    const serverSource = readFileSync(new URL('../src/control/server.ts', import.meta.url), 'utf8');
+    const queueSource = readFileSync(new URL('../src/queues/index.ts', import.meta.url), 'utf8');
 
     expect(packageJson.scripts['start:control']).toBe('node dist/control/entry.js');
     expect(entrySource).toContain('bootstrapPhase3Validation()');
+    expect(entrySource).toContain('applyPhase3DiscoveryQualityRevision()');
     expect(entrySource).toContain("'phase3-progress.json'");
     expect(entrySource).toContain('PHASE3_RECOVERY_INTERVAL_MS = 30 * 60 * 1000');
     expect(entrySource).toContain('phase3-recovery-plan-');
     expect(entrySource).toContain('latestFailure');
     expect(entrySource).toContain('latestCompletion');
+    expect(queueSource).toContain('qualityFilteredSkipped');
+    expect(serverSource).toContain('Daily candidate hard limit reached');
     expect(entrySource).not.toContain('CONTROL_ADMIN_KEY');
     expect(entrySource).not.toContain('CONTROL_SESSION_SECRET');
   });
