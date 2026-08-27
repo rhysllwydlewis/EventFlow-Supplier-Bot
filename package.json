@@ -7,9 +7,9 @@
     "node": ">=22 <23"
   },
   "scripts": {
-    "dev:control": "tsx watch src/control/server.ts",
+    "dev:control": "tsx watch src/control/entry.ts",
     "dev:worker": "tsx watch src/worker/index.ts",
-    "start:control": "node dist/control/server.js",
+    "start:control": "node dist/control/entry.js",
     "start:worker": "node dist/worker/index.js",
     "install:browser": "playwright install --with-deps chromium",
     "build": "tsc -p tsconfig.json",
