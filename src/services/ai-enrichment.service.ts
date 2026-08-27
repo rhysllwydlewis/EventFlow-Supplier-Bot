@@ -215,16 +215,16 @@ function wordingSupported(value: string, excerpt: string, minimumRatio = 0.6): b
 function packageDirectlySupported(
   item: AiEnrichment['packages'][number],
   fragments: EvidenceFragment[],
-): { supported: boolean; features: string[] } {
+): { supported: boolean; features: string[]; evidenceIds: string[] } {
   if (!fragments.length) {
     // Backwards-compatible for isolated unit callers. The live pipeline always
     // supplies concrete EvidenceFragments and therefore takes the strict path.
-    return { supported: true, features: item.features };
+    return { supported: true, features: item.features, evidenceIds: item.evidenceIds };
   }
   const byId = new Map(fragments.map(fragment => [fragment.id, fragment]));
   const cited = item.evidenceIds.map(id => byId.get(id)).filter(Boolean) as EvidenceFragment[];
   const commercial = cited.filter(isCommercialEvidence);
-  if (!commercial.length) return { supported: false, features: [] };
+  if (!commercial.length) return { supported: false, features: [], evidenceIds: [] };
 
   // At least one single supplier-published commercial block must support both
   // the offering name and the exact advertised price wording. This prevents
@@ -233,13 +233,21 @@ function packageDirectlySupported(
     wordingSupported(item.name, fragment.excerpt, 0.6)
     && normalizedComparable(fragment.excerpt).includes(normalizedComparable(item.priceDisplay))
   );
-  if (!direct) return { supported: false, features: [] };
+  if (!direct) return { supported: false, features: [], evidenceIds: [] };
 
   const sameSource = commercial.filter(fragment => fragment.sourceUrl === direct.sourceUrl);
   const features = item.features.filter(feature =>
     sameSource.some(fragment => wordingSupported(feature, fragment.excerpt, 0.5))
   );
-  return { supported: true, features };
+  // Put the fragment that actually validated name+price first so downstream
+  // provenance (sourceUrl, observedAt, contentHash) is derived from it rather
+  // than whichever commercial fragment happened to be cited first — citation
+  // order is not guaranteed to match which one was the direct match.
+  const evidenceIds = [
+    direct.id,
+    ...sameSource.filter(fragment => fragment.id !== direct.id).map(fragment => fragment.id),
+  ];
+  return { supported: true, features, evidenceIds };
 }
 
 export function validateEvidenceBackedEnrichment(
@@ -257,7 +265,9 @@ export function validateEvidenceBackedEnrichment(
   const packages = enrichment.packages.flatMap(item => {
     if (!idsAreSupported(item.evidenceIds, allowedEvidenceIds)) return [];
     const direct = packageDirectlySupported(item, evidenceFragments);
-    return direct.supported ? [{ ...item, features: direct.features }] : [];
+    return direct.supported
+      ? [{ ...item, features: direct.features, evidenceIds: direct.evidenceIds }]
+      : [];
   });
 
   return aiEnrichmentSchema.parse({
@@ -275,9 +285,20 @@ function unique(values: string[], max: number): string[] {
 }
 
 function parsePriceDetails(priceDisplay: string): ShadowProfile['packages'][number]['priceDetails'] {
-  const amounts = [...priceDisplay.matchAll(/£\s?(\d[\d,]*(?:\.\d{1,2})?)/g)]
-    .map(match => Number.parseFloat((match[1] || '').replace(/,/g, '')))
-    .filter(Number.isFinite);
+  // The extractor's own PRICE_TOKEN_RE deliberately accepts a range whose
+  // second bound has no £ of its own (e.g. "£750-950"), so check for that
+  // shape first — the plain £-prefixed matchAll below would otherwise only
+  // ever find the first bound and silently drop the second.
+  const rangeMatch = priceDisplay.match(
+    /£\s?(\d[\d,]*(?:\.\d{1,2})?)\s*(?:-|–|—|\bto\b)\s*£?\s?(\d[\d,]*(?:\.\d{1,2})?)/i
+  );
+  const amounts = rangeMatch
+    ? [rangeMatch[1], rangeMatch[2]]
+        .map(value => Number.parseFloat((value || '').replace(/,/g, '')))
+        .filter(Number.isFinite)
+    : [...priceDisplay.matchAll(/£\s?(\d[\d,]*(?:\.\d{1,2})?)/g)]
+        .map(match => Number.parseFloat((match[1] || '').replace(/,/g, '')))
+        .filter(Number.isFinite);
   if (!amounts.length) return null;
 
   const lower = priceDisplay.toLowerCase();

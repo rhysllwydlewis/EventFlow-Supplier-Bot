@@ -69,6 +69,45 @@ describe('commercial evidence extraction', () => {
     expect(result).toEqual([]);
   });
 
+  it('does not merge two adjacent offerings into one evidence block', () => {
+    const result = extractCommercialEvidence(crawl(`
+      <section>
+        <h2>Basic Package</h2>
+        <p>£100</p>
+        <h2>Premium Package</h2>
+        <p>£200</p>
+      </section>
+    `));
+
+    const basic = result.find(item => item.excerpt.includes('Basic Package'));
+    const premium = result.find(item => item.excerpt.includes('Premium Package'));
+    expect(basic?.excerpt).not.toContain('Premium Package');
+    expect(basic?.excerpt).not.toContain('£200');
+    expect(premium?.excerpt).not.toContain('Basic Package');
+    expect(premium?.excerpt).not.toContain('£100');
+  });
+
+  it('rejects a deposit mention on a named package when no distinct full price is stated', () => {
+    const result = extractCommercialEvidence(crawl(`
+      <section>
+        <h2>Wedding Package</h2>
+        <p>£250 deposit required to secure your date.</p>
+      </section>
+    `));
+    expect(result).toEqual([]);
+  });
+
+  it('keeps a deposit mention when a distinct full price is also present', () => {
+    const result = extractCommercialEvidence(crawl(`
+      <section>
+        <h2>Wedding Package</h2>
+        <p>£2,500 total, £250 deposit to secure your date.</p>
+      </section>
+    `));
+    expect(result).toHaveLength(1);
+    expect(result[0]?.priceTokens).toContain('£2,500');
+  });
+
   it('records official linked PDF brochures as hints without treating them as parsed pricing evidence', () => {
     const result = extractCommercialEvidence(crawl(`
       <section>

@@ -155,4 +155,72 @@ describe('AI evidence validation', () => {
       },
     });
   });
+
+  it('derives provenance from the fragment that directly validated the package, not citation order', () => {
+    const fragments = [
+      evidence({
+        id: 'evidence_generic',
+        excerpt: 'General information about our packages and services.',
+        metadata: { commercialCandidate: true },
+      }),
+      evidence({
+        id: 'evidence_direct',
+        excerpt: 'Silver Package — From £1,000 per person.',
+        metadata: { commercialCandidate: true },
+      }),
+    ];
+    const supported: AiEnrichment = {
+      ...enrichment,
+      packages: [{
+        kind: 'advertised_package',
+        name: 'Silver Package',
+        priceDisplay: 'From £1,000 per person',
+        features: [],
+        // Cited out of order: the generic, non-matching fragment comes first.
+        evidenceIds: ['evidence_generic', 'evidence_direct'],
+      }],
+    };
+    const validated = validateEvidenceBackedEnrichment(
+      supported,
+      new Set(['evidence_1', 'evidence_2', 'evidence_generic', 'evidence_direct']),
+      fragments,
+    );
+    expect(validated.packages).toHaveLength(1);
+
+    const merged = mergeAiEnrichment(baseProfile, validated, fragments);
+    expect(merged.packages[0]?.sourceContentHash).toBe('hash_evidence_direct');
+  });
+
+  it('parses the upper bound of a price range that has no £ of its own', () => {
+    const fragments = [
+      evidence({
+        id: 'evidence_range',
+        excerpt: 'Evening Package — £750–950.',
+        metadata: { commercialCandidate: true },
+      }),
+    ];
+    const supported: AiEnrichment = {
+      ...enrichment,
+      packages: [{
+        kind: 'advertised_package',
+        name: 'Evening Package',
+        priceDisplay: '£750–950',
+        features: [],
+        evidenceIds: ['evidence_range'],
+      }],
+    };
+    const validated = validateEvidenceBackedEnrichment(
+      supported,
+      new Set(['evidence_1', 'evidence_2', 'evidence_range']),
+      fragments,
+    );
+    expect(validated.packages).toHaveLength(1);
+
+    const merged = mergeAiEnrichment(baseProfile, validated, fragments);
+    expect(merged.packages[0]?.priceDetails).toMatchObject({
+      amount: 750,
+      maxAmount: 950,
+      qualifier: 'range',
+    });
+  });
 });

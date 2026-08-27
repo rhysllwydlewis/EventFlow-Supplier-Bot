@@ -29,7 +29,32 @@ function decodeEntities(value: string): string {
     .replace(/&#39;/gi, "'");
 }
 
-function structuredText(html: string): string[] {
+interface StructuredLine {
+  text: string;
+  heading: boolean;
+}
+
+// Captured separately (by exact heading text) rather than woven into the
+// same replace-chain that flattens the rest of the page: candidateWindow
+// needs to know which output lines came from an <h1>-<h6> so it can treat
+// them as offering boundaries, and that classification would otherwise be
+// lost once tags are stripped.
+function extractHeadingTexts(html: string): Set<string> {
+  const headings = new Set<string>();
+  const HEADING_RE = /<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = HEADING_RE.exec(html))) {
+    const text = decodeEntities(match[1] || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (text) headings.add(text);
+  }
+  return headings;
+}
+
+function structuredText(html: string): StructuredLine[] {
+  const headingTexts = extractHeadingTexts(html);
   const value = decodeEntities(html)
     .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
@@ -45,7 +70,8 @@ function structuredText(html: string): string[] {
     .split(/\n+/)
     .map(line => line.replace(/\s+/g, ' ').replace(/\s*\|\s*/g, ' | ').trim())
     .filter(Boolean)
-    .filter(line => line.length <= 2_500);
+    .filter(line => line.length <= 2_500)
+    .map(text => ({ text, heading: headingTexts.has(text) }));
 }
 
 function unique(values: string[], max = 20): string[] {
@@ -76,19 +102,51 @@ function meaningfulWords(value: string): number {
   return (value.match(/[A-Za-z]{3,}/g) ?? []).length;
 }
 
-function candidateWindow(lines: string[], index: number): string {
-  const start = Math.max(0, index - 2);
-  const end = Math.min(lines.length, index + 4);
-  return lines.slice(start, end).join('\n').slice(0, 2_000).trim();
+// Stops the window at another offering's boundary so two adjacent offerings
+// (e.g. two package cards flattened into sequential lines) never get merged
+// into one block. Without this, a name from one offering and a price from
+// another can end up in the same excerpt, and downstream validation only
+// checks that a name and price both occur somewhere in the block — it would
+// happily "support" the wrong pairing. A neighbouring price line is always a
+// hard boundary; a heading line is too, except we allow absorbing exactly
+// one heading walking backward, on the assumption that's this offering's own
+// name (headings normally precede their price, not follow it).
+function candidateWindow(lines: StructuredLine[], index: number): string {
+  let start = index;
+  let crossedHeading = false;
+  for (let cursor = index - 1; cursor >= Math.max(0, index - 2); cursor -= 1) {
+    const line = lines[cursor];
+    if (!line || priceTokens(line.text).length > 0) break;
+    if (line.heading) {
+      if (crossedHeading) break;
+      crossedHeading = true;
+    }
+    start = cursor;
+  }
+  let end = index;
+  for (let cursor = index + 1; cursor < Math.min(lines.length, index + 4); cursor += 1) {
+    const line = lines[cursor];
+    if (!line || priceTokens(line.text).length > 0 || line.heading) break;
+    end = cursor;
+  }
+  return lines.slice(start, end + 1).map(line => line.text).join('\n').slice(0, 2_000).trim();
 }
 
 function isUsefulCommercialBlock(block: string, prices: string[]): boolean {
-  if (!prices.length || meaningfulWords(block) < 3) return false;
+  // Threshold intentionally low: candidateWindow now stops tightly at
+  // neighbouring offering boundaries, so a correctly-isolated single-row
+  // entry (e.g. "Evening package | £750-£950") is legitimately terse rather
+  // than noise.
+  if (!prices.length || meaningfulWords(block) < 2) return false;
   if (!COMMERCIAL_HINT_RE.test(block) && !PACKAGE_HINT_RE.test(block)) return false;
 
   // Deposit/finance values are not publishable package prices on their own.
-  // They may still be present in a valid block when a separate full price is also stated.
-  if (DEPOSIT_ONLY_RE.test(block) && prices.length === 1 && !/\b(total|full|package|hire|service|from)\b/i.test(block)) {
+  // Generic words like "package" or "hire" appear in almost any offering's
+  // own name/description regardless of whether a real price is also stated,
+  // so they can't be used to exempt a block from this check — require an
+  // actual second, distinct price token (a genuine full price stated
+  // alongside the deposit) instead.
+  if (DEPOSIT_ONLY_RE.test(block) && prices.length < 2) {
     return false;
   }
   return true;
@@ -103,7 +161,7 @@ export function extractCommercialEvidence(crawl: SiteCrawlResult): CommercialEvi
     const pdfLinks = extractPdfLinks(page.html, page.url);
 
     for (let index = 0; index < lines.length; index += 1) {
-      const linePrices = priceTokens(lines[index] || '');
+      const linePrices = priceTokens(lines[index]?.text || '');
       if (!linePrices.length) continue;
 
       const block = candidateWindow(lines, index);
