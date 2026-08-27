@@ -14,6 +14,7 @@ function crawl(html: string, pageUrl = 'https://venue.example/'): SiteCrawlResul
 describe('supplier profile image extraction', () => {
   it('prefers an official navbar logo while leaving venue photography to the media extractor', () => {
     const result = extractSupplierProfileImage(crawl(`
+      <title>Wedding Venue | Hensol Castle</title>
       <header class="site-header">
         <nav class="navbar">
           <a href="/"><img class="navbar-brand-logo" src="/assets/hensol-castle-logo.svg" alt="Hensol Castle" width="360" height="120"></a>
@@ -44,6 +45,16 @@ describe('supplier profile image extraction', () => {
     expect(result?.score).toBeGreaterThanOrEqual(90);
   });
 
+  it('accepts a strongly branded extensionless navbar image URL', () => {
+    const result = extractSupplierProfileImage(crawl(`
+      <meta property="og:site_name" content="Venue Example">
+      <header><img class="site-brand-logo" src="https://venue.example/media/logo?id=123" alt="Venue Example" width="320" height="120"></header>
+    `));
+
+    expect(result?.url).toBe('https://venue.example/media/logo?id=123');
+    expect(result?.score).toBeGreaterThanOrEqual(90);
+  });
+
   it('rejects social, review and payment branding even when it appears in a header', () => {
     const result = extractSupplierProfileImage(crawl(`
       <header>
@@ -54,6 +65,47 @@ describe('supplier profile image extraction', () => {
     `));
 
     expect(result).toBeNull();
+  });
+
+  it('does not mistake a decorative logo-shape asset outside the header for the business logo', () => {
+    const result = extractSupplierProfileImage(crawl(`
+      <title>South Wales Castle Wedding Venue | Hensol Castle</title>
+      <main>
+        <img src="/images/logoshape-sidewaysregular.svg" width="180" height="60">
+        <img src="/gallery/hensol-castle-exterior.jpg" alt="Hensol Castle Exterior" width="1600" height="900">
+      </main>
+    `));
+
+    expect(result).toBeNull();
+  });
+
+  it('does not treat a generic promotional header photograph as a logo', () => {
+    const result = extractSupplierProfileImage(crawl(`
+      <title>Venue Example</title>
+      <header>
+        <img src="/promotions/wedding-fayre.jpg" alt="Wedding Fayre" width="260" height="130">
+      </header>
+    `));
+
+    expect(result).toBeNull();
+  });
+
+  it('can use a business-name-matched header image even when the word logo is absent', () => {
+    const result = extractSupplierProfileImage(crawl(`
+      <meta property="og:site_name" content="Venue Example">
+      <header><img src="/assets/masthead.svg" alt="Venue Example" width="320" height="120"></header>
+    `));
+
+    expect(result?.url).toBe('https://venue.example/assets/masthead.svg');
+    expect(result?.score).toBeGreaterThanOrEqual(76);
+  });
+
+  it('detects strongly branded inline header background images', () => {
+    const result = extractSupplierProfileImage(crawl(`
+      <header><a class="site-logo" style="background-image:url('/assets/venue-logo.svg')" aria-label="Venue Example"></a></header>
+    `));
+
+    expect(result?.url).toBe('https://venue.example/assets/venue-logo.svg');
   });
 
   it('rewards the same brand asset repeated across crawled pages', () => {
