@@ -20,6 +20,8 @@ export const shadowProfileSchema = z.object({
   evidenceIds: z.array(z.string()).max(100),
   // Phase 3 stores supplier-site-declared media references and provenance only.
   // It does not copy/rehost image bytes or grant any publication rights.
+  profileImage: z.string().url().max(2_048).nullable().default(null),
+  profileImageEvidence: supplierMediaEvidenceSchema.nullable().default(null),
   coverImage: z.string().url().max(2_048).nullable().default(null),
   images: z.array(z.string().url().max(2_048)).max(12).default([]),
   mediaEvidence: z.array(supplierMediaEvidenceSchema).max(20).default([]),

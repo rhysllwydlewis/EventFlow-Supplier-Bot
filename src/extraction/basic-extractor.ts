@@ -1,6 +1,7 @@
 import type { SiteCrawlResult } from '../crawler/site-crawler.js';
 import type { SupplierMediaEvidence } from '../domain/supplier-media.js';
 import { extractSupplierMedia } from './image-extractor.js';
+import { extractSupplierProfileImage } from './profile-image-extractor.js';
 
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const UK_PHONE_RE = /(?:\+44\s?\d{2,4}|0\d{2,4})[\s().-]*\d{3,4}[\s.-]*\d{3,4}\b/g;
@@ -46,6 +47,7 @@ export interface BasicExtraction {
   jsonLd: unknown[];
   pageText: Array<{ url: string; text: string }>;
   media: SupplierMediaEvidence[];
+  profileImageCandidate?: SupplierMediaEvidence | null;
 }
 
 export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
@@ -71,5 +73,6 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
     jsonLd: jsonLd.slice(0, 100),
     pageText,
     media: extractSupplierMedia(crawl),
+    profileImageCandidate: extractSupplierProfileImage(crawl),
   };
 }
