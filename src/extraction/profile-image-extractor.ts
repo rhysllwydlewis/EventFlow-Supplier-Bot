@@ -4,10 +4,11 @@ import {
   type SupplierMediaEvidence,
 } from '../domain/supplier-media.js';
 
-const MIN_PROFILE_IMAGE_SCORE = 72;
+const MIN_PROFILE_IMAGE_SCORE = 76;
 const LOGO_HINT_RE = /\b(logo|brand|branding|site[-_ ]?identity|wordmark)\b/i;
 const NEGATIVE_HINT_RE = /\b(facebook|instagram|youtube|tiktok|tripadvisor|trustpilot|paypal|visa|mastercard|payment|badge|rating|review|favicon|sprite|icon|emoji|placeholder|loading|spinner|tracking|pixel)\b/i;
-const IMAGE_EXTENSION_RE = /\.(?:svg|png|webp|jpe?g|avif)(?:$|[?#])/i;
+const NON_IMAGE_EXTENSION_RE = /\.(?:html?|pdf|css|js|json|xml|zip|mp4|webm)(?:$|[?#])/i;
+const PREFERRED_LOGO_EXTENSION_RE = /\.(?:svg|png)(?:$|[?#])/i;
 const UK_SECOND_LEVEL_SUFFIXES = new Set(['co.uk', 'org.uk', 'me.uk', 'ac.uk', 'gov.uk', 'ltd.uk', 'plc.uk']);
 
 type CandidateSource = 'structured' | 'header' | 'brand_hint';
@@ -16,6 +17,7 @@ interface CandidateInput {
   rawUrl: string;
   pageUrl: string;
   source: CandidateSource;
+  identityNames: string[];
   alt?: string | null;
   width?: number | null;
   height?: number | null;
@@ -58,6 +60,18 @@ function bestSrcsetValue(value: string | undefined): string | undefined {
   return candidates[0]?.url;
 }
 
+function inlineStyleImages(style: string | undefined): string[] {
+  if (!style) return [];
+  const urls: string[] = [];
+  const pattern = /url\(\s*(?:"([^"]+)"|'([^']+)'|([^)'"\s]+))\s*\)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(style)) && urls.length < 4) {
+    const value = match[1] ?? match[2] ?? match[3];
+    if (value) urls.push(value);
+  }
+  return urls;
+}
+
 function siteKey(hostname: string): string {
   const normalized = hostname.toLowerCase().replace(/^www\./, '');
   const parts = normalized.split('.').filter(Boolean);
@@ -89,22 +103,121 @@ function resolveImageUrl(raw: string, pageUrl: string): URL | null {
   }
 }
 
-function candidateHint(input: CandidateInput, imageUrl: URL): string {
-  return [input.alt, input.hint, imageUrl.pathname]
+function normalizeIdentity(value: string): string {
+  return value.toLowerCase().replace(/&amp;/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function identityMatches(value: string, identityNames: string[]): boolean {
+  const normalized = normalizeIdentity(value);
+  if (!normalized) return false;
+  return identityNames.some(name => {
+    const wanted = normalizeIdentity(name);
+    if (wanted.length < 4) return false;
+    return normalized.includes(wanted) || wanted.includes(normalized);
+  });
+}
+
+function jsonLdValues(html: string): unknown[] {
+  const values: unknown[] = [];
+  const scriptRe = /<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = scriptRe.exec(html)) && values.length < 30) {
+    const raw = match[1]?.trim();
+    if (!raw) continue;
+    try {
+      values.push(JSON.parse(raw) as unknown);
+    } catch {
+      // Malformed JSON-LD is common and must not fail discovery.
+    }
+  }
+  return values;
+}
+
+function pageIdentityNames(html: string): string[] {
+  const names: string[] = [];
+  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+    const attrs = htmlAttributes(tag);
+    const key = (attrs.property || attrs.name || '').toLowerCase();
+    if (key === 'og:site_name' && attrs.content) names.push(attrs.content);
+  }
+
+  const title = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]
+    ?.replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (title) {
+    for (const part of title.split(/[|–—]/).map(value => value.trim())) {
+      if (part.length >= 3 && part.length <= 100) names.push(part);
+    }
+  }
+
+  function visit(value: unknown): void {
+    if (value === null || value === undefined || names.length >= 30) return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (typeof value !== 'object') return;
+    const object = value as Record<string, unknown>;
+    if (object.logo && typeof object.name === 'string') names.push(object.name);
+    for (const child of Object.values(object)) visit(child);
+  }
+  jsonLdValues(html).forEach(visit);
+
+  const normalizedSeen = new Set<string>();
+  return names.filter(name => {
+    const normalized = normalizeIdentity(name);
+    if (normalized.length < 3 || normalizedSeen.has(normalized)) return false;
+    normalizedSeen.add(normalized);
+    return true;
+  }).slice(0, 20);
+}
+
+function candidateTexts(input: CandidateInput, imageUrl: URL): {
+  signalText: string;
+  filenameText: string;
+} {
+  const signalText = [input.alt, input.hint]
     .filter(Boolean)
     .join(' ')
     .replace(/[-_]+/g, ' ')
-    .slice(0, 1_200);
+    .slice(0, 1_000);
+  const filenameText = imageUrl.pathname.replace(/[-_]+/g, ' ').slice(-500);
+  return { signalText, filenameText };
 }
 
 function buildCandidate(input: CandidateInput): SupplierMediaEvidence | null {
   const imageUrl = resolveImageUrl(input.rawUrl, input.pageUrl);
-  if (!imageUrl) return null;
+  if (!imageUrl || NON_IMAGE_EXTENSION_RE.test(imageUrl.href)) return null;
   const pageUrl = new URL(input.pageUrl);
-  const hint = candidateHint(input, imageUrl);
+  const { signalText, filenameText } = candidateTexts(input, imageUrl);
+  const combinedHint = `${signalText} ${filenameText}`;
 
-  if (NEGATIVE_HINT_RE.test(hint)) return null;
-  if (!IMAGE_EXTENSION_RE.test(imageUrl.href) && input.source !== 'structured') return null;
+  if (NEGATIVE_HINT_RE.test(combinedHint)) return null;
+
+  const explicitBrandHint = LOGO_HINT_RE.test(signalText);
+  const filenameBrandHint = LOGO_HINT_RE.test(filenameText);
+  const nameSignalMatch = identityMatches(signalText, input.identityNames);
+  const nameFilenameMatch = identityMatches(filenameText, input.identityNames);
+
+  // Header/nav location is a useful signal, but it is not enough by itself:
+  // promotional photos and decorative artwork also commonly live in headers.
+  if (
+    input.source === 'header' &&
+    !explicitBrandHint &&
+    !filenameBrandHint &&
+    !nameSignalMatch &&
+    !nameFilenameMatch
+  ) {
+    return null;
+  }
+
+  // Outside a header/nav, do not accept a file merely because its filename
+  // contains "logo". Real sites often use decorative assets such as
+  // "logoshape.svg" that are not the business's profile mark.
+  if (input.source === 'brand_hint' && !explicitBrandHint && !nameSignalMatch) {
+    return null;
+  }
 
   const width = input.width ?? null;
   const height = input.height ?? null;
@@ -115,10 +228,13 @@ function buildCandidate(input: CandidateInput): SupplierMediaEvidence | null {
   }
 
   const same = sameSite(imageUrl, pageUrl);
-  let score = input.source === 'structured' ? 92 : input.source === 'header' ? 62 : 58;
-  if (LOGO_HINT_RE.test(hint)) score += 24;
+  let score = input.source === 'structured' ? 92 : input.source === 'header' ? 45 : 42;
+  if (explicitBrandHint) score += 28;
+  if (filenameBrandHint) score += 20;
+  if (nameSignalMatch) score += 24;
+  if (nameFilenameMatch) score += 10;
   if (same) score += 6;
-  if (/\.(?:svg|png)(?:$|[?#])/i.test(imageUrl.href)) score += 4;
+  if (PREFERRED_LOGO_EXTENSION_RE.test(imageUrl.href)) score += 4;
   if (width !== null && height !== null) {
     const ratio = width / height;
     if (ratio >= 0.5 && ratio <= 4.5) score += 4;
@@ -148,8 +264,6 @@ function buildCandidate(input: CandidateInput): SupplierMediaEvidence | null {
 
 function jsonLdLogoUrls(html: string): string[] {
   const urls: string[] = [];
-  const scriptRe = /<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-  let match: RegExpExecArray | null;
 
   function visit(value: unknown): void {
     if (urls.length >= 20 || value === null || value === undefined) return;
@@ -171,15 +285,7 @@ function jsonLdLogoUrls(html: string): string[] {
     }
   }
 
-  while ((match = scriptRe.exec(html)) && urls.length < 20) {
-    const raw = match[1]?.trim();
-    if (!raw) continue;
-    try {
-      visit(JSON.parse(raw) as unknown);
-    } catch {
-      // Malformed JSON-LD must never fail supplier discovery.
-    }
-  }
+  jsonLdValues(html).forEach(visit);
   return [...new Set(urls)].slice(0, 20);
 }
 
@@ -194,7 +300,12 @@ function headerFragments(html: string): string[] {
   ];
 }
 
-function candidateFromImg(tag: string, pageUrl: string, source: CandidateSource): SupplierMediaEvidence | null {
+function candidateFromImg(
+  tag: string,
+  pageUrl: string,
+  source: CandidateSource,
+  identityNames: string[],
+): SupplierMediaEvidence | null {
   const attrs = htmlAttributes(tag);
   const rawUrl =
     bestSrcsetValue(attrs.srcset) ||
@@ -204,16 +315,47 @@ function candidateFromImg(tag: string, pageUrl: string, source: CandidateSource)
     attrs['data-lazy-src'] ||
     attrs['data-original'];
   if (!rawUrl) return null;
-  const hint = [attrs.class, attrs.id, attrs.role, attrs['aria-label'], attrs.title].filter(Boolean).join(' ');
+  const hint = [attrs.class, attrs.id, attrs.role, attrs['aria-label'], attrs.title]
+    .filter(Boolean)
+    .join(' ');
   return buildCandidate({
     rawUrl,
     pageUrl,
     source,
+    identityNames,
     alt: attrs.alt || attrs.title || null,
     width: parsePositiveInt(attrs.width),
     height: parsePositiveInt(attrs.height),
     hint,
   });
+}
+
+function headerBackgroundCandidates(
+  fragment: string,
+  pageUrl: string,
+  identityNames: string[],
+): SupplierMediaEvidence[] {
+  const output: SupplierMediaEvidence[] = [];
+  for (const tag of fragment.match(/<[a-z][^>]*\bstyle\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>/gi) ?? []) {
+    const attrs = htmlAttributes(tag);
+    const hint = [attrs.class, attrs.id, attrs.role, attrs['aria-label'], attrs.title]
+      .filter(Boolean)
+      .join(' ');
+    for (const rawUrl of inlineStyleImages(attrs.style)) {
+      const candidate = buildCandidate({
+        rawUrl,
+        pageUrl,
+        source: 'header',
+        identityNames,
+        alt: attrs['aria-label'] || attrs.title || null,
+        width: parsePositiveInt(attrs.width),
+        height: parsePositiveInt(attrs.height),
+        hint,
+      });
+      if (candidate) output.push(candidate);
+    }
+  }
+  return output;
 }
 
 export function extractSupplierProfileImage(crawl: SiteCrawlResult): SupplierMediaEvidence | null {
@@ -231,19 +373,29 @@ export function extractSupplierProfileImage(crawl: SiteCrawlResult): SupplierMed
   }
 
   for (const page of crawl.pages) {
+    const identityNames = pageIdentityNames(page.html);
     for (const rawUrl of jsonLdLogoUrls(page.html)) {
-      add(buildCandidate({ rawUrl, pageUrl: page.url, source: 'structured', alt: null, hint: 'logo' }));
+      add(buildCandidate({
+        rawUrl,
+        pageUrl: page.url,
+        source: 'structured',
+        identityNames,
+        alt: null,
+        hint: 'logo',
+      }));
     }
 
     for (const fragment of headerFragments(page.html)) {
-      for (const tag of imageTags(fragment)) add(candidateFromImg(tag, page.url, 'header'));
+      for (const tag of imageTags(fragment)) {
+        add(candidateFromImg(tag, page.url, 'header', identityNames));
+      }
+      for (const candidate of headerBackgroundCandidates(fragment, page.url, identityNames)) {
+        add(candidate);
+      }
     }
 
     for (const tag of imageTags(page.html)) {
-      const attrs = htmlAttributes(tag);
-      const hint = [attrs.alt, attrs.title, attrs.class, attrs.id, attrs.src].filter(Boolean).join(' ');
-      if (!LOGO_HINT_RE.test(hint)) continue;
-      add(candidateFromImg(tag, page.url, 'brand_hint'));
+      add(candidateFromImg(tag, page.url, 'brand_hint', identityNames));
     }
   }
 
