@@ -13,6 +13,7 @@ import {
 const PROGRESS_REFRESH_MS = 5 * 60 * 1000;
 const progressPath = path.join(process.cwd(), 'public', 'phase3-progress.json');
 const progressTempPath = `${progressPath}.tmp`;
+let autostartOutcome: { started: boolean; reason: string; campaignId?: string } | null = null;
 
 async function writePublicPhase3Progress(): Promise<void> {
   const settings = await getSettings();
@@ -26,6 +27,7 @@ async function writePublicPhase3Progress(): Promise<void> {
   const payload = {
     phase: 3,
     status,
+    autostart: autostartOutcome,
     startedAt: report.run?.startedAt ?? null,
     completedAt: report.run?.completedAt ?? null,
     candidateCount,
@@ -69,11 +71,12 @@ async function start(): Promise<void> {
   await connectRedis();
 
   try {
-    const result = await bootstrapPhase3Validation();
-    logger.info({ phase3Autostart: result }, 'Phase 3 autonomous bootstrap evaluated');
+    autostartOutcome = await bootstrapPhase3Validation();
+    logger.info({ phase3Autostart: autostartOutcome }, 'Phase 3 autonomous bootstrap evaluated');
   } catch (error) {
     // Keep the Control Centre available for diagnosis. The bootstrap itself is
     // fail-closed and never weakens Pause/Emergency Stop or outbound controls.
+    autostartOutcome = { started: false, reason: 'bootstrap_error' };
     logger.error({ err: error }, 'Phase 3 autonomous bootstrap failed');
   }
 
