@@ -59,7 +59,7 @@ const EDITORIAL_TITLE_PATTERNS = [
   /^(?:affordable|best|cheap|luxury|unique|historic)\b.*\bvenues?\b.*\b(?:in|near)\b/i,
 ] as const;
 
-const VENUE_TERMS = /\b(venue|venues|hotel|manor|castle|barn|estate|vineyard|country house|hall|resort|spa|weddings?|events?)\b/i;
+const VENUE_TERMS = /\b(venue|venues|hotel|manor|castle|barn|estate|vineyard|country house|house|hall|resort|spa|farm)\b/i;
 const NON_VENUE_SUPPLIER_TERMS = /\b(photograph(?:er|ers|y|ic)?|videograph(?:er|ers|y|ic)?|florist|flowers?|caterer|catering|photo booth|wedding dj|mobile dj)\b/i;
 
 function domainMatches(domain: string, blocked: string): boolean {
