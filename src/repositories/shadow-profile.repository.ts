@@ -25,3 +25,11 @@ export async function listShadowProfiles(limit = 100): Promise<ShadowProfile[]> 
   const records = await store.find({}).sort({ generatedAt: -1 }).limit(Math.min(Math.max(limit, 1), 500)).toArray();
   return records.map(record => shadowProfileSchema.parse(record));
 }
+
+export async function getShadowProfilesForCandidateIds(candidateIds: string[]): Promise<ShadowProfile[]> {
+  const ids = [...new Set(candidateIds.filter(Boolean))].slice(0, 500);
+  if (ids.length === 0) return [];
+  const store = await collection();
+  const records = await store.find({ candidateId: { $in: ids } }).toArray();
+  return records.map(record => shadowProfileSchema.parse(record));
+}
