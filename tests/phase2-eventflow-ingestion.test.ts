@@ -3,10 +3,15 @@ import { describe, expect, it } from 'vitest';
 
 const envSource = readFileSync('src/config/env.ts', 'utf8');
 const ingestionSource = readFileSync('src/services/eventflow-ingestion.service.ts', 'utf8');
+const ingestionRepositorySource = readFileSync(
+  'src/repositories/eventflow-ingestion.repository.ts',
+  'utf8',
+);
 const publicationSource = readFileSync('src/services/eventflow-publication.service.ts', 'utf8');
 const queueSource = readFileSync('src/services/eventflow-publication-queue.service.ts', 'utf8');
 const pipelineSource = readFileSync('src/services/shadow-pipeline.service.ts', 'utf8');
 const workerSource = readFileSync('src/worker/index.ts', 'utf8');
+const runtimeControlSource = readFileSync('src/services/runtime-control.service.ts', 'utf8');
 
 describe('Phase 2 EventFlow ingestion contract', () => {
   it('keeps EventFlow integration optional and strongly secret-backed', () => {
@@ -46,8 +51,18 @@ describe('Phase 2 EventFlow ingestion contract', () => {
     expect(enqueueIndex).toBeGreaterThan(complianceIndex);
   });
 
+  it('publishes repeatable worker profiles as public unclaimed only in live mode', () => {
+    expect(ingestionSource).toContain("PUBLIC_UNCLAIMED_SCOPE = 'public_unclaimed'");
+    expect(publicationSource).toContain('publicationScope: PUBLIC_UNCLAIMED_SCOPE');
+    expect(publicationSource).toContain("settings.mode !== 'live'");
+    expect(publicationSource).toContain('mode_not_live');
+    expect(publicationSource).toContain('eventflow_public_profile_path_missing');
+    expect(ingestionRepositorySource).toContain('publicProfilePath?: string | null');
+    expect(publicationSource).toContain('publicProfilePath: result.publicProfilePath');
+  });
+
   it('re-reads live controls, suppression and compliance before the network write', () => {
-    expect(publicationSource).toContain("settings.runState === 'emergency_stopped'");
+    expect(publicationSource).toContain('publicationControlBlockReason(settings)');
     expect(publicationSource).toContain('!settings.publishingEnabled');
     expect(publicationSource).toContain('withCompliancePolicyLock');
     expect(publicationSource).toContain('const liveSettings = await getSettings()');
@@ -55,6 +70,12 @@ describe('Phase 2 EventFlow ingestion contract', () => {
     expect(publicationSource).toContain('assessShadowProfileCompliance');
     expect(publicationSource).toContain("isSuppressed(candidate.canonicalDomain, 'do_not_list')");
     expect(publicationSource.match(/do_not_list_suppression/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('fails safe in Control when an operator leaves live mode', () => {
+    expect(runtimeControlSource).toContain("patch.mode !== 'live'");
+    expect(runtimeControlSource).toContain('publishingEnabled: false');
+    expect(runtimeControlSource).toContain('effectivePatch');
   });
 
   it('has a durable publication worker and reconciliation path', () => {

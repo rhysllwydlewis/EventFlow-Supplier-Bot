@@ -20,9 +20,6 @@ async function resumePipelineQueues(): Promise<void> {
 export async function playBot(actor: string) {
   await resumePipelineQueues();
   const settings = await patchSettings({ runState: 'running' }, actor);
-  // Start/restart the Phase 3 sample window at the same instant the bot is
-  // allowed to acquire work. The worker coverage planner repeats this check
-  // before admitting each discovery batch.
   try {
     const phase3 = await reconcilePhase3Validation(settings);
     if (
@@ -33,10 +30,6 @@ export async function playBot(actor: string) {
       throw new Error('Phase 3 safety contract is not satisfied');
     }
   } catch (error) {
-    // Do not leave discovery running if the validation ledger could not be
-    // initialized safely. Revert the persisted state and pause pipeline queues
-    // before surfacing the error so a failed safety/telemetry write cannot
-    // create an unmeasured Phase 3 sample.
     await patchSettings(
       {
         mode: 'shadow',
@@ -98,9 +91,22 @@ export async function updateRuntimeSettings(patch: SettingsPatch, actor: string)
     if (qualityFloorChanged) {
       invalidatedCompliance = await invalidateAllComplianceAssessments();
     }
-    const settings = await patchSettings(patch, actor);
+
+    // Leaving live mode is always fail-safe: publishing is disabled in the
+    // same atomic settings update instead of depending on a second UI action.
+    // This keeps Control, worker reconciles and direct API callers consistent.
+    const effectivePatch: SettingsPatch = {
+      ...patch,
+      ...(patch.mode !== undefined && patch.mode !== 'live'
+        ? { publishingEnabled: false }
+        : {}),
+    };
+    const settings = await patchSettings(effectivePatch, actor);
     await recordAuditEvent(actor, 'settings.update', {
-      patch,
+      requestedPatch: patch,
+      effectivePatch,
+      publishingDisabledByModeTransition:
+        patch.mode !== undefined && patch.mode !== 'live' && before.publishingEnabled,
       qualityFloorChanged,
       invalidatedCompliance,
     });

@@ -6,15 +6,21 @@ import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 import { recordAuditEvent } from '../repositories/audit.repository.js';
 
+export const PUBLIC_UNCLAIMED_SCOPE = 'public_unclaimed' as const;
+export const PILOT_UNCLAIMED_SCOPE = 'pilot_unclaimed' as const;
+const publicationScopeSchema = z.enum([PILOT_UNCLAIMED_SCOPE, PUBLIC_UNCLAIMED_SCOPE]);
+export type EventFlowPublicationScope = z.infer<typeof publicationScopeSchema>;
+
 const responseSchema = z.object({
   supplierId: z.string().min(1),
   slug: z.string().min(1),
   publicProfilePath: z.string().regex(/^\/supplier\/[a-z0-9-]+--[a-f0-9]{16}$/).nullable().optional(),
   status: z.literal('draft'),
   ownershipStatus: z.literal('unclaimed'),
-  publicationScope: z.enum(['pilot_unclaimed']).nullable().optional(),
+  publicationScope: publicationScopeSchema.nullable().optional(),
   created: z.boolean(),
   idempotent: z.boolean(),
+  refreshed: z.boolean().optional(),
 });
 
 export type EventFlowIngestionResult =
@@ -44,7 +50,7 @@ export async function ingestShadowProfileToEventFlow(input: {
   profile: ShadowProfile;
   compliance: ComplianceAssessment;
   publishingEnabled: boolean;
-  publicationScope?: 'pilot_unclaimed';
+  publicationScope?: EventFlowPublicationScope;
 }): Promise<EventFlowIngestionResult> {
   if (!input.publishingEnabled) {
     return { status: 'disabled', reason: 'publishing_disabled' };
@@ -73,8 +79,9 @@ export async function ingestShadowProfileToEventFlow(input: {
     services: input.profile.services,
     packages: input.profile.packages,
     advertisedPrices: input.profile.advertisedPrices,
-    // Media remains provenance-controlled draft acquisition data on EventFlow.
-    // The receiver does not treat these references as proof of publication rights.
+    // Media remains provenance-controlled acquisition data on EventFlow. The
+    // receiver exposes it only through the explicit published-unclaimed scope
+    // while ownership remains unclaimed; it is never copied into owner media.
     coverImage: input.profile.coverImage,
     images: input.profile.images,
     mediaEvidence: input.profile.mediaEvidence,
@@ -102,7 +109,9 @@ export async function ingestShadowProfileToEventFlow(input: {
       body,
       signal: controller.signal,
     });
-    const responseBody = await response.json().catch(() => ({})) as Record<string, unknown>;
+    const responseBody = response.ok || response.status === 409
+      ? await response.json().catch(() => ({})) as Record<string, unknown>
+      : await response.json().catch(() => ({})) as Record<string, unknown>;
 
     if (response.status === 409) {
       const reason = typeof responseBody.error === 'string' ? responseBody.error : 'supplier_conflict';
@@ -120,10 +129,16 @@ export async function ingestShadowProfileToEventFlow(input: {
     }
 
     const parsed = responseSchema.parse(responseBody);
+    if (input.publicationScope && parsed.publicationScope !== input.publicationScope) {
+      throw new Error(
+        `eventflow_publication_scope_mismatch:${parsed.publicationScope ?? 'missing'}`,
+      );
+    }
     await recordAuditEvent('eventflow-ingestion', 'eventflow.ingestion_succeeded', {
       candidateId: input.profile.candidateId,
       supplierId: parsed.supplierId,
       created: parsed.created,
+      refreshed: parsed.refreshed ?? false,
       publicationScope: parsed.publicationScope ?? null,
       publicProfilePath: parsed.publicProfilePath ?? null,
     });

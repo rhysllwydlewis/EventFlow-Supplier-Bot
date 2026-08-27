@@ -49,7 +49,8 @@ describe('one-profile EventFlow production pilot', () => {
   it('uses an explicit scoped ingestion bypass without enabling normal publication', () => {
     expect(pilotSource).toContain('publishingEnabled: true');
     expect(pilotSource).toContain('publicationScope: PILOT_PUBLICATION_SCOPE');
-    expect(ingestionSource).toContain("publicationScope?: 'pilot_unclaimed'");
+    expect(ingestionSource).toContain("PILOT_UNCLAIMED_SCOPE = 'pilot_unclaimed'");
+    expect(ingestionSource).toContain('publicationScope?: EventFlowPublicationScope');
     expect(ingestionSource).toContain(
       '...(input.publicationScope ? { publicationScope: input.publicationScope } : {})'
     );

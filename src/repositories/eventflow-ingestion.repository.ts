@@ -14,6 +14,7 @@ export interface EventFlowIngestionRecord {
   status: EventFlowIngestionStatus;
   supplierId?: string | null;
   slug?: string | null;
+  publicProfilePath?: string | null;
   reason?: string | null;
   attempts: number;
   nextRetryAt?: string | null;
@@ -31,11 +32,21 @@ export async function getEventFlowIngestion(candidateId: string): Promise<EventF
   return store.findOne({ candidateId });
 }
 
+export async function getEventFlowIngestionsForCandidates(
+  candidateIds: string[],
+): Promise<EventFlowIngestionRecord[]> {
+  const ids = [...new Set(candidateIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+  const store = await collection();
+  return store.find({ candidateId: { $in: ids } }).toArray();
+}
+
 export async function saveEventFlowIngestionState(input: {
   candidateId: string;
   status: EventFlowIngestionStatus;
   supplierId?: string | null;
   slug?: string | null;
+  publicProfilePath?: string | null;
   reason?: string | null;
   incrementAttempts?: boolean;
   nextRetryAt?: string | null;
@@ -53,6 +64,7 @@ export async function saveEventFlowIngestionState(input: {
       status: input.status,
       supplierId: input.supplierId ?? null,
       slug: input.slug ?? null,
+      publicProfilePath: input.publicProfilePath ?? null,
       reason: input.reason ?? null,
       nextRetryAt: input.nextRetryAt ?? null,
       updatedAt: now,
