@@ -1,6 +1,9 @@
-import { createHash } from 'node:crypto';
+import type { BotSettings } from '../domain/settings.js';
 import { getQueue } from '../queues/index.js';
-import { getCandidateByCanonicalDomain, setCandidateStatus } from '../repositories/candidate.repository.js';
+import {
+  getCandidateByCanonicalDomain,
+  setCandidateStatus,
+} from '../repositories/candidate.repository.js';
 import { getComplianceAssessmentsForCandidates } from '../repositories/compliance-assessment.repository.js';
 import {
   getEventFlowPilotState,
@@ -16,23 +19,52 @@ const PILOT_DOMAIN = 'hensolcastle.com';
 const PILOT_PUBLICATION_SCOPE = 'pilot_unclaimed' as const;
 const MIN_PILOT_QUALITY = 80;
 const MIN_PILOT_CONFIDENCE = 70;
+const PILOT_REFRESH_RETRY_AFTER_MS = 5 * 60_000;
 
-function publicSlug(name: string, supplierId: string): string {
-  const namePart = name
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 70) || 'supplier';
-  const token = createHash('sha256').update(supplierId).digest('hex').slice(0, 16);
-  return `${namePart}--${token}`;
+function pilotRunBlockReason(settings: BotSettings): string | null {
+  if (settings.mode === 'off') return 'bot_off';
+  if (settings.runState !== 'running') return `run_state_${settings.runState}`;
+  return null;
+}
+
+function refreshIsStale(state: EventFlowPilotState): boolean {
+  const updatedAt = Date.parse(state.updatedAt);
+  return !Number.isFinite(updatedAt) || Date.now() - updatedAt >= PILOT_REFRESH_RETRY_AFTER_MS;
+}
+
+function profileIsNewerThanRefresh(profileGeneratedAt: string, refreshQueuedAt: string): boolean {
+  const generatedAt = Date.parse(profileGeneratedAt);
+  const queuedAt = Date.parse(refreshQueuedAt);
+  return Number.isFinite(generatedAt) && Number.isFinite(queuedAt) && generatedAt > queuedAt;
+}
+
+async function queuePilotRefresh(input: {
+  candidateId: string;
+  businessName: string;
+  reason: 'current_pipeline_refresh_queued' | 'current_pipeline_refresh_requeued';
+}): Promise<EventFlowPilotState> {
+  await setCandidateStatus(input.candidateId, 'queued_for_crawl');
+  const retryBucket = Math.floor(Date.now() / PILOT_REFRESH_RETRY_AFTER_MS);
+  await getQueue('crawl').add(
+    'crawl-candidate',
+    { candidateId: input.candidateId, trigger: 'one-profile-production-pilot' },
+    {
+      jobId: `one-profile-pilot-refresh-${input.candidateId}-${retryBucket}`,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 30_000 },
+    },
+  );
+  return saveEventFlowPilotState({
+    status: 'refreshing',
+    candidateId: input.candidateId,
+    businessName: input.businessName,
+    reason: input.reason,
+  });
 }
 
 export function pilotPublicProfileUrl(state: EventFlowPilotState | null): string | null {
-  if (!state?.supplierId || !state.businessName || state.status !== 'published') return null;
-  return `https://event-flow.co.uk/supplier/${publicSlug(state.businessName, state.supplierId)}`;
+  if (!state?.slug || state.status !== 'published') return null;
+  return `https://event-flow.co.uk/supplier/${encodeURIComponent(state.slug)}`;
 }
 
 export async function runOneProfileEventFlowPilot(): Promise<EventFlowPilotState> {
@@ -40,11 +72,9 @@ export async function runOneProfileEventFlowPilot(): Promise<EventFlowPilotState
   if (previous?.status === 'published') return previous;
 
   const settings = await getSettings();
-  if (settings.runState === 'emergency_stopped' || settings.mode === 'off') {
-    return saveEventFlowPilotState({
-      status: 'waiting',
-      reason: settings.runState === 'emergency_stopped' ? 'emergency_stopped' : 'bot_off',
-    });
+  const runBlockReason = pilotRunBlockReason(settings);
+  if (runBlockReason) {
+    return saveEventFlowPilotState({ status: 'waiting', reason: runBlockReason });
   }
 
   const candidate = await getCandidateByCanonicalDomain(PILOT_DOMAIN);
@@ -69,29 +99,28 @@ export async function runOneProfileEventFlowPilot(): Promise<EventFlowPilotState
   const profile = await getShadowProfile(candidate.id);
 
   // Always run this one supplier through the current crawler/extractor/media
-  // pipeline once after the pilot is introduced. The dedicated job id avoids
-  // the normal same-day crawl-job dedupe, while the worker's normal crawl
-  // budget and emergency-stop checks still apply.
+  // pipeline once after the pilot is introduced. The bucketed job id prevents
+  // concurrent reconcilers from fanning out duplicate refresh work.
   if (!previous || previous.candidateId !== candidate.id) {
-    await setCandidateStatus(candidate.id, 'queued_for_crawl');
-    await getQueue('crawl').add(
-      'crawl-candidate',
-      { candidateId: candidate.id, trigger: 'one-profile-production-pilot' },
-      {
-        jobId: `one-profile-pilot-refresh-${candidate.id}-${Date.now()}`,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 30_000 },
-      },
-    );
-    return saveEventFlowPilotState({
-      status: 'refreshing',
+    return queuePilotRefresh({
       candidateId: candidate.id,
       businessName: profile?.businessName ?? 'Hensol Castle',
       reason: 'current_pipeline_refresh_queued',
     });
   }
 
-  if (!profile || (previous.status === 'refreshing' && Date.parse(profile.generatedAt) <= Date.parse(previous.updatedAt))) {
+  if (
+    !profile ||
+    (previous.status === 'refreshing' &&
+      !profileIsNewerThanRefresh(profile.generatedAt, previous.updatedAt))
+  ) {
+    if (previous.status === 'refreshing' && refreshIsStale(previous)) {
+      return queuePilotRefresh({
+        candidateId: candidate.id,
+        businessName: profile?.businessName ?? previous.businessName ?? 'Hensol Castle',
+        reason: 'current_pipeline_refresh_requeued',
+      });
+    }
     return previous;
   }
 
@@ -135,6 +164,38 @@ export async function runOneProfileEventFlowPilot(): Promise<EventFlowPilotState
     reason: null,
   });
 
+  // Re-read operator controls and candidate identity immediately before the
+  // only external write. A pause/stop, emergency stop, dedupe change or a new
+  // do-not-list suppression must win over this deliberately scoped bypass.
+  const liveSettings = await getSettings();
+  const liveRunBlockReason = pilotRunBlockReason(liveSettings);
+  if (liveRunBlockReason) {
+    return saveEventFlowPilotState({
+      status: 'waiting',
+      candidateId: candidate.id,
+      businessName: profile.businessName,
+      reason: `${liveRunBlockReason}_before_send`,
+    });
+  }
+
+  const liveCandidate = await getCandidateByCanonicalDomain(PILOT_DOMAIN);
+  if (!liveCandidate || liveCandidate.id !== candidate.id || liveCandidate.dedupDecision !== 'distinct') {
+    return saveEventFlowPilotState({
+      status: 'waiting',
+      candidateId: candidate.id,
+      businessName: profile.businessName,
+      reason: 'identity_changed_before_send',
+    });
+  }
+  if (await isSuppressed(liveCandidate.canonicalDomain, 'do_not_list')) {
+    return saveEventFlowPilotState({
+      status: 'failed',
+      candidateId: candidate.id,
+      businessName: profile.businessName,
+      reason: 'do_not_list_suppression',
+    });
+  }
+
   const result = await ingestShadowProfileToEventFlow({
     profile,
     compliance,
@@ -142,22 +203,34 @@ export async function runOneProfileEventFlowPilot(): Promise<EventFlowPilotState
     publicationScope: PILOT_PUBLICATION_SCOPE,
   });
 
-  if (result.status === 'created' || result.status === 'existing') {
-    return saveEventFlowPilotState({
-      status: 'published',
-      candidateId: candidate.id,
-      businessName: profile.businessName,
-      supplierId: result.supplierId,
-      slug: result.slug,
-      reason: null,
-      publishedAt: new Date().toISOString(),
-    });
+  switch (result.status) {
+    case 'created':
+    case 'existing':
+      return saveEventFlowPilotState({
+        status: 'published',
+        candidateId: candidate.id,
+        businessName: profile.businessName,
+        supplierId: result.supplierId,
+        slug: result.slug,
+        reason: null,
+        publishedAt: new Date().toISOString(),
+      });
+    case 'failed':
+    case 'disabled':
+    case 'not_configured':
+      return saveEventFlowPilotState({
+        status: 'waiting',
+        candidateId: candidate.id,
+        businessName: profile.businessName,
+        reason: result.reason,
+      });
+    case 'conflict':
+    case 'ineligible':
+      return saveEventFlowPilotState({
+        status: 'failed',
+        candidateId: candidate.id,
+        businessName: profile.businessName,
+        reason: result.reason,
+      });
   }
-
-  return saveEventFlowPilotState({
-    status: result.status === 'failed' ? 'waiting' : 'failed',
-    candidateId: candidate.id,
-    businessName: profile.businessName,
-    reason: result.reason,
-  });
 }
