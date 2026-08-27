@@ -129,6 +129,11 @@ export async function ingestShadowProfileToEventFlow(input: {
     }
 
     const parsed = responseSchema.parse(responseBody);
+    if (input.publicationScope && parsed.publicationScope !== input.publicationScope) {
+      throw new Error(
+        `eventflow_publication_scope_mismatch:${parsed.publicationScope ?? 'missing'}`,
+      );
+    }
     await recordAuditEvent('eventflow-ingestion', 'eventflow.ingestion_succeeded', {
       candidateId: input.profile.candidateId,
       supplierId: parsed.supplierId,
