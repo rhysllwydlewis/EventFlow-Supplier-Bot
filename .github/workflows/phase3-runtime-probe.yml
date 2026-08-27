@@ -16,6 +16,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p runtime-probe
+          # Probe only the intentionally public aggregate/runtime endpoints.
           curl --fail --silent --show-error --location --max-time 30 \
             https://supplier-bot-control-production.up.railway.app/health \
             -o runtime-probe/health.json
