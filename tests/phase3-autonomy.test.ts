@@ -66,8 +66,16 @@ describe('Phase 3 autonomous runtime closeout', () => {
     ).toEqual({ eligible: false, reason: 'unsafe_controls' });
   });
 
-  it('refuses to start without Brave persistence and OpenAI', () => {
+  it('reports the exact missing provider capability without exposing secret values', () => {
     const settings = defaultSettings();
+    expect(
+      phase3AutostartDecision({
+        settings,
+        report: report(settings),
+        capabilities: { ...readyCapabilities, braveConfigured: false },
+        pilotStatus: 'draft',
+      }),
+    ).toEqual({ eligible: false, reason: 'brave_not_configured' });
     expect(
       phase3AutostartDecision({
         settings,
@@ -75,7 +83,7 @@ describe('Phase 3 autonomous runtime closeout', () => {
         capabilities: { ...readyCapabilities, bravePersistenceAllowed: false },
         pilotStatus: 'draft',
       }),
-    ).toEqual({ eligible: false, reason: 'provider_not_ready' });
+    ).toEqual({ eligible: false, reason: 'brave_persistence_disabled' });
     expect(
       phase3AutostartDecision({
         settings,
@@ -83,7 +91,7 @@ describe('Phase 3 autonomous runtime closeout', () => {
         capabilities: { ...readyCapabilities, openAiConfigured: false },
         pilotStatus: 'draft',
       }),
-    ).toEqual({ eligible: false, reason: 'provider_not_ready' });
+    ).toEqual({ eligible: false, reason: 'openai_not_configured' });
   });
 
   it('does not silently replace an existing or completed validation ledger', () => {
