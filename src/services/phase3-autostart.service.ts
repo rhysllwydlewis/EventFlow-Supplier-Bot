@@ -31,7 +31,9 @@ export interface Phase3AutostartDecision {
     | 'operator_state'
     | 'unsafe_controls'
     | 'pipeline_disabled'
-    | 'provider_not_ready'
+    | 'brave_not_configured'
+    | 'brave_persistence_disabled'
+    | 'openai_not_configured'
     | 'campaign_state';
 }
 
@@ -59,12 +61,14 @@ export function phase3AutostartDecision(input: {
   if (!settings.discoveryEnabled || !settings.refreshEnabled) {
     return { eligible: false, reason: 'pipeline_disabled' };
   }
-  if (
-    !capabilities.braveConfigured ||
-    !capabilities.bravePersistenceAllowed ||
-    !capabilities.openAiConfigured
-  ) {
-    return { eligible: false, reason: 'provider_not_ready' };
+  if (!capabilities.braveConfigured) {
+    return { eligible: false, reason: 'brave_not_configured' };
+  }
+  if (!capabilities.bravePersistenceAllowed) {
+    return { eligible: false, reason: 'brave_persistence_disabled' };
+  }
+  if (!capabilities.openAiConfigured) {
+    return { eligible: false, reason: 'openai_not_configured' };
   }
   if (pilotStatus !== 'draft' && pilotStatus !== 'running') {
     return { eligible: false, reason: 'campaign_state' };
