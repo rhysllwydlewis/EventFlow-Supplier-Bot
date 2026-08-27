@@ -108,14 +108,21 @@ async function completeShadowProfile(
   }
 
   await markEventFlowPublicationPending(candidate.id, 'shadow_profile_ready');
-  const publicationQueued = await enqueueEventFlowPublication(candidate.id, 'shadow-profile-ready');
+  const publicationAuthorized = settings.mode === 'live' && settings.publishingEnabled;
+  const publicationQueued = publicationAuthorized
+    ? await enqueueEventFlowPublication(candidate.id, 'shadow-profile-ready')
+    : false;
   await setCandidateStatus(candidate.id, 'shadow_ready');
   return {
     profile: finalProfile,
     quality,
     compliance,
     dedup: dedup.assessment,
-    eventFlowPublication: { status: 'pending', queued: publicationQueued },
+    eventFlowPublication: {
+      status: 'pending',
+      queued: publicationQueued,
+      authorized: publicationAuthorized,
+    },
     ai: { status: ai.status, model: ai.model, responseId: ai.responseId },
     crawlFailures: crawl.failures,
     crawlMethod,
