@@ -11,8 +11,10 @@ import {
 } from '../queues/index.js';
 import { heartbeatIsFresh, listHeartbeats } from '../repositories/heartbeat.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
+import { getEventFlowPilotState } from '../repositories/eventflow-pilot.repository.js';
 import { bootstrapPhase3Validation } from '../services/phase3-autostart.service.js';
 import { applyPhase3DiscoveryQualityRevision } from '../services/phase3-discovery-quality-revision.service.js';
+import { pilotPublicProfileUrl, runOneProfileEventFlowPilot } from '../services/eventflow-one-profile-pilot.service.js';
 import {
   getPhase3ValidationReport,
   PHASE3_TARGET_CANDIDATES,
@@ -20,6 +22,7 @@ import {
 
 const PROGRESS_REFRESH_MS = 5 * 60 * 1000;
 const PHASE3_RECOVERY_INTERVAL_MS = 30 * 60 * 1000;
+const ONE_PROFILE_PILOT_RECONCILE_MS = 60_000;
 const progressPath = path.join(process.cwd(), 'public', 'phase3-progress.json');
 const progressTempPath = `${progressPath}.tmp`;
 const NON_RETRYABLE_DISCOVERY_FAILURES = new Set([
@@ -62,9 +65,10 @@ function unresolvedCurrentRunFailure(input: {
 
 async function writePublicPhase3Progress(): Promise<void> {
   const settings = await getSettings();
-  const [report, discovery] = await Promise.all([
+  const [report, discovery, pilot] = await Promise.all([
     getPhase3ValidationReport(settings),
     getDiscoveryQueueDiagnostic(),
+    getEventFlowPilotState(),
   ]);
   const candidateCount = report.metrics.candidateCount;
   const targetCandidates = report.run?.targetCandidates ?? PHASE3_TARGET_CANDIDATES;
@@ -97,6 +101,13 @@ async function writePublicPhase3Progress(): Promise<void> {
       queue: discovery.counts,
       latestFailure,
       latestCompletion,
+    },
+    oneProfilePilot: {
+      status: pilot?.status ?? 'not_started',
+      businessName: pilot?.businessName ?? null,
+      reason: pilot?.reason ?? null,
+      publicProfileUrl: pilotPublicProfileUrl(pilot),
+      publishedAt: pilot?.publishedAt ?? null,
     },
     metrics: {
       shadowProfileCount: report.metrics.shadowProfileCount,
@@ -241,6 +252,10 @@ async function start(): Promise<void> {
       logger.error({ err: error }, 'Failed to apply Phase 3 pipeline quality revision'),
     );
 
+  await runOneProfileEventFlowPilot()
+    .then(outcome => logger.info({ oneProfilePilot: outcome }, 'One-profile EventFlow pilot evaluated'))
+    .catch(error => logger.error({ err: error }, 'One-profile EventFlow pilot failed'));
+
   if (!autostartOutcome?.started) {
     await schedulePhase3RecoveryPlanning('phase3-recovery-startup').catch(error =>
       logger.error({ err: error }, 'Phase 3 startup recovery planning failed'),
@@ -263,6 +278,13 @@ async function start(): Promise<void> {
     );
   }, PHASE3_RECOVERY_INTERVAL_MS);
   recoveryTimer.unref();
+
+  const pilotTimer = setInterval(() => {
+    void runOneProfileEventFlowPilot()
+      .then(() => writePublicPhase3Progress())
+      .catch(error => logger.error({ err: error }, 'One-profile EventFlow pilot reconcile failed'));
+  }, ONE_PROFILE_PILOT_RECONCILE_MS);
+  pilotTimer.unref();
 
   await import('./server.js');
 }
