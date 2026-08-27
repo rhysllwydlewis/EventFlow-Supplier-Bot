@@ -9,6 +9,7 @@ import {
   type DiscoveryCompletionDiagnostic,
   type QueueFailureDiagnostic,
 } from '../queues/index.js';
+import { heartbeatIsFresh, listHeartbeats } from '../repositories/heartbeat.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
 import { bootstrapPhase3Validation } from '../services/phase3-autostart.service.js';
 import {
@@ -133,9 +134,10 @@ async function schedulePhase3RecoveryPlanning(trigger: string): Promise<void> {
     return;
   }
 
-  const [report, discovery] = await Promise.all([
+  const [report, discovery, heartbeats] = await Promise.all([
     getPhase3ValidationReport(settings),
     getDiscoveryQueueDiagnostic(),
+    listHeartbeats(),
   ]);
   if (
     !report.run ||
@@ -156,12 +158,34 @@ async function schedulePhase3RecoveryPlanning(trigger: string): Promise<void> {
     completion: discovery.latestCompletion,
     startedAt: report.run.startedAt,
   });
-  if (unresolvedFailure && NON_RETRYABLE_DISCOVERY_FAILURES.has(unresolvedFailure.code)) {
+  const failureAt = timestampMs(unresolvedFailure?.occurredAt);
+  const workerRestartedAfterFailure =
+    failureAt !== null &&
+    heartbeats.some(
+      item =>
+        item.processType === 'worker' &&
+        item.status === 'ready' &&
+        heartbeatIsFresh(item) &&
+        (timestampMs(item.startedAt) ?? 0) > failureAt,
+    );
+
+  if (
+    unresolvedFailure &&
+    NON_RETRYABLE_DISCOVERY_FAILURES.has(unresolvedFailure.code) &&
+    !workerRestartedAfterFailure
+  ) {
     logger.error(
       { code: unresolvedFailure.code, occurredAt: unresolvedFailure.occurredAt },
       'Phase 3 discovery recovery halted on non-retryable provider failure',
     );
     return;
+  }
+
+  if (unresolvedFailure && workerRestartedAfterFailure) {
+    logger.info(
+      { code: unresolvedFailure.code, occurredAt: unresolvedFailure.occurredAt },
+      'Phase 3 discovery failure predates current worker; allowing one recovery probe',
+    );
   }
 
   const latestActivityAt = Math.max(
