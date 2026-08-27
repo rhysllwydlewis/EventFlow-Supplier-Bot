@@ -12,6 +12,7 @@ import {
 import { heartbeatIsFresh, listHeartbeats } from '../repositories/heartbeat.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
 import { bootstrapPhase3Validation } from '../services/phase3-autostart.service.js';
+import { applyPhase3DiscoveryQualityRevision } from '../services/phase3-discovery-quality-revision.service.js';
 import {
   getPhase3ValidationReport,
   PHASE3_TARGET_CANDIDATES,
@@ -227,6 +228,19 @@ async function start(): Promise<void> {
     autostartOutcome = { started: false, reason: 'bootstrap_error' };
     logger.error({ err: error }, 'Phase 3 autonomous bootstrap failed');
   }
+
+  await applyPhase3DiscoveryQualityRevision()
+    .then(outcome => {
+      if (outcome.reset) {
+        logger.warn(
+          { revision: outcome.revision },
+          'Phase 3 validation window reset after discovery supplier-quality hardening',
+        );
+      }
+    })
+    .catch(error =>
+      logger.error({ err: error }, 'Failed to apply Phase 3 discovery quality revision'),
+    );
 
   // A fresh autostart already queues its own immediate coverage plan. On a
   // restart of an existing Phase 3 run, recover an idle/retryable discovery

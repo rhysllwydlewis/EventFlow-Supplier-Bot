@@ -210,6 +210,15 @@ app.post('/api/run-now', requireCsrf, async (_req, res, next) => {
       res.status(409).json({ error: 'Bot must be running before a manual planning cycle can start' });
       return;
     }
+
+    const candidatesToday = await countCandidatesSince(startOfUtcDayIso());
+    if (candidatesToday >= settings.dailyHardLimit) {
+      res.status(409).json({
+        error: `Daily candidate hard limit reached (${candidatesToday}/${settings.dailyHardLimit}). No new discovery can be scheduled until the next UTC day.`,
+      });
+      return;
+    }
+
     const job = await getQueue('orchestration').add(
       'coverage-plan',
       { trigger: 'manual', requestedAt: new Date().toISOString() },
