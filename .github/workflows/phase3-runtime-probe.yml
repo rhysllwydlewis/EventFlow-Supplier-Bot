@@ -1,0 +1,35 @@
+name: Phase 3 Runtime Probe
+
+on:
+  push:
+    branches:
+      - ops/phase3-runtime-probe
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch production health and progress
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-probe
+          curl --fail --silent --show-error --location --max-time 30 \
+            https://supplier-bot-control-production.up.railway.app/health \
+            -o runtime-probe/health.json
+          curl --fail --silent --show-error --location --max-time 30 \
+            https://supplier-bot-control-production.up.railway.app/ready \
+            -o runtime-probe/ready.json
+          curl --fail --silent --show-error --location --max-time 30 \
+            https://supplier-bot-control-production.up.railway.app/phase3-progress.json \
+            -o runtime-probe/phase3-progress.json
+          python -m json.tool runtime-probe/health.json >/dev/null
+          python -m json.tool runtime-probe/ready.json >/dev/null
+          python -m json.tool runtime-probe/phase3-progress.json >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase3-runtime-probe
+          path: runtime-probe/
+          retention-days: 1
