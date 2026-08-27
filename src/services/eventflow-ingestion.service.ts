@@ -11,6 +11,7 @@ const responseSchema = z.object({
   slug: z.string().min(1),
   status: z.literal('draft'),
   ownershipStatus: z.literal('unclaimed'),
+  publicationScope: z.enum(['pilot_unclaimed']).nullable().optional(),
   created: z.boolean(),
   idempotent: z.boolean(),
 });
@@ -37,6 +38,7 @@ export async function ingestShadowProfileToEventFlow(input: {
   profile: ShadowProfile;
   compliance: ComplianceAssessment;
   publishingEnabled: boolean;
+  publicationScope?: 'pilot_unclaimed';
 }): Promise<EventFlowIngestionResult> {
   if (!input.publishingEnabled) {
     return { status: 'disabled', reason: 'publishing_disabled' };
@@ -76,6 +78,7 @@ export async function ingestShadowProfileToEventFlow(input: {
     compliancePolicyVersion: input.compliance.policyVersion,
     generatedAt: input.profile.generatedAt,
     generatorVersion: input.profile.generatorVersion,
+    ...(input.publicationScope ? { publicationScope: input.publicationScope } : {}),
   };
   const body = JSON.stringify(payload);
   const timestamp = String(Date.now());
@@ -115,6 +118,7 @@ export async function ingestShadowProfileToEventFlow(input: {
       candidateId: input.profile.candidateId,
       supplierId: parsed.supplierId,
       created: parsed.created,
+      publicationScope: parsed.publicationScope ?? null,
     });
     return {
       status: parsed.created ? 'created' : 'existing',
