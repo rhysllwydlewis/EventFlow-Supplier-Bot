@@ -69,4 +69,18 @@ describe('Supplier Bot Control Centre review surface', () => {
     expect(server).toContain("app.get('/api/phase3-validation'");
     expect(server).toContain('getPhase3ValidationReport(settings)');
   });
+
+  it('does not clobber in-progress settings edits with the periodic status poll', () => {
+    // The status poll (setInterval) calls refresh() every 15s, which used to
+    // unconditionally overwrite every settings field from the server on each
+    // tick. An operator editing several fields could easily take longer than
+    // that, so their in-progress edits were silently reset before they ever
+    // clicked Save. Editing any settings field must now mark the form dirty
+    // so refresh() skips repopulating it until a save actually completes.
+    expect(html).toContain('let settingsDirty=false;');
+    expect(html).toMatch(/if\(!settingsDirty\)\{\s*\$\('mode'\)\.value=s\.mode;/);
+    expect(html).toContain("$('settingsForm').addEventListener('input',()=>{settingsDirty=true;});");
+    expect(html).toContain("$('settingsForm').addEventListener('change',()=>{settingsDirty=true;});");
+    expect(html).toMatch(/settingsDirty=false;\s*await refresh\(\);/);
+  });
 });
