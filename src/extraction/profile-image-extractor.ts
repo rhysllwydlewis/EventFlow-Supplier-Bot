@@ -200,8 +200,8 @@ function buildCandidate(input: CandidateInput): SupplierMediaEvidence | null {
   const nameSignalMatch = identityMatches(signalText, input.identityNames);
   const nameFilenameMatch = identityMatches(filenameText, input.identityNames);
 
-  // Header/nav location is a useful signal, but it is not enough by itself:
-  // promotional photos and decorative artwork also commonly live in headers.
+  // Header/nav location is useful, but not enough by itself: promotional
+  // photography and decorative artwork also commonly live in headers.
   if (
     input.source === 'header' &&
     !explicitBrandHint &&
@@ -212,10 +212,11 @@ function buildCandidate(input: CandidateInput): SupplierMediaEvidence | null {
     return null;
   }
 
-  // Outside a header/nav, do not accept a file merely because its filename
-  // contains "logo". Real sites often use decorative assets such as
-  // "logoshape.svg" that are not the business's profile mark.
-  if (input.source === 'brand_hint' && !explicitBrandHint && !nameSignalMatch) {
+  // Outside header/nav and structured data, require explicit logo/branding
+  // semantics in the element attributes. A business-name match alone is not
+  // enough because ordinary gallery photos often use the business name in alt
+  // text, and a filename-only `logo` match can be a decorative logoshape.
+  if (input.source === 'brand_hint' && !explicitBrandHint) {
     return null;
   }
 
