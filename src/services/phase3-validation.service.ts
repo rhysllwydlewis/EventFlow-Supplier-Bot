@@ -33,6 +33,8 @@ export interface Phase3ValidationMetrics {
   averagePublicationQuality: number;
   averageDataConfidence: number;
   evidenceCoveragePct: number;
+  imageCoveragePct: number;
+  averageImagesPerProfile: number;
   publicEmailCoveragePct: number;
   publicPhoneCoveragePct: number;
   advertisedPriceCoveragePct: number;
@@ -82,6 +84,10 @@ function average(values: number[]): number {
 
 function isPopulated(value: unknown): boolean {
   return typeof value === 'string' ? value.trim().length > 0 : value !== null && value !== undefined;
+}
+
+function imageCount(profile: ShadowProfile): number {
+  return Array.isArray(profile.images) ? profile.images.length : 0;
 }
 
 function isSouthWalesVenueCampaign(campaign: {
@@ -144,8 +150,6 @@ export function summarizePhase3Validation(input: {
   let complianceBlocked = 0;
   let seoReady = 0;
   for (const candidate of candidates) {
-    // Identity duplicate decisions are terminal policy outcomes even when the
-    // pipeline intentionally never writes a Shadow profile for that candidate.
     if (candidate.dedupDecision === 'strong_duplicate') {
       complianceBlocked += 1;
       continue;
@@ -168,6 +172,7 @@ export function summarizePhase3Validation(input: {
   const target = input.run?.targetCandidates ?? PHASE3_TARGET_CANDIDATES;
   const targetReached = candidateCount >= target;
   const finalised = Boolean(input.run && input.run.status === 'completed');
+  const profilesWithImages = profiles.filter(item => imageCount(item) > 0).length;
 
   return {
     run: input.run,
@@ -181,6 +186,8 @@ export function summarizePhase3Validation(input: {
       averagePublicationQuality: average(profiles.map(item => item.publicationQuality)),
       averageDataConfidence: average(profiles.map(item => item.dataConfidence)),
       evidenceCoveragePct: pct(profiles.filter(item => item.evidenceIds.length > 0).length, profileCount),
+      imageCoveragePct: pct(profilesWithImages, profileCount),
+      averageImagesPerProfile: average(profiles.map(item => imageCount(item))),
       publicEmailCoveragePct: pct(profiles.filter(item => isPopulated(item.publicEmail)).length, profileCount),
       publicPhoneCoveragePct: pct(profiles.filter(item => isPopulated(item.publicPhone)).length, profileCount),
       advertisedPriceCoveragePct: pct(
