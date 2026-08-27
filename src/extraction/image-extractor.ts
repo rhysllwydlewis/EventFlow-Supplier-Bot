@@ -95,9 +95,17 @@ function textualHint(...values: Array<string | null | undefined>): string {
   return values.filter(Boolean).join(' ').replace(/[-_]+/g, ' ').slice(0, 1_000);
 }
 
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function imageFilename(url: URL): string {
   const last = url.pathname.split('/').filter(Boolean).pop() ?? '';
-  return decodeURIComponent(last).replace(/[-_]+/g, ' ');
+  return safeDecodeURIComponent(last).replace(/[-_]+/g, ' ');
 }
 
 function scoreCandidate(input: {
@@ -118,9 +126,6 @@ function scoreCandidate(input: {
     if (input.width * input.height < 160_000) return null;
   }
 
-  // OpenGraph/Twitter images are publisher-declared representations of the page,
-  // so they may legitimately live on a CMS/CDN. Inline images must be same-site
-  // to avoid collecting unrelated ad/tracker/media-host content.
   if (!same && input.kind !== 'open_graph') return null;
 
   let score = input.kind === 'open_graph' ? 82 : input.kind === 'picture_source' ? 58 : 52;
@@ -181,12 +186,7 @@ function extractPageImages(pageUrl: string, html: string): SupplierMediaEvidence
     const attrs = htmlAttributes(tag);
     const key = (attrs.property || attrs.name || '').toLowerCase();
     if (!['og:image', 'og:image:url', 'twitter:image', 'twitter:image:src'].includes(key)) continue;
-    pushCandidate(output, {
-      rawUrl: attrs.content,
-      pageUrl,
-      kind: 'open_graph',
-      alt: null,
-    });
+    pushCandidate(output, { rawUrl: attrs.content, pageUrl, kind: 'open_graph', alt: null });
   }
 
   for (const tag of html.match(/<img\b[^>]*>/gi) ?? []) {
@@ -208,16 +208,6 @@ function extractPageImages(pageUrl: string, html: string): SupplierMediaEvidence
       width,
       height,
     });
-    for (const backgroundUrl of inlineStyleImages(attrs.style)) {
-      pushCandidate(output, {
-        rawUrl: backgroundUrl,
-        pageUrl,
-        kind: 'background_image',
-        alt: attrs.alt || attrs.title || null,
-        width,
-        height,
-      });
-    }
   }
 
   for (const tag of html.match(/<source\b[^>]*>/gi) ?? []) {
@@ -231,6 +221,23 @@ function extractPageImages(pageUrl: string, html: string): SupplierMediaEvidence
       width: null,
       height: null,
     });
+  }
+
+  // Hero/gallery imagery is commonly assigned to div/section containers rather
+  // than img elements. Inspect any inline style attribute without loading CSS or
+  // remote image bytes; same-site filtering still applies in scoreCandidate.
+  for (const tag of html.match(/<[a-z][^>]*\bstyle\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>/gi) ?? []) {
+    const attrs = htmlAttributes(tag);
+    for (const backgroundUrl of inlineStyleImages(attrs.style)) {
+      pushCandidate(output, {
+        rawUrl: backgroundUrl,
+        pageUrl,
+        kind: 'background_image',
+        alt: attrs['aria-label'] || attrs.title || null,
+        width: parsePositiveInt(attrs.width),
+        height: parsePositiveInt(attrs.height),
+      });
+    }
   }
 
   return output;
