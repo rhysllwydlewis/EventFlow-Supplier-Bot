@@ -8,6 +8,7 @@ import {
 } from '../repositories/candidate.repository.js';
 import { isSuppressed } from '../repositories/suppression.repository.js';
 import { tryClaimDailyAcquisitionSlot } from './acquisition-budget.service.js';
+import { evaluateDiscoverySearchResult } from './discovery-result-quality.service.js';
 import { buildDiscoveryQueries } from './query-builder.service.js';
 
 export interface DiscoveryCycleResult {
@@ -18,6 +19,7 @@ export interface DiscoveryCycleResult {
   candidateIdsCreated: string[];
   duplicatesSkipped: number;
   suppressedSkipped: number;
+  qualityFilteredSkipped: number;
   persistenceBlocked: number;
   limitReached: boolean;
 }
@@ -43,6 +45,7 @@ export async function runDiscoveryCycle(
     candidateIdsCreated: [],
     duplicatesSkipped: 0,
     suppressedSkipped: 0,
+    qualityFilteredSkipped: 0,
     persistenceBlocked: 0,
     limitReached: candidateLimit === 0,
   };
@@ -67,12 +70,12 @@ export async function runDiscoveryCycle(
         break outer;
       }
 
-      let domain: string;
-      try {
-        domain = new URL(item.url).hostname.toLowerCase().replace(/^www\./, '');
-      } catch {
+      const qualityDecision = evaluateDiscoverySearchResult(item, discoveryQuery.category);
+      if (!qualityDecision.eligible || !qualityDecision.domain) {
+        result.qualityFilteredSkipped += 1;
         continue;
       }
+      const domain = qualityDecision.domain;
 
       if (await isSuppressed(domain, 'do_not_crawl')) {
         result.suppressedSkipped += 1;
