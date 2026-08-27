@@ -34,6 +34,34 @@ function mergeMediaEvidence(
   return result;
 }
 
+// UK business sites occasionally publish their JSON-LD telephone already
+// mangled with a "+44"/"0044" glued directly onto a UK local number that
+// still has its leading 0 (e.g. "+4401443665803" -> "01443665803"). Repair
+// only that specific pattern rather than reusing supplier-dedup's
+// normalizePhone(), which strips every non-digit character and would fold
+// a genuine extension (e.g. "029 2012 3456 ext. 123") straight into the
+// subscriber number, publishing an uncallable value.
+function cleanPublicPhone(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const repaired = trimmed.replace(/^(?:\+44|0044)[\s.-]*0(\d{9,10})\b/, '0$1');
+  return repaired.slice(0, 60);
+}
+
+// Combine town/village with county when both are present (e.g. "Hensol,
+// Vale of Glamorgan") instead of only ever keeping one via `||`, but don't
+// repeat the same value twice if a site sets both fields identically.
+function composeLocation(
+  structured: { locality: string | null; region: string | null },
+  fallback: string | null
+): string | null {
+  const combined = [structured.locality, structured.region]
+    .filter((part, index, all): part is string => Boolean(part) && all.indexOf(part) === index)
+    .join(', ');
+  return combined || fallback || null;
+}
+
 export function composeDeterministicShadowProfile(input: {
   candidate: Candidate;
   extraction: BasicExtraction;
@@ -42,11 +70,19 @@ export function composeDeterministicShadowProfile(input: {
   const structured = extractStructuredBusinessFacts(input.extraction.jsonLd);
   const businessName = structured.name || cleanBusinessTitle(input.candidate.titleHint) || input.candidate.canonicalDomain;
   const category = input.candidate.categoryHint || 'Other';
-  const location = structured.locality || structured.region || input.candidate.locationHint;
+  const location = composeLocation(structured, input.candidate.locationHint);
   const email = structured.email || input.extraction.emails[0] || null;
-  const phone = structured.telephone || input.extraction.phones[0] || null;
+  const phone = cleanPublicPhone(structured.telephone || input.extraction.phones[0] || null);
   const locationPhrase = location ? ` serving ${location}` : '';
-  const description = `${businessName} is listed on EventFlow as a ${category.toLowerCase()} supplier${locationPhrase}. This profile has been compiled from publicly available business information and can be claimed by the business owner.`;
+  // advertisedPrices are regex-matched £ amounts from page text, but the
+  // "from"/"starting at" qualifier is optional in that match, so a bare
+  // amount (a deposit, a single add-on) is not necessarily a minimum price.
+  // Report it neutrally rather than claiming it's a starting price.
+  // structured.priceRange is excluded here: schema.org allows a categorical
+  // tier symbol like "£££" there, which isn't a stateable amount at all.
+  const priceInfo = input.extraction.advertisedPrices[0] || null;
+  const pricePhrase = priceInfo ? ` Advertised pricing: ${priceInfo}.` : '';
+  const description = `${businessName} is a ${category.toLowerCase()} supplier${locationPhrase}, listed on EventFlow from publicly available business information.${pricePhrase} This profile can be claimed by the business owner to add full details, packages and photos.`;
   const images = input.extraction.media.slice(0, 12).map(item => item.url);
   const coverImage = images[0] ?? null;
   const logoCandidate = input.extraction.profileImageCandidate ?? null;
