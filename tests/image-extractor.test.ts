@@ -53,6 +53,26 @@ describe('supplier media extraction', () => {
     expect(result.map(item => item.url)).toEqual(['https://venue.example/gallery/large.jpg']);
   });
 
+  it('discovers common inline-style hero backgrounds on non-image elements', () => {
+    const result = extractSupplierMedia(crawl(`
+      <section aria-label="Wedding venue hero" style="background-image: url('/media/wedding-hero.jpg'); min-height: 600px"></section>
+      <div style="background:url(https://ads.example.net/banner.jpg)"></div>
+    `));
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      url: 'https://venue.example/media/wedding-hero.jpg',
+      kind: 'background_image',
+      sameSite: true,
+    });
+  });
+
+  it('does not fail the supplier pipeline on malformed percent escapes in an image path', () => {
+    expect(() => extractSupplierMedia(crawl(`
+      <img src="/gallery/%E0%A4%A-wedding-venue.jpg" alt="Wedding venue" width="1400" height="800">
+    `))).not.toThrow();
+  });
+
   it('deduplicates an image referenced on several crawled pages', () => {
     const html = '<img src="/media/venue-exterior.jpg" alt="Venue exterior" width="1400" height="800">';
     const result = extractSupplierMedia({
