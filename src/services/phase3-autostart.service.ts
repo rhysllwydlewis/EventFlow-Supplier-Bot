@@ -1,5 +1,5 @@
 import { env } from '../config/env.js';
-import type { CampaignStatus } from '../domain/campaign.js';
+import type { Campaign } from '../domain/campaign.js';
 import type { BotSettings } from '../domain/settings.js';
 import { getQueue } from '../queues/index.js';
 import {
@@ -11,6 +11,7 @@ import { getSettings, patchSettings } from '../repositories/settings.repository.
 import {
   getPhase3ValidationReport,
   phase3Safety,
+  PHASE3_TARGET_CANDIDATES,
   type Phase3ValidationReport,
 } from './phase3-validation.service.js';
 import { playBot } from './runtime-control.service.js';
@@ -46,7 +47,7 @@ export function phase3AutostartDecision(input: {
   settings: BotSettings;
   report: Phase3ValidationReport;
   capabilities: Phase3AutostartCapabilities;
-  pilotStatus: CampaignStatus;
+  pilotStatus: Campaign['status'];
 }): Phase3AutostartDecision {
   const { settings, report, capabilities, pilotStatus } = input;
   if (report.run?.status === 'completed') return { eligible: false, reason: 'completed' };
@@ -120,7 +121,7 @@ export async function bootstrapPhase3Validation(): Promise<{
   await recordAuditEvent('phase3-autostart', 'phase3.autostart_started', {
     campaignId: runningPilot.id,
     dailyHardLimit: settings.dailyHardLimit,
-    targetCandidates: report.run?.targetCandidates ?? 100,
+    targetCandidates: PHASE3_TARGET_CANDIDATES,
   });
   return { started: true, reason: 'eligible', campaignId: runningPilot.id };
 }
