@@ -32,6 +32,7 @@ export interface DiscoveryCompletionDiagnostic {
   candidatesCreated: number;
   duplicatesSkipped: number;
   suppressedSkipped: number;
+  qualityFilteredSkipped: number;
   persistenceBlocked: number;
   limitReached: boolean;
 }
@@ -143,6 +144,7 @@ export async function getDiscoveryQueueDiagnostic(): Promise<DiscoveryQueueDiagn
           candidatesCreated: numericResult(completed.returnvalue, 'candidatesCreated'),
           duplicatesSkipped: numericResult(completed.returnvalue, 'duplicatesSkipped'),
           suppressedSkipped: numericResult(completed.returnvalue, 'suppressedSkipped'),
+          qualityFilteredSkipped: numericResult(completed.returnvalue, 'qualityFilteredSkipped'),
           persistenceBlocked: numericResult(completed.returnvalue, 'persistenceBlocked'),
           limitReached: booleanResult(completed.returnvalue, 'limitReached'),
         }
