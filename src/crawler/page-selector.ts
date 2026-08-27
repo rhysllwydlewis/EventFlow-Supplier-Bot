@@ -1,12 +1,22 @@
+const COMMERCIAL_PATH_TERMS = [
+  'packages',
+  'package',
+  'pricing',
+  'prices',
+  'price-list',
+  'pricelist',
+  'rates',
+  'rate-card',
+  'brochure',
+  'menus',
+  'menu',
+];
+
 const USEFUL_PATH_TERMS = [
   'about',
   'wedding',
   'services',
   'service',
-  'packages',
-  'package',
-  'pricing',
-  'prices',
   'contact',
   'faq',
   'venue',
@@ -34,10 +44,21 @@ export function scoreUsefulPage(url: URL, rootOrigin: string): number {
   if (url.pathname === '/' || url.pathname === '') {
     return 100;
   }
+  // PDF brochures are discovered and recorded as commercial-source hints, but
+  // are not fetched by the HTML crawler until a bounded PDF text parser is
+  // explicitly available. Failing closed is preferable to unreliable OCR.
+  if (/\.pdf(?:$|[?#])/i.test(url.href)) {
+    return -30;
+  }
   if (LOW_VALUE_PATH_TERMS.some(term => path.includes(term))) {
     return -20;
   }
   let score = 0;
+  COMMERCIAL_PATH_TERMS.forEach(term => {
+    if (path.includes(term)) {
+      score += 35;
+    }
+  });
   USEFUL_PATH_TERMS.forEach(term => {
     if (path.includes(term)) {
       score += 15;

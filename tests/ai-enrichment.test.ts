@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AiEnrichment } from '../src/domain/ai-enrichment.js';
 import type { ShadowProfile } from '../src/domain/shadow-profile.js';
+import type { EvidenceFragment } from '../src/evidence/evidence.js';
 import {
   mergeAiEnrichment,
   validateEvidenceBackedEnrichment,
@@ -37,9 +38,28 @@ const enrichment: AiEnrichment = {
     { value: 'From £750', evidenceIds: ['evidence_2'] },
   ],
   packages: [
-    { name: 'Classic', price: '£1,000', features: ['Venue hire', 'Tables'], evidenceIds: ['evidence_2'] },
+    {
+      kind: 'advertised_package',
+      name: 'Classic Package',
+      priceDisplay: 'From £1,000 per person',
+      features: ['Venue hire', 'Tables'],
+      evidenceIds: ['evidence_2'],
+    },
   ],
 };
+
+function evidence(input: Partial<EvidenceFragment> & Pick<EvidenceFragment, 'id' | 'excerpt'>): EvidenceFragment {
+  return {
+    id: input.id,
+    candidateId: 'candidate_1',
+    sourceUrl: input.sourceUrl || 'https://example.com/packages',
+    sourceType: 'supplier_website',
+    observedAt: '2026-08-27T12:00:00.000Z',
+    contentHash: `hash_${input.id}`,
+    excerpt: input.excerpt,
+    metadata: input.metadata || {},
+  };
+}
 
 describe('AI evidence validation', () => {
   it('drops facts that cite evidence outside the supplied set', () => {
@@ -60,5 +80,147 @@ describe('AI evidence validation', () => {
     expect(merged.services).toEqual(['Wedding receptions']);
     expect(merged.advertisedPrices).toContain('£500');
     expect(merged.advertisedPrices).toContain('From £750');
+  });
+
+  it('requires one commercial evidence block to support both package name and exact price wording', () => {
+    const fragments = [
+      evidence({
+        id: 'evidence_1',
+        excerpt: 'Classic Package includes venue hire and tables.',
+        metadata: { commercialCandidate: true },
+      }),
+      evidence({
+        id: 'evidence_2',
+        excerpt: 'Another service is advertised From £1,000 per person.',
+        metadata: { commercialCandidate: true },
+      }),
+    ];
+    const crossMixed: AiEnrichment = {
+      ...enrichment,
+      packages: [{
+        kind: 'advertised_package',
+        name: 'Classic Package',
+        priceDisplay: 'From £1,000 per person',
+        features: ['Venue hire'],
+        evidenceIds: ['evidence_1', 'evidence_2'],
+      }],
+    };
+    const validated = validateEvidenceBackedEnrichment(
+      crossMixed,
+      new Set(['evidence_1', 'evidence_2']),
+      fragments,
+    );
+    expect(validated.packages).toEqual([]);
+  });
+
+  it('preserves package provenance and structured price semantics after strict validation', () => {
+    const fragments = [
+      evidence({
+        id: 'evidence_2',
+        excerpt: 'Classic Package — From £1,000 per person + VAT. Includes venue hire and tables.',
+        metadata: { commercialCandidate: true, commercialKindHint: 'advertised_package' },
+      }),
+    ];
+    const supported: AiEnrichment = {
+      ...enrichment,
+      packages: [{
+        kind: 'advertised_package',
+        name: 'Classic Package',
+        priceDisplay: 'From £1,000 per person + VAT',
+        features: ['Venue hire', 'Tables', 'Invented champagne'],
+        evidenceIds: ['evidence_2'],
+      }],
+    };
+    const validated = validateEvidenceBackedEnrichment(
+      supported,
+      new Set(['evidence_1', 'evidence_2']),
+      fragments,
+    );
+    expect(validated.packages[0]?.features).toEqual(['Venue hire', 'Tables']);
+
+    const merged = mergeAiEnrichment(baseProfile, validated, fragments);
+    expect(merged.packages[0]).toMatchObject({
+      name: 'Classic Package',
+      price: 'From £1,000 per person + VAT',
+      priceDisplay: 'From £1,000 per person + VAT',
+      sourceUrl: 'https://example.com/packages',
+      sourceContentHash: 'hash_evidence_2',
+      kind: 'advertised_package',
+      priceDetails: {
+        currency: 'GBP',
+        amount: 1000,
+        qualifier: 'from',
+        unit: 'per_person',
+        vatStatus: 'excluded',
+      },
+    });
+  });
+
+  it('derives provenance from the fragment that directly validated the package, not citation order', () => {
+    const fragments = [
+      evidence({
+        id: 'evidence_generic',
+        excerpt: 'General information about our packages and services.',
+        metadata: { commercialCandidate: true },
+      }),
+      evidence({
+        id: 'evidence_direct',
+        excerpt: 'Silver Package — From £1,000 per person.',
+        metadata: { commercialCandidate: true },
+      }),
+    ];
+    const supported: AiEnrichment = {
+      ...enrichment,
+      packages: [{
+        kind: 'advertised_package',
+        name: 'Silver Package',
+        priceDisplay: 'From £1,000 per person',
+        features: [],
+        // Cited out of order: the generic, non-matching fragment comes first.
+        evidenceIds: ['evidence_generic', 'evidence_direct'],
+      }],
+    };
+    const validated = validateEvidenceBackedEnrichment(
+      supported,
+      new Set(['evidence_1', 'evidence_2', 'evidence_generic', 'evidence_direct']),
+      fragments,
+    );
+    expect(validated.packages).toHaveLength(1);
+
+    const merged = mergeAiEnrichment(baseProfile, validated, fragments);
+    expect(merged.packages[0]?.sourceContentHash).toBe('hash_evidence_direct');
+  });
+
+  it('parses the upper bound of a price range that has no £ of its own', () => {
+    const fragments = [
+      evidence({
+        id: 'evidence_range',
+        excerpt: 'Evening Package — £750–950.',
+        metadata: { commercialCandidate: true },
+      }),
+    ];
+    const supported: AiEnrichment = {
+      ...enrichment,
+      packages: [{
+        kind: 'advertised_package',
+        name: 'Evening Package',
+        priceDisplay: '£750–950',
+        features: [],
+        evidenceIds: ['evidence_range'],
+      }],
+    };
+    const validated = validateEvidenceBackedEnrichment(
+      supported,
+      new Set(['evidence_1', 'evidence_2', 'evidence_range']),
+      fragments,
+    );
+    expect(validated.packages).toHaveLength(1);
+
+    const merged = mergeAiEnrichment(baseProfile, validated, fragments);
+    expect(merged.packages[0]?.priceDetails).toMatchObject({
+      amount: 750,
+      maxAmount: 950,
+      qualifier: 'range',
+    });
   });
 });
