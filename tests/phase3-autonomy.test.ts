@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { defaultSettings } from '../src/domain/settings.js';
+import { classifyQueueFailure } from '../src/queues/index.js';
 import { phase3AutostartDecision } from '../src/services/phase3-autostart.service.js';
 import {
   PHASE3_TARGET_CANDIDATES,
@@ -94,6 +95,15 @@ describe('Phase 3 autonomous runtime closeout', () => {
     ).toEqual({ eligible: false, reason: 'openai_not_configured' });
   });
 
+  it('classifies discovery failures into safe non-secret diagnostic codes', () => {
+    expect(classifyQueueFailure('Brave Search failed with HTTP 401')).toBe('brave_http_401');
+    expect(classifyQueueFailure('Brave Search failed with HTTP 429')).toBe('brave_http_429');
+    expect(classifyQueueFailure('BRAVE_API_KEY is not configured')).toBe('brave_not_configured');
+    expect(classifyQueueFailure('TimeoutError: request timed out')).toBe('brave_timeout');
+    expect(classifyQueueFailure('TypeError: fetch failed')).toBe('brave_network_error');
+    expect(classifyQueueFailure('unexpected provider failure')).toBe('discovery_job_failed');
+  });
+
   it('does not silently replace an existing or completed validation ledger', () => {
     const settings = defaultSettings();
     const collecting: Phase3ValidationRun = {
@@ -138,6 +148,10 @@ describe('Phase 3 autonomous runtime closeout', () => {
     expect(packageJson.scripts['start:control']).toBe('node dist/control/entry.js');
     expect(entrySource).toContain('bootstrapPhase3Validation()');
     expect(entrySource).toContain("'phase3-progress.json'");
+    expect(entrySource).toContain('PHASE3_RECOVERY_INTERVAL_MS = 30 * 60 * 1000');
+    expect(entrySource).toContain('phase3-recovery-plan-');
+    expect(entrySource).toContain('latestFailure');
+    expect(entrySource).toContain('latestCompletion');
     expect(entrySource).not.toContain('CONTROL_ADMIN_KEY');
     expect(entrySource).not.toContain('CONTROL_SESSION_SECRET');
   });
