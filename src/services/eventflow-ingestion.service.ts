@@ -37,7 +37,7 @@ function endpointUrl(): string {
 }
 
 function signature(secret: string, timestamp: string, body: string): string {
-  return createHmac('sha256').update(`${timestamp}.${body}`).digest('hex');
+  return createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
 }
 
 export async function ingestShadowProfileToEventFlow(input: {
