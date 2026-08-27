@@ -36,7 +36,11 @@ function publicationControlBlockReason(settings: {
   runState: string;
   publishingEnabled: boolean;
 }): string | null {
-  if (settings.runState === 'emergency_stopped') return 'emergency_stopped';
+  if (settings.runState !== 'running') {
+    return settings.runState === 'emergency_stopped'
+      ? 'emergency_stopped'
+      : `run_state_${settings.runState}`;
+  }
   if (settings.mode !== 'live') return 'mode_not_live';
   if (!settings.publishingEnabled) return 'publishing_disabled';
   return null;
