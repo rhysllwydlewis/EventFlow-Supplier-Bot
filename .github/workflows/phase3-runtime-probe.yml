@@ -16,7 +16,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p runtime-probe
-          # Probe after URL/media audit deployment and final sample reset.
           curl --fail --silent --show-error --location --max-time 30 \
             https://supplier-bot-control-production.up.railway.app/health \
             -o runtime-probe/health.json
@@ -29,6 +28,17 @@ jobs:
           python -m json.tool runtime-probe/health.json >/dev/null
           python -m json.tool runtime-probe/ready.json >/dev/null
           python -m json.tool runtime-probe/phase3-progress.json >/dev/null
+
+      - name: Verify one-profile pilot page
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --max-time 30 \
+            -D runtime-probe/pilot-headers.txt \
+            https://event-flow.co.uk/supplier/hensol-castle \
+            -o runtime-probe/pilot-profile.html
+          grep -Eiq 'unclaimed' runtime-probe/pilot-profile.html
+          grep -Eiq 'noindex' runtime-probe/pilot-profile.html
+
       - uses: actions/upload-artifact@v4
         with:
           name: phase3-runtime-probe
