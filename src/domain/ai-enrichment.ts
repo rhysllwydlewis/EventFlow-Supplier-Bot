@@ -13,7 +13,7 @@ const serviceFactSchema = z.object({
 });
 
 const priceFactSchema = z.object({
-  value: z.string().min(1).max(80),
+  value: z.string().min(1).max(120),
   evidenceIds,
 });
 
@@ -24,8 +24,11 @@ export const aiEnrichmentSchema = z.object({
   services: z.array(serviceFactSchema).max(30),
   advertisedPrices: z.array(priceFactSchema).max(50),
   packages: z.array(z.object({
+    kind: z.enum(['advertised_package', 'priced_service']),
     name: z.string().min(1).max(160),
-    price: z.string().max(80).nullable(),
+    // Copy the supplier's commercial wording faithfully, including qualifiers
+    // such as From, per person, ranges, minimum spend and VAT wording.
+    priceDisplay: z.string().min(1).max(120),
     features: z.array(z.string().min(1).max(160)).max(30),
     evidenceIds,
   })).max(20),
