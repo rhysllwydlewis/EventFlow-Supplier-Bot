@@ -104,6 +104,8 @@ async function writePublicPhase3Progress(): Promise<void> {
       averagePublicationQuality: report.metrics.averagePublicationQuality,
       averageDataConfidence: report.metrics.averageDataConfidence,
       evidenceCoveragePct: report.metrics.evidenceCoveragePct,
+      imageCoveragePct: report.metrics.imageCoveragePct,
+      averageImagesPerProfile: report.metrics.averageImagesPerProfile,
       advertisedPriceCoveragePct: report.metrics.advertisedPriceCoveragePct,
       packageCoveragePct: report.metrics.packageCoveragePct,
       distinctCandidates: report.metrics.distinctCandidates,
@@ -120,7 +122,6 @@ async function writePublicPhase3Progress(): Promise<void> {
     updatedAt: new Date().toISOString(),
   };
 
-  // Rename keeps readers from observing a partially-written JSON document.
   await writeFile(progressTempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
   await rename(progressTempPath, progressPath);
 }
@@ -223,8 +224,6 @@ async function start(): Promise<void> {
     autostartOutcome = await bootstrapPhase3Validation();
     logger.info({ phase3Autostart: autostartOutcome }, 'Phase 3 autonomous bootstrap evaluated');
   } catch (error) {
-    // Keep the Control Centre available for diagnosis. The bootstrap itself is
-    // fail-closed and never weakens Pause/Emergency Stop or outbound controls.
     autostartOutcome = { started: false, reason: 'bootstrap_error' };
     logger.error({ err: error }, 'Phase 3 autonomous bootstrap failed');
   }
@@ -234,17 +233,14 @@ async function start(): Promise<void> {
       if (outcome.reset) {
         logger.warn(
           { revision: outcome.revision },
-          'Phase 3 validation window reset after discovery supplier-quality hardening',
+          'Phase 3 validation window reset after pipeline quality/media hardening',
         );
       }
     })
     .catch(error =>
-      logger.error({ err: error }, 'Failed to apply Phase 3 discovery quality revision'),
+      logger.error({ err: error }, 'Failed to apply Phase 3 pipeline quality revision'),
     );
 
-  // A fresh autostart already queues its own immediate coverage plan. On a
-  // restart of an existing Phase 3 run, recover an idle/retryable discovery
-  // pipeline immediately instead of waiting for the six-hour normal planner.
   if (!autostartOutcome?.started) {
     await schedulePhase3RecoveryPlanning('phase3-recovery-startup').catch(error =>
       logger.error({ err: error }, 'Phase 3 startup recovery planning failed'),
