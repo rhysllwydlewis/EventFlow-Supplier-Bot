@@ -14,7 +14,6 @@ export const QUEUE_NAMES = Object.freeze({
   quality: 'quality',
   publication: 'publication',
   refresh: 'refresh',
-  deadLetter: 'dead-letter',
 });
 
 export type QueueKey = keyof typeof QUEUE_NAMES;

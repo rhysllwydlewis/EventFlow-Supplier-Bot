@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertCrawlableUrl, isBlockedAddress } from '../src/crawler/network-policy.js';
+import { assertCrawlableUrl, isBlockedAddress, resolvePublicAddresses } from '../src/crawler/network-policy.js';
 
 describe('crawler network policy', () => {
   it('blocks loopback and private IPv4 ranges', () => {
@@ -58,5 +58,23 @@ describe('crawler network policy', () => {
   it('allows a Teredo address whose decoded client IPv4 is ordinary and public', () => {
     // Obfuscated form of 8.8.8.8: NOT(8)=247=0xf7, NOT(8)=0xf7 repeated.
     expect(isBlockedAddress('2001:0:0:0:0:0:f7f7:f7f7')).toBe(false);
+  });
+
+  it('blocks a bracketed IPv6-literal loopback URL, not just a bare literal', () => {
+    // new URL('http://[::1]/').hostname is the bracketed string "[::1]" --
+    // net.isIP() returns 0 (not recognized) for that bracketed form, so a
+    // check that never strips the brackets first never actually inspects
+    // the address.
+    expect(() => assertCrawlableUrl('http://[::1]/')).toThrow('Crawler destination IP is not public');
+    expect(() => assertCrawlableUrl('http://[fd00::1]/')).toThrow('Crawler destination IP is not public');
+  });
+
+  it('resolves and pins a bracketed IPv6-literal URL to an unbracketed address for a genuinely public target', async () => {
+    const resolved = await resolvePublicAddresses(new URL('http://[2606:4700:4700::1111]/'));
+    expect(resolved).toEqual([{ address: '2606:4700:4700::1111', family: 6 }]);
+  });
+
+  it('rejects resolving a bracketed IPv6-literal URL for a private target', async () => {
+    await expect(resolvePublicAddresses(new URL('http://[fc00::1]/'))).rejects.toThrow('Crawler destination IP is not public');
   });
 });

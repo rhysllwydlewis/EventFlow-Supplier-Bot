@@ -173,7 +173,11 @@ export async function processEventFlowPublication(candidateId: string): Promise<
     const result = await ingestShadowProfileToEventFlow({
       profile,
       compliance,
-      publishingEnabled: true,
+      // liveControlBlockReason above already proved liveSettings.publishingEnabled
+      // is true; passed through explicitly (not hardcoded) so this path can never
+      // drift from the real Control setting the way a literal `true` could --
+      // matching eventflow-one-profile-pilot.service.ts's same pattern.
+      publishingEnabled: liveSettings.publishingEnabled,
       publicationScope: PUBLIC_UNCLAIMED_SCOPE,
     });
 

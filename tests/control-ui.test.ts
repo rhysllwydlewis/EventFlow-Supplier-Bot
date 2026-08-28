@@ -8,6 +8,7 @@ const complianceRepository = readFileSync(
   'utf8',
 );
 const liveActivity = readFileSync(new URL('../src/services/live-activity.service.ts', import.meta.url), 'utf8');
+const queues = readFileSync(new URL('../src/queues/index.ts', import.meta.url), 'utf8');
 
 describe('Supplier Bot Control Centre review surface', () => {
   it('joins each displayed Shadow profile to its own compliance assessment', () => {
@@ -202,5 +203,64 @@ describe('Supplier Bot Control Centre review surface', () => {
     // nothing left for a future express.static default change to revive.
     expect(server).toContain('index: false,');
     expect(existsSync(new URL('../public/index.html', import.meta.url))).toBe(false);
+  });
+
+  it('never returns a raw internal error message to the client', () => {
+    // Every expected/operational error already has its own specific status
+    // code above the catch-all error handler -- what reaches it is
+    // unexpected, and its message can be a raw Mongo driver string, a file
+    // path, or other internal detail that shouldn't leave the server.
+    const handlerStart = server.indexOf("app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {");
+    expect(handlerStart).toBeGreaterThan(-1);
+    const handlerBody = server.slice(handlerStart);
+    expect(handlerBody).not.toContain('error.message');
+    expect(handlerBody).toContain("res.status(500).json({ error: 'Internal server error' });");
+  });
+
+  it('only counts a failed login against the rate limit, and prunes expired entries', () => {
+    // Incrementing on every attempt (including a successful one) meant a
+    // legitimate admin logging in more than 10 times in 15 minutes could
+    // lock themselves out. A one-off scanner's or mistyped-key attempt also
+    // used to leave an entry in loginAttempts that nothing ever removed.
+    expect(server).toContain('function pruneExpiredLoginAttempts(now: number)');
+    expect(server).toContain('function recordFailedLoginAttempt(req: Request)');
+    expect(server).toContain('if (res.statusCode === 401)');
+    const rateLimitStart = server.indexOf('function loginRateLimit(');
+    const rateLimitBody = server.slice(rateLimitStart, server.indexOf('\n}', rateLimitStart));
+    expect(rateLimitBody).not.toContain('bucket.count += 1');
+  });
+
+  it('sets a lockdown Content-Security-Policy instead of disabling it outright', () => {
+    // control.html has an inline <script>/<style> with no per-request
+    // templating to attach a nonce to, so 'unsafe-inline' is kept for both
+    // -- this CSP's real value is default-src/connect-src/img-src to
+    // 'self', so even if the page's escaping discipline ever slips on a
+    // future field, an injected payload can't load an external script,
+    // exfiltrate over fetch()/XHR, or beacon via an external image.
+    expect(server).not.toContain('contentSecurityPolicy: false');
+    expect(server).toContain("defaultSrc: [\"'self'\"]");
+    expect(server).toContain("connectSrc: [\"'self'\"]");
+    expect(server).toContain("frameAncestors: [\"'none'\"]");
+  });
+
+  it('awaits server.close() during shutdown instead of tearing down Mongo/Redis immediately', () => {
+    // server.close() alone only stops accepting new connections -- without
+    // awaiting it, in-flight requests could still be running when Mongo and
+    // Redis are torn down out from under them. worker/index.ts's shutdown
+    // already awaits each BullMQ Worker.close(); the control server didn't
+    // match that.
+    const shutdownStart = server.indexOf('const shutdown = async (signal: string) => {');
+    const shutdownBody = server.slice(shutdownStart, server.indexOf('};', shutdownStart));
+    expect(shutdownBody).toContain("new Promise<void>(resolve => server.close(() => resolve()))");
+    expect(shutdownBody.indexOf('server.close(() => resolve())')).toBeLessThan(shutdownBody.indexOf('await closeQueues()'));
+  });
+
+  it('does not declare a dead-letter queue that nothing ever produces to or consumes from', () => {
+    // Named as if a review/replay path existed for jobs that exhaust their
+    // retry budget, but nothing in the codebase ever pushed a job into it
+    // or read from it -- just a misleadingly-named entry in every queue
+    // listing (including /api/status's queue counts).
+    expect(queues).not.toContain('deadLetter');
+    expect(queues).not.toContain('dead-letter');
   });
 });

@@ -9,7 +9,7 @@ interface AcquisitionCounter {
   updatedAt: string;
 }
 
-function utcDay(): string {
+export function currentUtcDay(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
@@ -21,6 +21,7 @@ export async function tryClaimDailyAcquisitionSlot(
   campaignId: string,
   campaignHardLimit: number,
   globalHardLimit: number,
+  day: string = currentUtcDay(),
 ): Promise<boolean> {
   const campaignLimit = Math.max(0, Math.floor(campaignHardLimit));
   const globalLimit = Math.max(0, Math.floor(globalHardLimit));
@@ -28,7 +29,6 @@ export async function tryClaimDailyAcquisitionSlot(
     return false;
   }
 
-  const day = utcDay();
   const id = `acquisition:${day}`;
   const campaignKey = campaignCounterKey(campaignId);
   const campaignPath = `campaignCounts.${campaignKey}`;
@@ -69,4 +69,24 @@ export async function tryClaimDailyAcquisitionSlot(
     { returnDocument: 'after' },
   );
   return claimed !== null;
+}
+
+// A slot is claimed before the domain-uniqueness race is actually resolved
+// at the database level (see upsertDiscoveredCandidate's unique-index
+// insert-then-detect-conflict pattern) -- when two concurrent discovery
+// cycles both see a domain as not-yet-a-candidate, both claim a slot, but
+// only one of them actually creates the candidate. The loser's claimed slot
+// would otherwise sit wasted for the rest of the UTC day. Only ever causes
+// under-acquisition relative to the ceiling, never an overrun, so this is
+// an efficiency fix, not a safety one.
+export async function releaseDailyAcquisitionSlot(campaignId: string, day: string = currentUtcDay()): Promise<void> {
+  const id = `acquisition:${day}`;
+  const campaignKey = campaignCounterKey(campaignId);
+  const campaignPath = `campaignCounts.${campaignKey}`;
+  const db = await getDatabase();
+  const store = db.collection<AcquisitionCounter>('runtime_counters');
+  await store.updateOne(
+    { id },
+    { $inc: { globalCount: -1, [campaignPath]: -1 }, $set: { updatedAt: new Date().toISOString() } },
+  );
 }

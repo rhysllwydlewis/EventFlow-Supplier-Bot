@@ -27,6 +27,8 @@ npm run start:control
 npm run start:worker
 ```
 
+`playwright` is pinned to an exact version in `package.json` (no `^` range, unlike every other dependency) because the Chromium build `npm run install:browser` downloads is tied to that exact package version -- installing a newer `playwright` without also re-running `install:browser` (or vice versa) leaves the two out of sync. `npm ci` (used in CI and the Dockerfile) against the committed `package-lock.json` keeps this exact.
+
 Default operating posture is Shadow mode, stopped, with publication/outreach/SEO indexing disabled.
 
 See `docs/PHASE1_COMPLETE.md`, `docs/CRAWLER_POLICY.md` and `docs/RAILWAY_SETUP.md` for the operating and deployment contracts.

@@ -111,9 +111,11 @@ export async function ingestShadowProfileToEventFlow(input: {
       body,
       signal: controller.signal,
     });
-    const responseBody = response.ok || response.status === 409
-      ? await response.json().catch(() => ({})) as Record<string, unknown>
-      : await response.json().catch(() => ({})) as Record<string, unknown>;
+    // Every branch below (success, 409 conflict, and any other non-2xx)
+    // reads responseBody.error or parses it as the success schema, so the
+    // body is always needed regardless of status -- this used to be a
+    // ternary on response.ok/409 whose two branches had become identical.
+    const responseBody = await response.json().catch(() => ({})) as Record<string, unknown>;
 
     if (response.status === 409) {
       const reason = typeof responseBody.error === 'string' ? responseBody.error : 'supplier_conflict';
