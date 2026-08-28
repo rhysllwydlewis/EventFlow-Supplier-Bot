@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import { hostname } from 'node:os';
 import path from 'node:path';
 import compression from 'compression';
@@ -367,6 +369,24 @@ app.get('/{*splat}', (_req, res) => {
   res.set('Cache-Control', 'no-store');
   res.sendFile(path.join(process.cwd(), 'public', 'control.html'));
 });
+
+{
+  const controlHtmlPath = path.join(process.cwd(), 'public', 'control.html');
+  const stat = fs.statSync(controlHtmlPath);
+  const contents = fs.readFileSync(controlHtmlPath, 'utf8');
+  logger.warn(
+    {
+      cwd: process.cwd(),
+      controlHtmlPath,
+      sizeBytes: stat.size,
+      mtime: stat.mtime.toISOString(),
+      sha256: createHash('sha256').update(contents).digest('hex'),
+      containsHardResetBtn: contents.includes('hardResetBtn'),
+      publicDirListing: fs.readdirSync(path.join(process.cwd(), 'public')),
+    },
+    'DIAGNOSTIC: control.html on disk at startup',
+  );
+}
 
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (error instanceof z.ZodError) {
