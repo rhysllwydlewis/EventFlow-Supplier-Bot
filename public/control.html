@@ -70,6 +70,9 @@
     .link-stack { display:grid; gap:4px; }
     .photo-count { font-weight:800; }
     .revision-note { font-size:12px; color:#6b7280; margin-top:7px; }
+    .activity-list { margin:0; padding-left:18px; display:grid; gap:7px; }
+    .activity-list li { font-size:13px; }
+    .activity-list .tiny { margin-left:4px; }
     @media (max-width:1100px) { .metric-grid.phase3-grid { grid-template-columns:repeat(4,1fr); } }
     @media (max-width:900px) { .span-8,.span-4,.span-6 { grid-column:span 12; } .form-grid,.metric-grid,.metric-grid.compact,.metric-grid.compliance-grid,.metric-grid.phase3-grid,.toggle-row,.seed-grid { grid-template-columns:1fr; } }
   </style>
@@ -96,6 +99,11 @@
         <div id="controlFeedback" class="feedback" aria-live="polite"></div>
         <div class="notice">Shadow mode researches real suppliers without publishing anything to EventFlow. Discovery URLs, pages visited and supplier-site media references are retained for authenticated review. Brave discovery persistence remains capability-gated; manual seed URLs let the full Shadow pipeline be tested independently.</div>
         <div class="notice">Hard reset permanently deletes all candidates, Shadow profiles, compliance assessments and publication history so you can start again. Settings, campaigns and suppression decisions are kept.</div>
+      </div>
+
+      <div class="card span-12">
+        <div class="section-head"><div><h2>Live activity</h2><p id="activitySummary" class="muted">Loading…</p></div></div>
+        <div id="activityFeed" class="muted">Loading…</div>
       </div>
 
       <div class="card span-8">
@@ -209,7 +217,7 @@ function dedupLabel(candidate){if(!candidate.dedupDecision)return 'Pending';cons
 async function request(url,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(csrfToken&&['POST','PUT','PATCH','DELETE'].includes((options.method||'GET').toUpperCase()))headers['x-csrf-token']=csrfToken;const response=await fetch(url,{credentials:'same-origin',...options,headers});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||`Request failed (${response.status})`);return body;}
 function showLogin(){$('loginView').classList.remove('hidden');$('appView').classList.add('hidden');}function showApp(){$('loginView').classList.add('hidden');$('appView').classList.remove('hidden');}
 async function refresh(){
-  const [status,campaigns,candidates,reviews,overview,phase3,audit]=await Promise.all([request('/api/status'),request('/api/campaigns'),request('/api/candidates?limit=20'),request('/api/shadow-profile-reviews?limit=20'),request('/api/compliance-overview'),request('/api/phase3-validation'),request('/api/discovery-audit?limit=50')]);const s=status.settings;
+  const [status,campaigns,candidates,reviews,overview,phase3,audit,activity]=await Promise.all([request('/api/status'),request('/api/campaigns'),request('/api/candidates?limit=20'),request('/api/shadow-profile-reviews?limit=20'),request('/api/compliance-overview'),request('/api/phase3-validation'),request('/api/discovery-audit?limit=50'),request('/api/activity')]);const s=status.settings;
   if(!settingsDirty){
     $('mode').value=s.mode;$('quality').value=s.minimumPublicationQuality;$('dailyTarget').value=s.dailyTarget;$('dailyHardLimit').value=s.dailyHardLimit;$('maxCrawls').value=s.maxCrawlsPerDay;$('softAi').value=s.softAiSpendGbpPerDay;$('hardAi').value=s.hardAiSpendGbpPerDay;
     ['discoveryEnabled','refreshEnabled','publishingEnabled','claimNoticesEnabled','marketingEnabled','seoIndexingEnabled'].forEach(id=>$(id).checked=!!s[id]);
@@ -242,6 +250,16 @@ async function refresh(){
     }));
   }
   $('queueRows').innerHTML=Object.entries(status.queues).map(([name,c])=>`<tr><td>${escapeHtml(name)}</td><td>${c.waiting||0}</td><td>${c.active||0}</td><td>${c.failed||0}</td></tr>`).join('');
+
+  const totalActive=Object.values(status.queues).reduce((sum,c)=>sum+(c.active||0),0);
+  const totalWaiting=Object.values(status.queues).reduce((sum,c)=>sum+(c.waiting||0),0);
+  $('activitySummary').textContent=`${totalActive} active · ${totalWaiting} queued across all queues`;
+  const activityItems=activity.items||[];
+  $('activityFeed').innerHTML=activityItems.length
+    ? `<ul class="activity-list">${activityItems.map(item=>`<li><strong>${escapeHtml(item.verb)}</strong> — ${escapeHtml(item.subject)}<span class="tiny">started ${item.startedAt?new Date(item.startedAt).toLocaleTimeString():'just now'}</span></li>`).join('')}</ul>`
+    : (totalWaiting>0
+        ? `<p class="muted">${totalWaiting} job${totalWaiting===1?'':'s'} queued, about to start.</p>`
+        : '<p class="muted">Idle — nothing running right now. The scheduler checks in every few minutes if the bot is running.</p>');
 
   $('auditRows').innerHTML=(audit.items||[]).map(item=>{
     const profile=item.profile;

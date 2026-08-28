@@ -26,6 +26,7 @@ import { getTodayAiReservedGbp } from '../services/ai-budget.service.js';
 import { getTodayAiUsage } from '../services/ai-usage.service.js';
 import { getTodayCrawlCount } from '../services/crawl-budget.service.js';
 import { getDiscoveryAudit } from '../services/discovery-audit.service.js';
+import { getLiveActivity } from '../services/live-activity.service.js';
 import { seedCandidate } from '../services/manual-seed.service.js';
 import { getPhase3ValidationReport } from '../services/phase3-validation.service.js';
 import {
@@ -284,6 +285,14 @@ app.get('/api/discovery-audit', async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 250);
     res.json(await getDiscoveryAudit(limit));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/activity', async (_req, res, next) => {
+  try {
+    res.json({ items: await getLiveActivity() });
   } catch (error) {
     next(error);
   }

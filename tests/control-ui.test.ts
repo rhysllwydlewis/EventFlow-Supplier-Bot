@@ -7,6 +7,7 @@ const complianceRepository = readFileSync(
   new URL('../src/repositories/compliance-assessment.repository.ts', import.meta.url),
   'utf8',
 );
+const liveActivity = readFileSync(new URL('../src/services/live-activity.service.ts', import.meta.url), 'utf8');
 
 describe('Supplier Bot Control Centre review surface', () => {
   it('joins each displayed Shadow profile to its own compliance assessment', () => {
@@ -156,6 +157,38 @@ describe('Supplier Bot Control Centre review surface', () => {
     expect(server.indexOf("app.use('/api', requireSession)")).toBeLessThan(
       server.indexOf("app.get('/api/discovery-audit'"),
     );
+  });
+
+  it('shows what the bot is doing right now instead of just idle/running counters', () => {
+    // Clicking Run only ever changed a status pill between "RUNNING" and
+    // "STOPPED" with no indication of what was actually happening -- an
+    // operator has no way to tell a healthy quiet moment (between the
+    // 5-minute reconciler ticks) apart from a stuck worker. Live activity
+    // resolves each in-flight job's candidateId/campaignId to a business
+    // name or campaign name so it reads as "Crawling hensolcastle.co.uk",
+    // not an opaque job id.
+    expect(html).toContain("request('/api/activity')");
+    expect(html).toContain('id="activityFeed"');
+    expect(html).toContain('id="activitySummary"');
+    expect(html).toContain('activity.items');
+    expect(html).toContain('Idle — nothing running right now');
+    expect(server).toContain("app.get('/api/activity'");
+    expect(server).toContain('getLiveActivity()');
+    expect(server.indexOf("app.use('/api', requireSession)")).toBeLessThan(
+      server.indexOf("app.get('/api/activity'"),
+    );
+    // Only queues an operator can recognise -- extraction/enrichment/
+    // compliance/composition/quality/refresh have no worker consuming them
+    // (the pipeline runs inline inside the crawl handlers), so listing them
+    // here would just show permanently-empty, misleading rows.
+    for (const queue of ['orchestration', 'discovery', 'crawl', 'browserCrawl', 'publication']) {
+      expect(liveActivity).toContain(`'${queue}'`);
+    }
+    expect(liveActivity).not.toContain("'extraction'");
+    expect(liveActivity).not.toContain("'enrichment'");
+    expect(liveActivity).not.toContain("'refresh'");
+    expect(liveActivity).toContain('getCandidate(');
+    expect(liveActivity).toContain('getCampaign(');
   });
 
   it('never lets a stray public/index.html shadow the deployed dashboard', () => {
