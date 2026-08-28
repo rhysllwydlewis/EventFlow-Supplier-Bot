@@ -19,11 +19,12 @@ import {
   getComplianceOverview,
   listComplianceAssessments,
 } from '../repositories/compliance-assessment.repository.js';
+import { listConflictedEventFlowIngestions } from '../repositories/eventflow-ingestion.repository.js';
 import { heartbeatIsFresh, listHeartbeats, writeHeartbeat } from '../repositories/heartbeat.repository.js';
 import { listAuditEventsByAction } from '../repositories/audit.repository.js';
 import { listPublishedDomains, listRecentPublishedSuppliers } from '../repositories/published-supplier.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
-import { listShadowProfiles } from '../repositories/shadow-profile.repository.js';
+import { getShadowProfilesForCandidateIds, listShadowProfiles } from '../repositories/shadow-profile.repository.js';
 import { getTodayAiReservedGbp } from '../services/ai-budget.service.js';
 import { getTodayAiUsage } from '../services/ai-usage.service.js';
 import { getTodayCrawlCount } from '../services/crawl-budget.service.js';
@@ -330,16 +331,22 @@ app.get('/api/shadow-profile-reviews', async (req, res, next) => {
     // even empty out -- the pending list once enough of the newest profiles
     // happen to already be published, hiding real pending profiles further
     // back that were never fetched. Over-fetch, filter, then cap for real.
-    const [profiles, publishedDomains] = await Promise.all([
+    const [profiles, publishedDomains, conflicted] = await Promise.all([
       listShadowProfiles(Math.min(limit * 5, 500)),
       listPublishedDomains(),
+      listConflictedEventFlowIngestions(500),
     ]);
+    const conflictedCandidateIds = new Set(conflicted.map(ingestion => ingestion.candidateId));
     // Once a profile is actually live on EventFlow there's nothing left for
     // an operator to decide here -- leaving it showing "Ready" (compliance
     // eligibility, not publication status) reads as "still waiting on you"
     // when it's already done. It moves to /api/published-suppliers instead.
+    // A candidate EventFlow has already rejected as a duplicate of an
+    // existing supplier (status 'conflict') is equally resolved, not
+    // pending -- it moves to /api/blocked-candidates instead.
     const pending = profiles
       .filter(profile => {
+        if (conflictedCandidateIds.has(profile.candidateId)) return false;
         try {
           return !publishedDomains.has(canonicalDomain(profile.website));
         } catch {
@@ -381,6 +388,29 @@ app.get('/api/removed-candidates', async (req, res, next) => {
         removedAt: event.createdAt,
         removedBy: event.actor,
       })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/blocked-candidates', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    const conflicted = await listConflictedEventFlowIngestions(limit);
+    const profiles = await getShadowProfilesForCandidateIds(conflicted.map(ingestion => ingestion.candidateId));
+    const byCandidate = new Map(profiles.map(profile => [profile.candidateId, profile]));
+    res.json({
+      items: conflicted.map(ingestion => {
+        const profile = byCandidate.get(ingestion.candidateId);
+        return {
+          candidateId: ingestion.candidateId,
+          businessName: profile?.businessName ?? null,
+          website: profile?.website ?? null,
+          reason: ingestion.reason ?? null,
+          blockedAt: ingestion.updatedAt,
+        };
+      }),
     });
   } catch (error) {
     next(error);
