@@ -58,12 +58,15 @@ describe('Backfilling published_suppliers from ingestion audit history', () => {
     // in a try/catch specifically so a failure there can never fail the
     // publish it's recording (eventflow-ingestion.service.ts) -- which means
     // it can silently leave published_suppliers missing a row for a
-    // candidate that really is live on EventFlow. The audit-history pass
-    // above only recovers that via the *original* candidateId's shadow
-    // profile, which a Hard Reset followed by rediscovery replaces with a
-    // new one -- this second pass is keyed by the *current* candidateId
-    // instead, recovering exactly that case for a shadow profile still
-    // sitting in Shadow review right now.
+    // candidate that really is live on EventFlow, with nothing else ever
+    // correcting it. This pass recovers that: the same candidateId's
+    // eventflow_ingestions record still says 'created'/'existing' and its
+    // shadow profile is still right there in Shadow review, but
+    // published_suppliers was never linked back. (It does not cover a Hard
+    // Reset followed by rediscovery under a new candidateId -- that case is
+    // wiped from eventflow_ingestions too, and self-resolves instead via a
+    // fresh publish attempt correctly hitting a 409 conflict and landing in
+    // Blocked; see the comment above backfillFromIngestionRecords.)
     expect(backfillService).toContain(
       "import { listCreatedOrExistingEventFlowIngestions } from '../repositories/eventflow-ingestion.repository.js';",
     );

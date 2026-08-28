@@ -76,15 +76,30 @@ async function backfillFromAuditHistory(): Promise<{ scanned: number; backfilled
 // there can never fail the publish it's recording (see
 // eventflow-ingestion.service.ts). That try/catch is exactly what can leave
 // published_suppliers missing a row for a candidate that really is live,
-// with nothing else ever correcting it afterwards -- the audit-history pass
-// above only recovers from that if it can still resolve the domain via a
-// surviving shadow profile keyed by the *original* candidateId, which a
-// Hard Reset followed by rediscovery would have replaced with a new one.
-// This pass is keyed directly by the *current* candidateId instead (the one
-// still sitting in Shadow review), so it recovers the exact case a Hard
-// Reset would defeat above: a genuinely-published domain whose shadow
-// profile is still right there, just never linked back to
-// published_suppliers.
+// with nothing else ever correcting it afterwards.
+//
+// Note this does NOT cover a Hard Reset followed by rediscovery of an
+// already-published domain under a new candidateId: eventflow_ingestions is
+// itself wiped by a Hard Reset (hard-reset.service.ts), so there is no
+// 'created'/'existing' record left to find here for the *original*
+// publish, and a fresh publish attempt for the *new* candidateId correctly
+// resolves to a 409 conflict on EventFlow's own global website-uniqueness
+// check (createUnclaimedSupplierFromBot, EventFlow's
+// routes/supplier-profile-safe.js) rather than a silent 'existing' --
+// EventFlow supplier IDs are deterministically derived from candidateId, so
+// a different candidateId can never match the original supplier's
+// "same candidate" branch, only the conflict branch. That case is already
+// handled correctly by listRetryableEventFlowCandidateIds retrying
+// 'ineligible'/'pending' candidates (which lets the attempt happen at all)
+// and listConflictedEventFlowIngestions routing the resulting 'conflict' to
+// Blocked -- not by this backfill.
+//
+// What this pass actually recovers: the same candidateId's
+// eventflow_ingestions record still says 'created'/'existing' (so no Hard
+// Reset has touched it since), its shadow profile is still right there in
+// Shadow review, but published_suppliers was never linked back -- i.e. a
+// transient failure of the best-effort write above, on an otherwise normal
+// single publish.
 async function backfillFromIngestionRecords(): Promise<{ scanned: number; backfilled: number }> {
   const ingestions = await listCreatedOrExistingEventFlowIngestions(500);
   let backfilled = 0;
@@ -130,10 +145,17 @@ async function backfillFromIngestionRecords(): Promise<{ scanned: number; backfi
 }
 
 async function runBackfill(): Promise<{ scanned: number; backfilled: number }> {
-  const [fromAuditHistory, fromIngestionRecords] = await Promise.all([
-    backfillFromAuditHistory(),
-    backfillFromIngestionRecords(),
-  ]);
+  // Sequential, not Promise.all: both passes independently check
+  // getPublishedSupplierByDomain(domain) before writing, and the same
+  // domain can legitimately appear in both (an audit event and its own
+  // eventflow_ingestions record, from the same original publish). Running
+  // them concurrently would let both see "not yet recorded" and both write
+  // -- recordPublishedSupplier's upsert makes that safe for the data
+  // itself, but it would double-count that domain in the "backfilled"
+  // total. Sequential keeps the reported count accurate for a one-off
+  // startup task where the extra latency doesn't matter.
+  const fromAuditHistory = await backfillFromAuditHistory();
+  const fromIngestionRecords = await backfillFromIngestionRecords();
   const scanned = fromAuditHistory.scanned + fromIngestionRecords.scanned;
   const backfilled = fromAuditHistory.backfilled + fromIngestionRecords.backfilled;
   logger.info({ scanned, backfilled }, 'published_suppliers backfill from ingestion audit history complete');
