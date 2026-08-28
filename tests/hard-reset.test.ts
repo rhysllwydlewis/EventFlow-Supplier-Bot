@@ -37,10 +37,21 @@ describe('Hard reset', () => {
       'audit_events',
       'suppression',
       'eventflow_pilot_state',
+      'published_suppliers',
     ]) {
       expect(hardResetSource).not.toContain(`'${protectedCollection}'`);
     }
     expect(hardResetSource).toContain('deleteMany({})');
+  });
+
+  it('never lets a reset make the bot forget a domain it has already published', () => {
+    // published_suppliers is the durable record checked at discovery time
+    // (discovery.service.ts) to stop the bot re-crawling, re-extracting and
+    // re-assessing a supplier that's already live on EventFlow. It would be
+    // pointless if a Hard Reset could wipe it, so this is a dedicated
+    // assertion rather than folding it into the collection-name check above.
+    expect(hardResetSource).toContain('published_suppliers');
+    expect(hardResetSource).toContain('survive a reset');
   });
 
   it('pauses the pipeline, records the reset in the audit trail, and requires explicit server-side confirmation', () => {

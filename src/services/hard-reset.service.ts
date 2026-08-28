@@ -13,6 +13,12 @@ import { getDatabase } from '../lib/mongo.js';
 //    decisions must never be cleared by a data reset
 //  - eventflow_pilot_state: the Hensol one-profile pilot's own state is
 //    intentionally left untouched by the general Shadow pipeline reset
+//  - published_suppliers: the durable "this domain is already a live
+//    EventFlow supplier" record (published-supplier.repository.ts). It must
+//    survive a reset -- that's the entire point of it. Wiping candidates
+//    without it would make every already-published supplier look brand new
+//    to the next discovery cycle, which re-crawls, re-extracts and
+//    re-assesses (real crawl/AI spend) a supplier that's already live.
 const RESET_COLLECTIONS = [
   'candidates',
   'shadow_profiles',
