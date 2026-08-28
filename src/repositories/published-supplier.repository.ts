@@ -1,4 +1,4 @@
-import type { Collection } from 'mongodb';
+import { MongoServerError, type Collection } from 'mongodb';
 import { z } from 'zod';
 import { getDatabase } from '../lib/mongo.js';
 
@@ -30,6 +30,10 @@ async function collection(): Promise<Collection<PublishedSupplier>> {
   return db.collection<PublishedSupplier>('published_suppliers');
 }
 
+function duplicateKey(error: unknown): boolean {
+  return error instanceof MongoServerError && error.code === 11000;
+}
+
 export async function recordPublishedSupplier(input: {
   canonicalDomain: string;
   supplierId: string;
@@ -39,21 +43,30 @@ export async function recordPublishedSupplier(input: {
   businessName: string;
 }): Promise<void> {
   const store = await collection();
-  await store.updateOne(
-    { canonicalDomain: input.canonicalDomain },
-    {
-      $set: {
-        canonicalDomain: input.canonicalDomain,
-        supplierId: input.supplierId,
-        slug: input.slug,
-        publicProfilePath: input.publicProfilePath,
-        source: input.source,
-        businessName: input.businessName,
+  try {
+    await store.updateOne(
+      { canonicalDomain: input.canonicalDomain },
+      {
+        $set: {
+          canonicalDomain: input.canonicalDomain,
+          supplierId: input.supplierId,
+          slug: input.slug,
+          publicProfilePath: input.publicProfilePath,
+          source: input.source,
+          businessName: input.businessName,
+        },
+        $setOnInsert: { publishedAt: new Date().toISOString() },
       },
-      $setOnInsert: { publishedAt: new Date().toISOString() },
-    },
-    { upsert: true },
-  );
+      { upsert: true },
+    );
+  } catch (error) {
+    // Two concurrent first-time publishes of the same domain can both miss
+    // the existing-document check and race to insert -- the unique index on
+    // canonicalDomain is what actually prevents a duplicate record, and this
+    // is that race resolving safely rather than surfacing as a failure: a
+    // record for the domain now exists either way.
+    if (!duplicateKey(error)) throw error;
+  }
 }
 
 export async function getPublishedSupplierByDomain(domain: string): Promise<PublishedSupplier | null> {

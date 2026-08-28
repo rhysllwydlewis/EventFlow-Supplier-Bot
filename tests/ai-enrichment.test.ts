@@ -82,6 +82,86 @@ describe('AI evidence validation', () => {
     expect(merged.advertisedPrices).toContain('From £750');
   });
 
+  it('drops a fact whose value is not actually present in the evidence it cites', () => {
+    // A malicious or compromised supplier page is untrusted input: citing a
+    // real, allowed evidence ID is not proof the cited *text* actually says
+    // what the fact claims. This is the scenario the evidence-binding gate
+    // exists to close for businessName/location/services/advertisedPrices,
+    // the same way packages are already checked.
+    const fragments = [
+      evidence({
+        id: 'evidence_1',
+        excerpt: 'We are a family-run wedding venue in the Vale of Glamorgan.',
+      }),
+    ];
+    const fabricated: AiEnrichment = {
+      ...enrichment,
+      businessName: { value: 'Totally Unrelated Business Name Ltd', evidenceIds: ['evidence_1'] },
+      location: { value: 'Cardiff', evidenceIds: ['evidence_1'] },
+      services: [
+        { value: 'Fabricated unsupported service', evidenceIds: ['evidence_1'] },
+      ],
+      advertisedPrices: [
+        { value: 'From £9,999', evidenceIds: ['evidence_1'] },
+      ],
+    };
+    const validated = validateEvidenceBackedEnrichment(
+      fabricated,
+      new Set(['evidence_1', 'evidence_2']),
+      fragments,
+    );
+    expect(validated.businessName).toEqual({ value: null, evidenceIds: [] });
+    expect(validated.services).toEqual([]);
+    expect(validated.advertisedPrices).toEqual([]);
+    // "Cardiff" is a real substring match against "Vale of Glamorgan" evidence
+    // via token overlap only if the words actually appear -- here they don't,
+    // so location is dropped too.
+    expect(validated.location).toEqual({ value: null, evidenceIds: [] });
+  });
+
+  it('keeps a fact whose value genuinely appears in its cited evidence', () => {
+    const fragments = [
+      evidence({
+        id: 'evidence_1',
+        excerpt: 'Example Venue Cardiff is a wedding venue serving the Vale of Glamorgan.',
+      }),
+    ];
+    const grounded: AiEnrichment = {
+      ...enrichment,
+      businessName: { value: 'Example Venue Cardiff', evidenceIds: ['evidence_1'] },
+      location: { value: 'Vale of Glamorgan', evidenceIds: ['evidence_1'] },
+    };
+    const validated = validateEvidenceBackedEnrichment(
+      grounded,
+      new Set(['evidence_1', 'evidence_2']),
+      fragments,
+    );
+    expect(validated.businessName.value).toBe('Example Venue Cardiff');
+    expect(validated.location.value).toBe('Vale of Glamorgan');
+  });
+
+  it('does not wording-check description, since it is deliberately paraphrased prose', () => {
+    const fragments = [
+      evidence({
+        id: 'evidence_1',
+        excerpt: 'We host weddings, corporate away days and private parties.',
+      }),
+    ];
+    const paraphrased: AiEnrichment = {
+      ...enrichment,
+      description: {
+        value: 'An events venue offering wedding, corporate and private party hosting.',
+        evidenceIds: ['evidence_1'],
+      },
+    };
+    const validated = validateEvidenceBackedEnrichment(
+      paraphrased,
+      new Set(['evidence_1', 'evidence_2']),
+      fragments,
+    );
+    expect(validated.description.value).toBe(paraphrased.description.value);
+  });
+
   it('requires one commercial evidence block to support both package name and exact price wording', () => {
     const fragments = [
       evidence({

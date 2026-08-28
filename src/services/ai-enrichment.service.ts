@@ -212,6 +212,32 @@ function wordingSupported(value: string, excerpt: string, minimumRatio = 0.6): b
   return matched / tokens.length >= minimumRatio;
 }
 
+// idsAreSupported only proves a fact cites evidence IDs that were actually
+// offered to the model -- it says nothing about whether the fact's *text* is
+// the text in that evidence. A supplier page (or third-party content embedded
+// on it) is untrusted input: without this, a hidden instruction near a real
+// evidence excerpt could get the model to emit an attacker-chosen value while
+// citing a real, unrelated evidence ID, and it would still pass "evidence
+// exists" and merge straight into the published profile. packages already
+// require this via wordingSupported(); every other AI-derived fact needs the
+// same content-level check, not just ID membership.
+function factDirectlySupported(
+  value: string,
+  evidenceIds: string[],
+  allowedEvidenceIds: Set<string>,
+  fragments: EvidenceFragment[],
+): boolean {
+  if (!idsAreSupported(evidenceIds, allowedEvidenceIds)) return false;
+  if (!fragments.length) {
+    // Backwards-compatible for isolated unit callers. The live pipeline always
+    // supplies concrete EvidenceFragments and therefore takes the strict path.
+    return true;
+  }
+  const byId = new Map(fragments.map(fragment => [fragment.id, fragment]));
+  const cited = evidenceIds.map(id => byId.get(id)).filter(Boolean) as EvidenceFragment[];
+  return cited.some(fragment => wordingSupported(value, fragment.excerpt, 0.6));
+}
+
 function packageDirectlySupported(
   item: AiEnrichment['packages'][number],
   fragments: EvidenceFragment[],
@@ -257,6 +283,20 @@ export function validateEvidenceBackedEnrichment(
 ): AiEnrichment {
   const supportedNullableFact = (fact: AiEnrichment['businessName']) => {
     if (fact.value === null) return { value: null, evidenceIds: [] };
+    return factDirectlySupported(fact.value, fact.evidenceIds, allowedEvidenceIds, evidenceFragments)
+      ? fact
+      : { value: null, evidenceIds: [] };
+  };
+
+  // description is deliberately original EventFlow prose, not copied wording
+  // (see the "must be original neutral EventFlow prose, not copied website
+  // wording" instruction in callOpenAi) -- a token-overlap wording check
+  // would reject legitimate paraphrased descriptions along with fabricated
+  // ones, so it keeps the evidence-ID-membership check only. Its own,
+  // separate defense against wording copied *too* closely from a source
+  // already lives in compliance.service.ts's descriptionEvidenceSimilarity.
+  const supportedIdsOnlyFact = (fact: AiEnrichment['businessName']) => {
+    if (fact.value === null) return { value: null, evidenceIds: [] };
     return idsAreSupported(fact.evidenceIds, allowedEvidenceIds)
       ? fact
       : { value: null, evidenceIds: [] };
@@ -273,9 +313,11 @@ export function validateEvidenceBackedEnrichment(
   return aiEnrichmentSchema.parse({
     businessName: supportedNullableFact(enrichment.businessName),
     location: supportedNullableFact(enrichment.location),
-    description: supportedNullableFact(enrichment.description),
-    services: enrichment.services.filter(item => idsAreSupported(item.evidenceIds, allowedEvidenceIds)),
-    advertisedPrices: enrichment.advertisedPrices.filter(item => idsAreSupported(item.evidenceIds, allowedEvidenceIds)),
+    description: supportedIdsOnlyFact(enrichment.description),
+    services: enrichment.services.filter(item =>
+      factDirectlySupported(item.value, item.evidenceIds, allowedEvidenceIds, evidenceFragments)),
+    advertisedPrices: enrichment.advertisedPrices.filter(item =>
+      factDirectlySupported(item.value, item.evidenceIds, allowedEvidenceIds, evidenceFragments)),
     packages,
   });
 }

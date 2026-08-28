@@ -20,6 +20,7 @@ const schema = z.object({
   ABSOLUTE_MAX_PROFILES_PER_DAY: z.coerce.number().int().positive().default(1000),
   ABSOLUTE_MAX_CRAWLS_PER_DAY: z.coerce.number().int().positive().default(5000),
   ABSOLUTE_MAX_BROWSER_CRAWLS_PER_DAY: z.coerce.number().int().nonnegative().default(100),
+  ABSOLUTE_MAX_PROVIDER_SEARCHES_PER_DAY: z.coerce.number().int().positive().default(500),
   ABSOLUTE_MAX_AI_SPEND_GBP_PER_DAY: z.coerce.number().positive().default(50),
   BROWSER_CRAWL_TIMEOUT_MS: z.coerce.number().int().min(5000).max(120000).default(30000),
   BROWSER_RENDER_SETTLE_MS: z.coerce.number().int().min(250).max(10000).default(1500),

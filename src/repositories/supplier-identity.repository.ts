@@ -37,7 +37,11 @@ export async function withSupplierIdentityLock<T>(ownerHint: string, task: () =>
   return withMongoLease(
     {
       collectionName: 'supplier_identity_locks',
-      leaseKey: 'global',
+      // ownerHint is the candidateId being reconciled -- it must be the lock
+      // key itself, not just a human-readable label passed alongside a
+      // hardcoded 'global' key, or reconciliation of unrelated candidates
+      // serializes through one lock document instead of running independently.
+      leaseKey: ownerHint,
       ownerHint,
       leaseMs: 60_000,
       acquireTimeoutMs: 30_000,
