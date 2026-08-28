@@ -108,4 +108,21 @@ describe('Supplier Bot Control Centre review surface', () => {
     expect(html).toMatch(/if\(!campaignRowsDirty\)\{\s*\$\('campaignRows'\)\.innerHTML=/);
     expect(html).toMatch(/campaignRowsDirty=false;\s*await refresh\(\);/);
   });
+
+  it('never lets the browser heuristically cache the dashboard HTML across a deploy', () => {
+    // Neither express.static's defaults nor a bare res.sendFile() set an
+    // explicit Cache-Control header -- only Last-Modified/ETag. Per RFC
+    // 7234 §4.2.2, a browser without an explicit directive MAY apply
+    // heuristic freshness based on Last-Modified, which for a dashboard
+    // that rarely changes can be long enough that a plain refresh serves
+    // straight from disk cache without ever asking the server -- so a
+    // deployed UI change (a new button, say) can appear missing even after
+    // the operator refreshes. Both the exact-path static handler and the
+    // catch-all fallback must set no-store explicitly.
+    expect(server).toContain("setHeaders: res => res.set('Cache-Control', 'no-store')");
+    const catchAllIndex = server.indexOf("app.get('/{*splat}'");
+    expect(catchAllIndex).toBeGreaterThan(-1);
+    const catchAllBody = server.slice(catchAllIndex, server.indexOf('});', catchAllIndex));
+    expect(catchAllBody).toContain("res.set('Cache-Control', 'no-store')");
+  });
 });

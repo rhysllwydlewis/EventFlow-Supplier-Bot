@@ -351,8 +351,20 @@ app.get('/api/phase3-validation', async (_req, res, next) => {
   }
 });
 
-app.use(express.static(path.join(process.cwd(), 'public')));
+// Neither express.static's defaults nor a bare res.sendFile() set an
+// explicit Cache-Control header -- only Last-Modified/ETag. Per RFC 7234
+// §4.2.2, a browser without an explicit directive MAY apply heuristic
+// freshness based on Last-Modified, which for an admin dashboard that
+// rarely changes can be long enough that a plain refresh serves straight
+// from disk cache without ever asking the server -- exactly the "I
+// refreshed and still don't see the new button" report this caused after
+// a deploy. This is a control panel with embedded inline JS, not a public
+// asset: it must always be fetched fresh.
+app.use(express.static(path.join(process.cwd(), 'public'), {
+  setHeaders: res => res.set('Cache-Control', 'no-store'),
+}));
 app.get('/{*splat}', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
   res.sendFile(path.join(process.cwd(), 'public', 'control.html'));
 });
 
