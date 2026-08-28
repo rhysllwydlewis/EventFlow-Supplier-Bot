@@ -194,7 +194,7 @@
       <div class="card span-12"><h2>Latest candidates</h2><div class="table-wrap"><table><thead><tr><th>Business/domain</th><th>Website</th><th>Category</th><th>Location</th><th>Source</th><th>Status</th><th>Identity dedup</th></tr></thead><tbody id="candidateRows"></tbody></table></div></div>
       <div class="card span-12">
         <div class="section-head"><div><h2>Shadow profile review</h2><p class="muted">Quality, compliance, publication and indexing are deliberately separate gates.</p></div></div>
-        <div class="table-wrap"><table class="review-table"><thead><tr><th>Business</th><th>Website</th><th>Photos</th><th>Category</th><th>Location</th><th>Quality</th><th>Compliance</th><th>Publish</th><th>SEO</th><th>Similarity</th><th>Reason</th></tr></thead><tbody id="shadowRows"></tbody></table></div>
+        <div class="table-wrap"><table class="review-table"><thead><tr><th>Business</th><th>Website</th><th>Photos</th><th>Category</th><th>Location</th><th>Quality</th><th>Compliance</th><th>Publish</th><th>SEO</th><th>Similarity</th><th>Reason</th><th></th></tr></thead><tbody id="shadowRows"></tbody></table></div>
       </div>
     </section>
   </main>
@@ -274,8 +274,18 @@ async function refresh(){
     const profile=item.profile;const assessment=item.assessment;const complianceState=assessment?.status||'pending';const publishState=assessment?.publicationEligible?'ready':'hold';const seoState=assessment?.seoIndexEligible?'index':'noindex';const similarity=assessment?`${Math.round((assessment.descriptionSimilarity||0)*100)}%`:'—';
     const photoLinks=(profile.images||[]).slice(0,2).map((url,index)=>externalLink(url,`photo ${index+1}`)).join('');
     const photoCell=(profile.images||[]).length?`<div class="link-stack"><span class="photo-count">${profile.images.length}</span>${photoLinks}</div>`:'<span class="muted">0</span>';
-    return `<tr><td>${escapeHtml(profile.businessName)}</td><td>${externalLink(profile.website,'website')}</td><td>${photoCell}</td><td>${escapeHtml(profile.category)}</td><td>${escapeHtml(profile.location||'—')}</td><td>${Math.round(profile.publicationQuality)}%</td><td><span class="status ${escapeHtml(complianceState)}">${escapeHtml(complianceState)}</span></td><td><span class="status ${publishState}">${publishState==='ready'?'Ready':'Hold'}</span></td><td><span class="status ${seoState}">${seoState==='index'?'Index':'Noindex'}</span></td><td>${similarity}</td><td class="reason-list">${escapeHtml(displayReason(assessment))}</td></tr>`;
-  }).join('')||'<tr><td colspan="11" class="muted">No Shadow profiles yet.</td></tr>';
+    return `<tr><td>${escapeHtml(profile.businessName)}</td><td>${externalLink(profile.website,'website')}</td><td>${photoCell}</td><td>${escapeHtml(profile.category)}</td><td>${escapeHtml(profile.location||'—')}</td><td>${Math.round(profile.publicationQuality)}%</td><td><span class="status ${escapeHtml(complianceState)}">${escapeHtml(complianceState)}</span></td><td><span class="status ${publishState}">${publishState==='ready'?'Ready':'Hold'}</span></td><td><span class="status ${seoState}">${seoState==='index'?'Index':'Noindex'}</span></td><td>${similarity}</td><td class="reason-list">${escapeHtml(displayReason(assessment))}</td><td><button class="small danger shadow-reject" data-id="${escapeAttr(profile.candidateId)}" data-name="${escapeAttr(profile.businessName)}" title="Remove -- not a fit">✕</button></td></tr>`;
+  }).join('')||'<tr><td colspan="12" class="muted">No Shadow profiles yet.</td></tr>';
+
+  document.querySelectorAll('.shadow-reject').forEach(button=>button.addEventListener('click',async()=>{
+    if(!confirm(`Remove "${button.dataset.name}" from Shadow review? This also stops the bot rediscovering or re-crawling this website.`))return;
+    try{
+      setFeedback('Removing…');
+      await request(`/api/shadow-profiles/${encodeURIComponent(button.dataset.id)}`,{method:'DELETE'});
+      setFeedback('Removed from Shadow review.');
+      await refresh();
+    }catch(error){setFeedback(error.message,true);}
+  }));
 }
 $('loginForm').addEventListener('submit',async event=>{event.preventDefault();$('loginError').textContent='';try{const data=await request('/api/auth/login',{method:'POST',body:JSON.stringify({key:$('adminKey').value})});csrfToken=data.csrfToken;showApp();await refresh();}catch(error){$('loginError').textContent=error.message;}});
 $('settingsForm').addEventListener('input',()=>{settingsDirty=true;});

@@ -33,3 +33,9 @@ export async function getShadowProfilesForCandidateIds(candidateIds: string[]): 
   const records = await store.find({ candidateId: { $in: ids } }).toArray();
   return records.map(record => shadowProfileSchema.parse(record));
 }
+
+export async function deleteShadowProfile(candidateId: string): Promise<boolean> {
+  const store = await collection();
+  const result = await store.deleteOne({ candidateId });
+  return result.deletedCount > 0;
+}
