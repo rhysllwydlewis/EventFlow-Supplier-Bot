@@ -140,6 +140,15 @@ export function assessShadowProfileCompliance(input: {
     'missing_core_identity',
     'description_too_similar_to_source',
     'non_supplier_domain',
+    // A supplier profile with contact details but no location or services is
+    // not a useful listing -- these already downgrade `status` to 'review',
+    // but without being blocking too, the actual publish path (which checks
+    // only `publicationEligible`, not `status`) can still auto-publish one.
+    // pricing_not_publicly_available deliberately stays non-blocking: most
+    // suppliers price on enquiry, and that's already reflected below in how
+    // it alone doesn't downgrade status either.
+    'missing_location',
+    'missing_service_depth',
   ]);
   const publicationEligible = !reasons.some(reason => blockingReasons.has(reason));
 

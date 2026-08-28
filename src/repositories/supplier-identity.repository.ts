@@ -100,6 +100,11 @@ export async function removeSupplierIdentity(candidateId: string): Promise<void>
 export async function findPotentialIdentityMatches(identity: SupplierIdentity, limit = 50): Promise<SupplierIdentity[]> {
   const store = await identities();
   const clauses: Record<string, unknown>[] = [{ normalizedName: identity.normalizedName }];
+  // Same-domain is the single highest-value dedup signal -- without it here,
+  // this query relied entirely on claimStrongIdentityKeys (which does key on
+  // domain) to catch a same-domain collision after the fact, with a less
+  // accurate audit-trail label than a direct match would produce.
+  if (identity.canonicalDomain) clauses.push({ canonicalDomain: identity.canonicalDomain });
   if (identity.normalizedEmail) clauses.push({ normalizedEmail: identity.normalizedEmail });
   if (identity.normalizedPhone) clauses.push({ normalizedPhone: identity.normalizedPhone });
   if (identity.normalizedLocation) clauses.push({ normalizedLocation: identity.normalizedLocation, normalizedName: identity.normalizedName });
