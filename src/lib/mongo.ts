@@ -51,6 +51,12 @@ export async function ensureMongoIndexes(): Promise<void> {
     db.collection('suppression').createIndex({ key: 1, type: 1 }, { unique: true }),
     db.collection('eventflow_ingestions').createIndex({ candidateId: 1 }, { unique: true }),
     db.collection('eventflow_ingestions').createIndex({ status: 1, nextRetryAt: 1, updatedAt: -1 }),
+    // published_suppliers is checked once per discovered search result on the
+    // primary discovery hot path (getPublishedSupplierByDomain), and its
+    // upsert-by-domain relies on this being unique to avoid a concurrent
+    // race creating two published-supplier records for the same domain.
+    db.collection('published_suppliers').createIndex({ canonicalDomain: 1 }, { unique: true }),
+    db.collection('published_suppliers').createIndex({ publishedAt: -1 }),
   ]);
 }
 

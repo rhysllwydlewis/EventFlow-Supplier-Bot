@@ -1,5 +1,6 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { env } from '../config/env.js';
+import { startSsrfSafeProxy } from './browser-network-proxy.js';
 import { extractLinks } from './html-links.js';
 import { assertCrawlableUrl, resolvePublicAddresses } from './network-policy.js';
 import { selectUsefulPages } from './page-selector.js';
@@ -12,6 +13,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Defense-in-depth only: the actual SSRF guarantee comes from routing the
+// whole browser context through the SSRF-safe proxy (see
+// crawlSupplierSiteWithBrowser), which re-resolves and pins every connection
+// immediately before opening it. This route handler runs *before* Chromium
+// even reaches the proxy, so it still saves bandwidth by aborting blocked
+// resource types early and fails fast on obviously-unsafe request URLs.
 async function installNetworkGuard(context: BrowserContext): Promise<void> {
   await context.route('**/*', async route => {
     const request = route.request();
@@ -22,8 +29,7 @@ async function installNetworkGuard(context: BrowserContext): Promise<void> {
     }
 
     try {
-      const url = assertCrawlableUrl(request.url());
-      await resolvePublicAddresses(url);
+      assertCrawlableUrl(request.url());
       await route.continue();
     } catch {
       await route.abort();
@@ -89,47 +95,69 @@ export async function crawlSupplierSiteWithBrowser(
     throw new Error('Browser crawler blocked by robots.txt for requested supplier URL');
   }
 
-  const browser = await chromium.launch({
-    headless: true,
-    chromiumSandbox: !env.BROWSER_ALLOW_NO_SANDBOX,
-  });
-  const context = await browser.newContext({
-    acceptDownloads: false,
-    serviceWorkers: 'block',
-    userAgent: 'EventFlowBot/0.1 (+https://event-flow.co.uk/bot)',
-  });
-
+  // Each resource is opened and released in its own try/finally, nested
+  // innermost-last, so a failure partway through setup (e.g. the browser
+  // launches but the context fails to open) still releases everything
+  // that *did* open rather than leaking the proxy's listening socket or
+  // the browser process.
+  const proxy = await startSsrfSafeProxy();
   try {
-    await installNetworkGuard(context);
-    const root = await renderOne(context, requested.href, rootPolicy);
-    const finalRoot = new URL(root.url);
-    const policy = finalRoot.origin === requested.origin ? rootPolicy : await fetchRobotsPolicy(finalRoot);
-    const links = extractLinks(root.html, root.url);
-    const selected = selectUsefulPages(root.url, links, Math.max(1, maxPages))
-      .filter(value => robotsAllows(policy, value));
+    const browser = await chromium.launch({
+      headless: true,
+      chromiumSandbox: !env.BROWSER_ALLOW_NO_SANDBOX,
+      proxy: { server: `http://127.0.0.1:${proxy.port}` },
+      // Chromium implicitly bypasses the proxy for loopback destinations
+      // unless told otherwise -- without this, a request to 127.0.0.1 would
+      // skip the proxy (and its SSRF checks) entirely and connect directly.
+      // Passed as a raw launch arg rather than Playwright's proxy.bypass
+      // option, which documents itself as a comma-separated domain list and
+      // is not guaranteed to forward Chromium's special "<-loopback>" bypass
+      // syntax unmodified.
+      args: ['--proxy-bypass-list=<-loopback>'],
+    });
+    try {
+      const context = await browser.newContext({
+        acceptDownloads: false,
+        serviceWorkers: 'block',
+        userAgent: 'EventFlowBot/0.1 (+https://event-flow.co.uk/bot)',
+      });
 
-    const pages: CrawledPage[] = [root];
-    const failures: Array<{ url: string; error: string }> = [];
-    for (const url of selected) {
-      if (url === root.url || pages.length >= maxPages) continue;
       try {
-        pages.push(await renderOne(context, url, policy));
-      } catch (error) {
-        failures.push({
-          url,
-          error: error instanceof Error ? error.message : 'Unknown browser crawl error',
-        });
-      }
-    }
+        await installNetworkGuard(context);
+        const root = await renderOne(context, requested.href, rootPolicy);
+        const finalRoot = new URL(root.url);
+        const policy = finalRoot.origin === requested.origin ? rootPolicy : await fetchRobotsPolicy(finalRoot);
+        const links = extractLinks(root.html, root.url);
+        const selected = selectUsefulPages(root.url, links, Math.max(1, maxPages))
+          .filter(value => robotsAllows(policy, value));
 
-    return {
-      rootUrl,
-      finalRootUrl: root.url,
-      pages,
-      failures,
-    };
+        const pages: CrawledPage[] = [root];
+        const failures: Array<{ url: string; error: string }> = [];
+        for (const url of selected) {
+          if (url === root.url || pages.length >= maxPages) continue;
+          try {
+            pages.push(await renderOne(context, url, policy));
+          } catch (error) {
+            failures.push({
+              url,
+              error: error instanceof Error ? error.message : 'Unknown browser crawl error',
+            });
+          }
+        }
+
+        return {
+          rootUrl,
+          finalRootUrl: root.url,
+          pages,
+          failures,
+        };
+      } finally {
+        await context.close();
+      }
+    } finally {
+      await browser.close();
+    }
   } finally {
-    await context.close();
-    await browser.close();
+    await proxy.close();
   }
 }

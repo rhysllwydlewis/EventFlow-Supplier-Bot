@@ -10,6 +10,7 @@ import { getPublishedSupplierByDomain } from '../repositories/published-supplier
 import { isSuppressed } from '../repositories/suppression.repository.js';
 import { tryClaimDailyAcquisitionSlot } from './acquisition-budget.service.js';
 import { evaluateDiscoverySearchResult } from './discovery-result-quality.service.js';
+import { tryClaimProviderSearch } from './provider-usage.service.js';
 import { buildDiscoveryQueries } from './query-builder.service.js';
 
 export interface DiscoveryCycleResult {
@@ -58,6 +59,17 @@ export async function runDiscoveryCycle(
   }
 
   outer: for (const discoveryQuery of buildDiscoveryQueries(campaign)) {
+    // A search is issued once per query regardless of how many of its
+    // results survive quality filtering, suppression or dedup below --
+    // without its own ceiling, a campaign with many category/location
+    // combinations could keep issuing provider searches indefinitely even
+    // after the candidate-acquisition limit for the day is already spent.
+    const searchClaimed = await tryClaimProviderSearch(providerName, env.ABSOLUTE_MAX_PROVIDER_SEARCHES_PER_DAY);
+    if (!searchClaimed) {
+      result.limitReached = true;
+      break outer;
+    }
+
     const items = await provider.search({
       query: discoveryQuery.query,
       country: 'gb',

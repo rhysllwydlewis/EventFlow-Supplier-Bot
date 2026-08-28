@@ -10,6 +10,7 @@ const reassessment = readFileSync('src/services/compliance-reassessment.service.
 const safeFetch = readFileSync('src/crawler/safe-fetch.ts', 'utf8');
 const robots = readFileSync('src/crawler/robots.ts', 'utf8');
 const siteCrawler = readFileSync('src/crawler/site-crawler.ts', 'utf8');
+const mongoLease = readFileSync('src/lib/mongo-lease.ts', 'utf8');
 
 describe('Phase 1 final hardening regressions', () => {
   it('serializes identity assessment and removes all partial self-owned claims', () => {
@@ -34,6 +35,32 @@ describe('Phase 1 final hardening regressions', () => {
     expect(campaignRepository).toContain('withCompliancePolicyLock(`campaign:${id}`');
     expect(campaignRepository).toContain('await invalidateComplianceAssessmentsForCampaign(id)');
     expect(reassessment).toContain('withCompliancePolicyLock(`reassess:${candidateId}`');
+  });
+
+  it('keys each Mongo lease by its actual resource, not one shared global document', () => {
+    // A per-resource ownerHint (campaign:id, reassess:candidateId,
+    // settings:actor, eventflow-publication:candidateId, or a bare
+    // candidateId for identity reconciliation) must be the lease's lock key
+    // itself -- passing it through as only a human-readable owner label
+    // alongside a hardcoded 'global' key would silently serialize every
+    // unrelated caller through one lock document again.
+    expect(complianceRepository).toContain('leaseKey: ownerHint');
+    expect(complianceRepository).not.toContain("leaseKey: 'global'");
+    expect(identityRepository).toContain('leaseKey: ownerHint');
+    expect(identityRepository).not.toContain("leaseKey: 'global'");
+  });
+
+  it('renews an in-progress Mongo lease so a slow task cannot lose it to a concurrent holder', () => {
+    // Without renewal, a task that runs longer than leaseMs lets expiresAt
+    // pass while it is still working, and a second caller's acquire loop
+    // would see the lease as free and take over -- split-brain. Renewal
+    // must extend the *same* holder's document (matched by owner), not
+    // reacquire a new one, or a task that outlives its lease could steal
+    // back a lock someone else has since legitimately claimed.
+    expect(mongoLease).toContain('setInterval');
+    expect(mongoLease).toContain('{ $set: { expiresAt: new Date(Date.now() + leaseMs) } }');
+    expect(mongoLease).toContain('{ _id: input.leaseKey, owner }');
+    expect(mongoLease).toContain('clearInterval(renewTimer)');
   });
 
   it('fails closed on temporary robots errors and respects sitemap request cadence', () => {

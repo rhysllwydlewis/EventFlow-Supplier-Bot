@@ -27,7 +27,12 @@ export async function withCompliancePolicyLock<T>(ownerHint: string, task: () =>
   return withMongoLease(
     {
       collectionName: 'compliance_policy_locks',
-      leaseKey: 'global',
+      // ownerHint is a resource-scoped key ("campaign:id", "reassess:candidateId",
+      // "settings:actor", "eventflow-publication:candidateId") -- it must be the
+      // lock key itself, not just a human-readable label passed alongside a
+      // hardcoded 'global' key, or every unrelated caller serializes through one
+      // lock document regardless of which resource they actually touch.
+      leaseKey: ownerHint,
       ownerHint,
       leaseMs: 5 * 60_000,
       acquireTimeoutMs: 60_000,
