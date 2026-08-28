@@ -12,6 +12,7 @@ import { canonicalDomain, canonicalizePublicHttpUrl } from '../utils/url.js';
 import { tryClaimDailyAcquisitionSlot } from './acquisition-budget.service.js';
 import { enqueueCrawlCandidate } from './crawl-queue.service.js';
 import { remainingDailyAllowance } from './daily-limit.service.js';
+import { isKnownNonSupplierDomain } from './discovery-result-quality.service.js';
 
 const DEFAULT_PILOT_CAMPAIGN = 'campaign_south_wales_venues_pilot';
 
@@ -40,6 +41,15 @@ export async function seedCandidate(input: ManualSeedInput) {
   const domain = canonicalDomain(canonicalUrl.href);
   if (await isSuppressed(domain, 'do_not_crawl')) {
     throw new Error('This domain is suppressed from crawling');
+  }
+  // Manual seeding bypasses the discovery-time quality gate entirely (it's
+  // an operator asserting "this is a real supplier"), so apply the same
+  // domain check here too -- otherwise a mistyped or copy-pasted directory
+  // URL would spend crawl and AI budget on a candidate that could never
+  // actually be published (eventflow-publication.service.ts refuses it
+  // regardless), with no feedback until someone notices it stuck in review.
+  if (isKnownNonSupplierDomain(domain)) {
+    throw new Error('This domain is a directory, editorial, government or UGC site, not a supplier');
   }
 
   const existing = await getCandidateByCanonicalDomain(domain);

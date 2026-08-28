@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateDiscoverySearchResult } from '../src/services/discovery-result-quality.service.js';
+import {
+  evaluateDiscoverySearchResult,
+  isKnownNonSupplierDomain,
+} from '../src/services/discovery-result-quality.service.js';
 
 function result(url: string, title: string, snippet?: string) {
   return { url, title, ...(snippet ? { snippet } : {}), rank: 1 };
@@ -18,6 +21,54 @@ describe('supplier discovery quality gate', () => {
         reason: 'directory_or_editorial_domain',
       });
     }
+  });
+
+  it('rejects government and public-body domains regardless of title wording', () => {
+    for (const item of [
+      result('https://cadw.gov.wales/visit/castles-monuments', 'Weddings at Cadw historic sites'),
+      result('https://www.gov.uk/wedding-venues', 'Approved premises for weddings'),
+    ]) {
+      expect(evaluateDiscoverySearchResult(item, 'Venues')).toMatchObject({
+        eligible: false,
+        reason: 'government_domain',
+      });
+    }
+  });
+
+  it('rejects forum and UGC platforms', () => {
+    expect(
+      evaluateDiscoverySearchResult(
+        result('https://www.reddit.com/r/weddingsuk/comments/abc123/', 'Best South Wales wedding venue?'),
+        'Venues',
+      ),
+    ).toMatchObject({ eligible: false, reason: 'directory_or_editorial_domain' });
+  });
+
+  it('rejects Bridebook on its real .co.uk domain, not just .com', () => {
+    expect(
+      evaluateDiscoverySearchResult(
+        result('https://bridebook.co.uk/uk/search/wedding-venues/south-wales', 'South Wales Wedding Venues - Compare Prices & Reviews | Bridebook'),
+        'Venues',
+      ),
+    ).toMatchObject({ eligible: false, reason: 'directory_or_editorial_domain' });
+  });
+
+  it('rejects roundup titles that describe venues without using the word "venue"', () => {
+    expect(
+      evaluateDiscoverySearchResult(
+        result('https://example.co.uk/weddings/south-wales', 'Wedding Venues in South Wales: 16 of the Best Places to Get Married'),
+        'Venues',
+      ),
+    ).toMatchObject({ eligible: false, reason: 'editorial_result' });
+  });
+
+  it('keeps a genuine single-venue title that happens to use the same wording as roundups', () => {
+    expect(
+      evaluateDiscoverySearchResult(
+        result('https://examplecastle.co.uk/weddings', 'The Perfect Place to Get Married in Wales | Example Castle'),
+        'Venues',
+      ),
+    ).toMatchObject({ eligible: true });
   });
 
   it('rejects listicles and editorial article paths even on otherwise valid supplier domains', () => {
@@ -60,6 +111,15 @@ describe('supplier discovery quality gate', () => {
       result('https://examplecastle.co.uk/wedding-venue', 'Example Castle Wedding Venue'),
     ]) {
       expect(evaluateDiscoverySearchResult(item, 'Venues')).toMatchObject({ eligible: true });
+    }
+  });
+
+  it('exposes a domain-only check reusable at publication time as a defense-in-depth gate', () => {
+    for (const domain of ['reddit.com', 'www.reddit.com', 'hitched.co.uk', 'bridebook.co.uk', 'cadw.gov.wales', 'gov.uk']) {
+      expect(isKnownNonSupplierDomain(domain)).toBe(true);
+    }
+    for (const domain of ['examplecastle.co.uk', 'brynmeadows.co.uk']) {
+      expect(isKnownNonSupplierDomain(domain)).toBe(false);
     }
   });
 

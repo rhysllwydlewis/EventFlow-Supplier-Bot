@@ -1,6 +1,7 @@
 import type { ComplianceAssessment } from '../domain/compliance-assessment.js';
 import type { ShadowProfile } from '../domain/shadow-profile.js';
 import type { EvidenceFragment } from '../evidence/evidence.js';
+import { isKnownNonSupplierDomain } from './discovery-result-quality.service.js';
 
 export const COMPLIANCE_POLICY_VERSION = 'shadow-compliance-v1';
 const COPY_BLOCK_THRESHOLD = 0.65;
@@ -89,6 +90,13 @@ export function assessShadowProfileCompliance(input: {
   const linkedEvidenceCount = new Set(
     profile.evidenceIds.filter(id => suppliedEvidenceIds.has(id)),
   ).size;
+  const websiteDomain = (() => {
+    try {
+      return new URL(profile.website).hostname.toLowerCase().replace(/^www\./, '');
+    } catch {
+      return null;
+    }
+  })();
 
   if (input.descriptionFallbackApplied) {
     fallbacks.push({
@@ -113,6 +121,13 @@ export function assessShadowProfileCompliance(input: {
   if (linkedEvidenceCount === 0) reasons.push('missing_source_evidence');
   if (linkedEvidenceCount !== new Set(profile.evidenceIds).size) reasons.push('unresolved_evidence_reference');
   if (!profile.businessName || !profile.website || !profile.category) reasons.push('missing_core_identity');
+  // Publication itself independently refuses a known non-supplier domain
+  // (eventflow-publication.service.ts), but that check is invisible from the
+  // Control dashboard's Shadow profile review table -- without it here too,
+  // an operator sees "Ready" for a candidate that can never actually
+  // publish. Surfacing it as a blocking compliance reason keeps that badge
+  // honest regardless of how the candidate entered the pipeline.
+  if (websiteDomain && isKnownNonSupplierDomain(websiteDomain)) reasons.push('non_supplier_domain');
   if (similarity >= COPY_BLOCK_THRESHOLD) reasons.push('description_too_similar_to_source');
   if (!profile.location) reasons.push('missing_location');
   if (!profile.services.length) reasons.push('missing_service_depth');
@@ -124,6 +139,7 @@ export function assessShadowProfileCompliance(input: {
     'unresolved_evidence_reference',
     'missing_core_identity',
     'description_too_similar_to_source',
+    'non_supplier_domain',
   ]);
   const publicationEligible = !reasons.some(reason => blockingReasons.has(reason));
 
