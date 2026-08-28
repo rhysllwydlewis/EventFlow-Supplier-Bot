@@ -20,6 +20,45 @@ describe('supplier discovery quality gate', () => {
     }
   });
 
+  it('rejects government and public-body domains regardless of title wording', () => {
+    for (const item of [
+      result('https://cadw.gov.wales/visit/castles-monuments', 'Weddings at Cadw historic sites'),
+      result('https://www.gov.uk/wedding-venues', 'Approved premises for weddings'),
+    ]) {
+      expect(evaluateDiscoverySearchResult(item, 'Venues')).toMatchObject({
+        eligible: false,
+        reason: 'government_domain',
+      });
+    }
+  });
+
+  it('rejects forum and UGC platforms', () => {
+    expect(
+      evaluateDiscoverySearchResult(
+        result('https://www.reddit.com/r/weddingsuk/comments/abc123/', 'Best South Wales wedding venue?'),
+        'Venues',
+      ),
+    ).toMatchObject({ eligible: false, reason: 'directory_or_editorial_domain' });
+  });
+
+  it('rejects Bridebook on its real .co.uk domain, not just .com', () => {
+    expect(
+      evaluateDiscoverySearchResult(
+        result('https://bridebook.co.uk/uk/search/wedding-venues/south-wales', 'South Wales Wedding Venues - Compare Prices & Reviews | Bridebook'),
+        'Venues',
+      ),
+    ).toMatchObject({ eligible: false, reason: 'directory_or_editorial_domain' });
+  });
+
+  it('rejects roundup titles that describe venues without using the word "venue"', () => {
+    expect(
+      evaluateDiscoverySearchResult(
+        result('https://example.co.uk/weddings/south-wales', 'Wedding Venues in South Wales: 16 of the Best Places to Get Married'),
+        'Venues',
+      ),
+    ).toMatchObject({ eligible: false, reason: 'editorial_result' });
+  });
+
   it('rejects listicles and editorial article paths even on otherwise valid supplier domains', () => {
     expect(
       evaluateDiscoverySearchResult(

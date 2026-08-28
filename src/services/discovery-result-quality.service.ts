@@ -2,6 +2,7 @@ import type { DiscoverySearchResult } from '../providers/discovery/provider.js';
 
 export type DiscoveryResultRejectionReason =
   | 'directory_or_editorial_domain'
+  | 'government_domain'
   | 'editorial_result'
   | 'category_mismatch'
   | 'invalid_url';
@@ -15,6 +16,9 @@ export interface DiscoveryResultQualityDecision {
 const BLOCKED_DISCOVERY_DOMAINS = [
   'hitched.co.uk',
   'bridebook.com',
+  // Bridebook trades from the .co.uk TLD for its actual UK product; the .com
+  // entry above never matched their real domain.
+  'bridebook.co.uk',
   'visitwales.com',
   'goodhotelguide.com',
   'tripadvisor.co.uk',
@@ -34,7 +38,23 @@ const BLOCKED_DISCOVERY_DOMAINS = [
   'pinterest.com',
   'youtube.com',
   'tiktok.com',
+  // Forums/UGC platforms: a thread about venues is not a venue's own page.
+  'reddit.com',
+  'quora.com',
+  'mumsnet.com',
 ] as const;
+
+// Government and public-body domains are never a commercial wedding supplier,
+// regardless of what a search result's title claims (e.g. Cadw, the Welsh
+// Government's historic environment service, publishes visitor pages for
+// castles that also host weddings, but Cadw itself is not the supplier).
+const GOVERNMENT_DOMAIN_SUFFIXES = ['.gov.uk', '.gov.wales'] as const;
+
+function isGovernmentDomain(domain: string): boolean {
+  return GOVERNMENT_DOMAIN_SUFFIXES.some(
+    suffix => domain === suffix.slice(1) || domain.endsWith(suffix),
+  );
+}
 
 const EDITORIAL_PATH_SEGMENTS = new Set([
   'blog',
@@ -54,9 +74,13 @@ const EDITORIAL_TITLE_PATTERNS = [
   /\bmy\s+top\s+\d+\b/i,
   /\btop\s+\d+\s+.*\bvenues?\b/i,
   /\b\d+\s+(?:best|top)\s+.*\bvenues?\b/i,
+  /\b\d+\s+of\s+the\s+best\b/i,
   /\bcompare\s+prices?\b/i,
   /\bprices?\s*(?:&|and)\s*reviews?\b/i,
   /^(?:affordable|best|cheap|luxury|unique|historic)\b.*\bvenues?\b.*\b(?:in|near)\b/i,
+  // Roundups often skip the word "venue" entirely ("16 of the Best Places to
+  // Get Married"), so match the phrase they actually use instead.
+  /\bplaces?\s+to\s+get\s+married\b/i,
 ] as const;
 
 const VENUE_TERMS = /\b(venue|venues|hotel|manor|castle|barn|estate|vineyard|country house|house|hall|resort|spa|farm)\b/i;
@@ -100,6 +124,10 @@ export function evaluateDiscoverySearchResult(
 
   if (BLOCKED_DISCOVERY_DOMAINS.some(blocked => domainMatches(domain, blocked))) {
     return { eligible: false, domain, reason: 'directory_or_editorial_domain' };
+  }
+
+  if (isGovernmentDomain(domain)) {
+    return { eligible: false, domain, reason: 'government_domain' };
   }
 
   if (hasEditorialPath(url) || isEditorialTitle(item.title)) {

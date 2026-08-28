@@ -83,4 +83,29 @@ describe('Supplier Bot Control Centre review surface', () => {
     expect(html).toContain("$('settingsForm').addEventListener('change',()=>{settingsDirty=true;});");
     expect(html).toMatch(/settingsDirty=false;\s*await refresh\(\);/);
   });
+
+  it('lets an operator raise a campaign\'s own daily acquisition target and hard limit', () => {
+    // The global "Daily hard maximum" setting and a campaign's own daily
+    // target/hard limit are two independent ceilings (daily-limit.service.ts
+    // takes the stricter of the two) -- raising only the global one silently
+    // does nothing if the campaign's own limit is still the binding
+    // constraint. There was previously no dashboard control for the
+    // campaign-level fields at all, only the global setting.
+    expect(html).toContain('class="campaign-daily-target"');
+    expect(html).toContain('class="campaign-daily-hard-limit"');
+    expect(html).toContain('class="small campaign-save-limits"');
+    expect(html).toContain("querySelectorAll('.campaign-save-limits')");
+    expect(html).toContain('dailyTarget,dailyHardLimit');
+    expect(server).toContain("app.patch('/api/campaigns/:id'");
+
+    // The same 15s-poll-clobbers-in-progress-edits bug fixed for the
+    // settings form applies here too: the campaign table is fully
+    // regenerated from server state on every refresh() tick, so editing the
+    // limit inputs must also mark the table dirty and skip repopulating it
+    // until a save completes.
+    expect(html).toContain('let campaignRowsDirty=false;');
+    expect(html).toContain("$('campaignRows').addEventListener('input',()=>{campaignRowsDirty=true;});");
+    expect(html).toMatch(/if\(!campaignRowsDirty\)\{\s*\$\('campaignRows'\)\.innerHTML=/);
+    expect(html).toMatch(/campaignRowsDirty=false;\s*await refresh\(\);/);
+  });
 });
