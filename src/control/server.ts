@@ -31,6 +31,7 @@ import { getDiscoveryAudit } from '../services/discovery-audit.service.js';
 import { getLiveActivity } from '../services/live-activity.service.js';
 import { seedCandidate } from '../services/manual-seed.service.js';
 import { getPhase3ValidationReport } from '../services/phase3-validation.service.js';
+import { ensurePublishedSupplierBackfill } from '../services/published-supplier-backfill.service.js';
 import {
   drainBot,
   emergencyStopBot,
@@ -489,6 +490,11 @@ async function start(): Promise<void> {
   await connectRedis();
   await ensurePilotCampaign();
   await getSettings();
+  // Best-effort: reconciling pre-existing publications must never block
+  // boot if the backfill itself hits a problem.
+  await ensurePublishedSupplierBackfill().catch(error =>
+    logger.error({ err: error }, 'published_suppliers backfill failed'),
+  );
   await heartbeat('starting');
 
   const server = app.listen(env.CONTROL_PORT, '0.0.0.0', () => {
