@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-import fs from 'node:fs';
 import { hostname } from 'node:os';
 import path from 'node:path';
 import compression from 'compression';
@@ -362,31 +360,23 @@ app.get('/api/phase3-validation', async (_req, res, next) => {
 // refreshed and still don't see the new button" report this caused after
 // a deploy. This is a control panel with embedded inline JS, not a public
 // asset: it must always be fetched fresh.
+//
+// `index: false` disables express.static's default behaviour of silently
+// serving a same-directory index.html for GET / ahead of every other
+// route. That default previously let a stray, long-stale public/index.html
+// (an old dashboard duplicate never cleaned up after control.html took
+// over) shadow the catch-all route below and serve on every request,
+// completely independent of the browser's cache, DNS or extensions --
+// every "the deploy didn't apply" report was this file, not the deployed
+// one. control.html is the single source of truth for this route.
 app.use(express.static(path.join(process.cwd(), 'public'), {
+  index: false,
   setHeaders: res => res.set('Cache-Control', 'no-store'),
 }));
 app.get('/{*splat}', (_req, res) => {
   res.set('Cache-Control', 'no-store');
   res.sendFile(path.join(process.cwd(), 'public', 'control.html'));
 });
-
-{
-  const controlHtmlPath = path.join(process.cwd(), 'public', 'control.html');
-  const stat = fs.statSync(controlHtmlPath);
-  const contents = fs.readFileSync(controlHtmlPath, 'utf8');
-  logger.warn(
-    {
-      cwd: process.cwd(),
-      controlHtmlPath,
-      sizeBytes: stat.size,
-      mtime: stat.mtime.toISOString(),
-      sha256: createHash('sha256').update(contents).digest('hex'),
-      containsHardResetBtn: contents.includes('hardResetBtn'),
-      publicDirListing: fs.readdirSync(path.join(process.cwd(), 'public')),
-    },
-    'DIAGNOSTIC: control.html on disk at startup',
-  );
-}
 
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (error instanceof z.ZodError) {
