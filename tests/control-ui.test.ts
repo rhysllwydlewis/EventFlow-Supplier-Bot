@@ -14,7 +14,7 @@ describe('Supplier Bot Control Centre review surface', () => {
     expect(html).toContain("request('/api/shadow-profile-reviews?limit=20')");
     expect(html).not.toContain("request('/api/compliance-assessments?limit=100')");
     expect(server).toContain("app.get('/api/shadow-profile-reviews'");
-    expect(server).toContain('getComplianceAssessmentsForCandidates(profiles.map(profile => profile.candidateId))');
+    expect(server).toContain('getComplianceAssessmentsForCandidates(pending.map(profile => profile.candidateId))');
     expect(server).toContain('assessment: byCandidate.get(profile.candidateId) ?? null');
     expect(complianceRepository).toContain('export async function getComplianceAssessmentsForCandidates');
     expect(complianceRepository).toContain('candidateId: { $in: uniqueIds }');

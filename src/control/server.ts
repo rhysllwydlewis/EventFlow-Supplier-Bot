@@ -20,6 +20,8 @@ import {
   listComplianceAssessments,
 } from '../repositories/compliance-assessment.repository.js';
 import { heartbeatIsFresh, listHeartbeats, writeHeartbeat } from '../repositories/heartbeat.repository.js';
+import { listAuditEventsByAction } from '../repositories/audit.repository.js';
+import { listPublishedDomains, listRecentPublishedSuppliers } from '../repositories/published-supplier.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
 import { listShadowProfiles } from '../repositories/shadow-profile.repository.js';
 import { getTodayAiReservedGbp } from '../services/ai-budget.service.js';
@@ -38,6 +40,7 @@ import {
   updateRuntimeSettings,
 } from '../services/runtime-control.service.js';
 import { rejectShadowProfile } from '../services/shadow-profile-review.service.js';
+import { canonicalDomain } from '../utils/url.js';
 import { loginWithAdminKey, logout, requireCsrf, requireSession, sessionInfo } from './auth.js';
 
 const VERSION = '0.8.0';
@@ -321,13 +324,54 @@ app.get('/api/shadow-profiles', async (req, res, next) => {
 app.get('/api/shadow-profile-reviews', async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
-    const profiles = await listShadowProfiles(limit);
-    const assessments = await getComplianceAssessmentsForCandidates(profiles.map(profile => profile.candidateId));
+    const [profiles, publishedDomains] = await Promise.all([
+      listShadowProfiles(limit),
+      listPublishedDomains(),
+    ]);
+    // Once a profile is actually live on EventFlow there's nothing left for
+    // an operator to decide here -- leaving it showing "Ready" (compliance
+    // eligibility, not publication status) reads as "still waiting on you"
+    // when it's already done. It moves to /api/published-suppliers instead.
+    const pending = profiles.filter(profile => {
+      try {
+        return !publishedDomains.has(canonicalDomain(profile.website));
+      } catch {
+        return true;
+      }
+    });
+    const assessments = await getComplianceAssessmentsForCandidates(pending.map(profile => profile.candidateId));
     const byCandidate = new Map(assessments.map(assessment => [assessment.candidateId, assessment]));
     res.json({
-      items: profiles.map(profile => ({
+      items: pending.map(profile => ({
         profile,
         assessment: byCandidate.get(profile.candidateId) ?? null,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/published-suppliers', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    res.json({ items: await listRecentPublishedSuppliers(limit) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/removed-candidates', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    const events = await listAuditEventsByAction('shadow_profile.rejected', limit);
+    res.json({
+      items: events.map(event => ({
+        candidateId: event.details.candidateId ?? null,
+        businessName: event.details.businessName ?? null,
+        canonicalDomain: event.details.canonicalDomain ?? null,
+        removedAt: event.createdAt,
+        removedBy: event.actor,
       })),
     });
   } catch (error) {
