@@ -1,5 +1,6 @@
+import * as net from 'node:net';
 import { describe, expect, it } from 'vitest';
-import { parseAuthority, resolveValidatedTarget } from '../src/crawler/browser-network-proxy.js';
+import { parseAuthority, resolveValidatedTarget, startSsrfSafeProxy } from '../src/crawler/browser-network-proxy.js';
 
 describe('SSRF-safe browser proxy', () => {
   describe('parseAuthority', () => {
@@ -44,6 +45,33 @@ describe('SSRF-safe browser proxy', () => {
 
     it('blocks non-standard ports even for an otherwise-public host', async () => {
       expect(await resolveValidatedTarget('8.8.8.8', 6379)).toBeNull();
+    });
+  });
+
+  describe('startSsrfSafeProxy lifecycle', () => {
+    it('close() resolves promptly even with an open inbound connection', async () => {
+      // server.close() alone only stops accepting *new* connections and
+      // waits for existing ones to end on their own -- a still-open CONNECT
+      // tunnel would otherwise keep it from ever resolving. Open a raw
+      // connection and leave it dangling (no request sent, so the server's
+      // request/connect handlers never even run) to prove close() forces it
+      // shut rather than waiting for a drain that will never come.
+      const proxy = await startSsrfSafeProxy();
+      const socket = net.connect(proxy.port, '127.0.0.1');
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', () => resolve());
+        socket.once('error', reject);
+      });
+
+      const start = Date.now();
+      await Promise.race([
+        proxy.close(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('proxy.close() did not resolve in time')), 2000)),
+      ]);
+      expect(Date.now() - start).toBeLessThan(2000);
+
+      socket.destroy();
     });
   });
 });

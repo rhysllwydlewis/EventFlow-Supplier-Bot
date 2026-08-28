@@ -49,6 +49,14 @@ export async function resolveValidatedTarget(host: string, port: number): Promis
 }
 
 function handleConnect(req: http.IncomingMessage, clientSocket: net.Socket, head: Buffer): void {
+  let upstream: net.Socket | null = null;
+  // Must be attached synchronously, before any await: an 'error' event with
+  // no listener crashes the whole process, and the client can disconnect or
+  // error while resolveValidatedTarget's DNS lookup is still in flight below,
+  // before the .then() callback has a chance to attach its own handlers.
+  clientSocket.on('error', () => upstream?.destroy());
+  clientSocket.on('close', () => upstream?.destroy());
+
   const authority = parseAuthority(req.url || '');
   if (!authority) {
     clientSocket.destroy();
@@ -61,22 +69,33 @@ function handleConnect(req: http.IncomingMessage, clientSocket: net.Socket, head
         clientSocket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
         return;
       }
-      const upstream = net.connect({ host: resolved.address, port: authority.port, family: resolved.family });
+      upstream = net.connect({ host: resolved.address, port: authority.port, family: resolved.family });
       upstream.once('connect', () => {
         clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-        if (head && head.length) upstream.write(head);
-        upstream.pipe(clientSocket);
-        clientSocket.pipe(upstream);
+        if (head && head.length) upstream?.write(head);
+        if (upstream) {
+          upstream.pipe(clientSocket);
+          clientSocket.pipe(upstream);
+        }
       });
-      upstream.setTimeout(TUNNEL_IDLE_TIMEOUT_MS, () => upstream.destroy());
+      upstream.setTimeout(TUNNEL_IDLE_TIMEOUT_MS, () => upstream?.destroy());
       clientSocket.setTimeout(TUNNEL_IDLE_TIMEOUT_MS, () => clientSocket.destroy());
+      // Either side ending -- cleanly or with an error -- must tear down the
+      // other, or a client that vanishes mid-tunnel leaks an open upstream
+      // connection to the target site indefinitely.
       upstream.on('error', () => clientSocket.destroy());
-      clientSocket.on('error', () => upstream.destroy());
+      upstream.on('close', () => clientSocket.destroy());
     })
     .catch(() => clientSocket.destroy());
 }
 
 function handleHttpRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+  let upstreamReq: http.ClientRequest | null = null;
+  // Same reasoning as handleConnect: attached before any await so a client
+  // abort during the DNS-validation window can't crash the process.
+  req.on('error', () => upstreamReq?.destroy());
+  res.on('error', () => upstreamReq?.destroy());
+
   void (async () => {
     let url: URL;
     try {
@@ -93,7 +112,7 @@ function handleHttpRequest(req: http.IncomingMessage, res: http.ServerResponse):
       return;
     }
 
-    const upstreamReq = http.request(
+    upstreamReq = http.request(
       {
         hostname: pinned.address,
         family: pinned.family,
@@ -107,7 +126,7 @@ function handleHttpRequest(req: http.IncomingMessage, res: http.ServerResponse):
         upstreamRes.pipe(res);
       },
     );
-    upstreamReq.setTimeout(TUNNEL_IDLE_TIMEOUT_MS, () => upstreamReq.destroy());
+    upstreamReq.setTimeout(TUNNEL_IDLE_TIMEOUT_MS, () => upstreamReq?.destroy());
     upstreamReq.on('error', () => res.destroy());
     req.pipe(upstreamReq);
   })();
@@ -116,6 +135,18 @@ function handleHttpRequest(req: http.IncomingMessage, res: http.ServerResponse):
 export async function startSsrfSafeProxy(): Promise<SsrfSafeProxy> {
   const server = http.createServer(handleHttpRequest);
   server.on('connect', handleConnect);
+
+  // server.close() alone only stops accepting *new* connections and waits
+  // for existing ones to end on their own -- a CONNECT tunnel still open (or
+  // stuck) when the crawl finishes would otherwise keep close() from ever
+  // resolving. Track every inbound connection and force them closed instead
+  // of waiting for a graceful drain that may never come.
+  const sockets = new Set<net.Socket>();
+  server.on('connection', socket => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
+  });
+
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => resolve());
@@ -124,6 +155,10 @@ export async function startSsrfSafeProxy(): Promise<SsrfSafeProxy> {
   const port = typeof address === 'object' && address ? address.port : 0;
   return {
     port,
-    close: () => new Promise<void>(resolve => server.close(() => resolve())),
+    close: () =>
+      new Promise<void>(resolve => {
+        server.close(() => resolve());
+        for (const socket of sockets) socket.destroy();
+      }),
   };
 }
