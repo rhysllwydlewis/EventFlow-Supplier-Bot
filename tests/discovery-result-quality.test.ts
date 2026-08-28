@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateDiscoverySearchResult } from '../src/services/discovery-result-quality.service.js';
+import {
+  evaluateDiscoverySearchResult,
+  isKnownNonSupplierDomain,
+} from '../src/services/discovery-result-quality.service.js';
 
 function result(url: string, title: string, snippet?: string) {
   return { url, title, ...(snippet ? { snippet } : {}), rank: 1 };
@@ -108,6 +111,15 @@ describe('supplier discovery quality gate', () => {
       result('https://examplecastle.co.uk/wedding-venue', 'Example Castle Wedding Venue'),
     ]) {
       expect(evaluateDiscoverySearchResult(item, 'Venues')).toMatchObject({ eligible: true });
+    }
+  });
+
+  it('exposes a domain-only check reusable at publication time as a defense-in-depth gate', () => {
+    for (const domain of ['reddit.com', 'www.reddit.com', 'hitched.co.uk', 'bridebook.co.uk', 'cadw.gov.wales', 'gov.uk']) {
+      expect(isKnownNonSupplierDomain(domain)).toBe(true);
+    }
+    for (const domain of ['examplecastle.co.uk', 'brynmeadows.co.uk']) {
+      expect(isKnownNonSupplierDomain(domain)).toBe(false);
     }
   });
 

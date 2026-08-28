@@ -17,6 +17,7 @@ import {
   assessShadowProfileCompliance,
   effectiveMinimumPublicationQuality,
 } from './compliance.service.js';
+import { isKnownNonSupplierDomain } from './discovery-result-quality.service.js';
 import {
   ingestShadowProfileToEventFlow,
   PUBLIC_UNCLAIMED_SCOPE,
@@ -68,6 +69,19 @@ export async function processEventFlowPublication(candidateId: string): Promise<
       reason: 'do_not_list_suppression',
     });
     return { skipped: true, reason: 'do_not_list_suppression' };
+  }
+
+  // Independent of whether the discovery-time filter ever saw this candidate
+  // (it may predate the filter, or a future gap in it) -- a directory,
+  // editorial, government or UGC domain must never be published as if it
+  // were the supplier itself.
+  if (isKnownNonSupplierDomain(candidate.canonicalDomain)) {
+    await saveEventFlowIngestionState({
+      candidateId,
+      status: 'ineligible',
+      reason: 'known_non_supplier_domain',
+    });
+    return { skipped: true, reason: 'known_non_supplier_domain' };
   }
 
   if (candidate.dedupDecision !== 'distinct') {
@@ -145,6 +159,15 @@ export async function processEventFlowPublication(candidateId: string): Promise<
         reason: 'do_not_list_suppression',
       });
       return { skipped: true, reason: 'do_not_list_suppression' };
+    }
+
+    if (isKnownNonSupplierDomain(candidate.canonicalDomain)) {
+      await saveEventFlowIngestionState({
+        candidateId,
+        status: 'ineligible',
+        reason: 'known_non_supplier_domain',
+      });
+      return { skipped: true, reason: 'known_non_supplier_domain' };
     }
 
     const result = await ingestShadowProfileToEventFlow({

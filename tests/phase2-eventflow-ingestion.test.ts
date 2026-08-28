@@ -72,6 +72,21 @@ describe('Phase 2 EventFlow ingestion contract', () => {
     expect(publicationSource.match(/do_not_list_suppression/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('refuses to publish a known directory/editorial/government/UGC domain regardless of how it entered the pipeline', () => {
+    // Discovery filters these domains out at the front door
+    // (discovery-result-quality.service.ts), but a candidate can also
+    // predate that filter or slip past a future gap in it -- publication
+    // must independently refuse to ever list one of these as if it were
+    // the supplier itself, checked both on first attempt and again
+    // immediately before the network write (matching the do_not_list
+    // suppression recheck already in place for the same race).
+    expect(publicationSource).toContain(
+      "import { isKnownNonSupplierDomain } from './discovery-result-quality.service.js';",
+    );
+    expect(publicationSource.match(/isKnownNonSupplierDomain\(candidate\.canonicalDomain\)/g)?.length).toBe(2);
+    expect(publicationSource.match(/known_non_supplier_domain/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
   it('fails safe in Control when an operator leaves live mode', () => {
     expect(runtimeControlSource).toContain("patch.mode !== 'live'");
     expect(runtimeControlSource).toContain('publishingEnabled: false');

@@ -56,6 +56,21 @@ function isGovernmentDomain(domain: string): boolean {
   );
 }
 
+// Domain-only version of the discovery-time block list, reused as a
+// defense-in-depth check at publication time (eventflow-publication.service.ts).
+// Discovery is the front door for how a candidate enters the pipeline, but it
+// is not the only door: a candidate can also predate this filter (or a future
+// gap in it), so publication itself must independently refuse to ever list a
+// known directory/editorial/government/UGC domain as if it were a supplier,
+// regardless of how it got into the candidates collection.
+export function isKnownNonSupplierDomain(domain: string): boolean {
+  const normalized = domain.toLowerCase().replace(/^www\./, '');
+  return (
+    BLOCKED_DISCOVERY_DOMAINS.some(blocked => domainMatches(normalized, blocked))
+    || isGovernmentDomain(normalized)
+  );
+}
+
 const EDITORIAL_PATH_SEGMENTS = new Set([
   'blog',
   'blogs',
