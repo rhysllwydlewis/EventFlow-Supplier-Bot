@@ -24,3 +24,13 @@ export async function recordAuditEvent(
   };
   await db.collection<AuditEvent>('audit_events').insertOne(event);
 }
+
+export async function listAuditEventsByAction(action: string, limit = 100): Promise<AuditEvent[]> {
+  const db = await getDatabase();
+  return db
+    .collection<AuditEvent>('audit_events')
+    .find({ action })
+    .sort({ createdAt: -1 })
+    .limit(Math.min(Math.max(limit, 1), 500))
+    .toArray();
+}

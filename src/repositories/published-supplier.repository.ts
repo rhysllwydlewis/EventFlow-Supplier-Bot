@@ -15,6 +15,12 @@ const publishedSupplierSchema = z.object({
   publicProfilePath: z.string().nullable(),
   source: z.enum(['pilot', 'campaign']),
   publishedAt: z.string(),
+  // Denormalised on write, not joined at read time -- this collection must
+  // stay fully self-contained (see the reset-survival note above), and a
+  // join against candidates/shadow_profiles would silently break after a
+  // Hard Reset wipes those. Optional/defaulted so records written before
+  // this field existed still parse.
+  businessName: z.string().default(''),
 });
 
 export type PublishedSupplier = z.infer<typeof publishedSupplierSchema>;
@@ -30,6 +36,7 @@ export async function recordPublishedSupplier(input: {
   slug: string;
   publicProfilePath: string | null;
   source: 'pilot' | 'campaign';
+  businessName: string;
 }): Promise<void> {
   const store = await collection();
   await store.updateOne(
@@ -41,6 +48,7 @@ export async function recordPublishedSupplier(input: {
         slug: input.slug,
         publicProfilePath: input.publicProfilePath,
         source: input.source,
+        businessName: input.businessName,
       },
       $setOnInsert: { publishedAt: new Date().toISOString() },
     },
@@ -52,4 +60,20 @@ export async function getPublishedSupplierByDomain(domain: string): Promise<Publ
   const store = await collection();
   const record = await store.findOne({ canonicalDomain: domain.toLowerCase() });
   return record ? publishedSupplierSchema.parse(record) : null;
+}
+
+export async function listRecentPublishedSuppliers(limit = 100): Promise<PublishedSupplier[]> {
+  const store = await collection();
+  const records = await store
+    .find({})
+    .sort({ publishedAt: -1 })
+    .limit(Math.min(Math.max(limit, 1), 500))
+    .toArray();
+  return records.map(record => publishedSupplierSchema.parse(record));
+}
+
+export async function listPublishedDomains(): Promise<Set<string>> {
+  const store = await collection();
+  const records = await store.find({}, { projection: { canonicalDomain: 1 } }).toArray();
+  return new Set(records.map(record => record.canonicalDomain));
 }

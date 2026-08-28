@@ -157,6 +157,7 @@ export async function ingestShadowProfileToEventFlow(input: {
         slug: parsed.slug,
         publicProfilePath: parsed.publicProfilePath ?? null,
         source: input.publicationScope === PILOT_UNCLAIMED_SCOPE ? 'pilot' : 'campaign',
+        businessName: input.profile.businessName,
       });
     } catch (error) {
       logger.error(

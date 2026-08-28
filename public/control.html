@@ -193,13 +193,22 @@
 
       <div class="card span-12"><h2>Latest candidates</h2><div class="table-wrap"><table><thead><tr><th>Business/domain</th><th>Website</th><th>Category</th><th>Location</th><th>Source</th><th>Status</th><th>Identity dedup</th></tr></thead><tbody id="candidateRows"></tbody></table></div></div>
       <div class="card span-12">
-        <div class="section-head"><div><h2>Shadow profile review</h2><p class="muted">Quality, compliance, publication and indexing are deliberately separate gates.</p></div></div>
+        <div class="section-head"><div><h2>Shadow profile review</h2><p class="muted">Quality, compliance, publication and indexing are deliberately separate gates. Already-published profiles move to Published below.</p></div></div>
         <div class="table-wrap"><table class="review-table"><thead><tr><th>Business</th><th>Website</th><th>Photos</th><th>Category</th><th>Location</th><th>Quality</th><th>Compliance</th><th>Publish</th><th>SEO</th><th>Similarity</th><th>Reason</th><th></th></tr></thead><tbody id="shadowRows"></tbody></table></div>
+      </div>
+      <div class="card span-6">
+        <div class="section-head"><div><h2>Published to EventFlow</h2><p class="muted">Live on your website.</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Business</th><th>Live page</th><th>Source</th><th>Published</th></tr></thead><tbody id="publishedRows"></tbody></table></div>
+      </div>
+      <div class="card span-6">
+        <div class="section-head"><div><h2>Removed by you</h2><p class="muted">Rejected from Shadow review; also blocked from future rediscovery.</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Business</th><th>Domain</th><th>Removed</th></tr></thead><tbody id="removedRows"></tbody></table></div>
       </div>
     </section>
   </main>
 
 <script>
+const EVENTFLOW_ORIGIN='https://event-flow.co.uk';
 let csrfToken='';
 let settingsDirty=false;
 let campaignRowsDirty=false;
@@ -217,7 +226,7 @@ function dedupLabel(candidate){if(!candidate.dedupDecision)return 'Pending';cons
 async function request(url,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(csrfToken&&['POST','PUT','PATCH','DELETE'].includes((options.method||'GET').toUpperCase()))headers['x-csrf-token']=csrfToken;const response=await fetch(url,{credentials:'same-origin',...options,headers});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||`Request failed (${response.status})`);return body;}
 function showLogin(){$('loginView').classList.remove('hidden');$('appView').classList.add('hidden');}function showApp(){$('loginView').classList.add('hidden');$('appView').classList.remove('hidden');}
 async function refresh(){
-  const [status,campaigns,candidates,reviews,overview,phase3,audit,activity]=await Promise.all([request('/api/status'),request('/api/campaigns'),request('/api/candidates?limit=20'),request('/api/shadow-profile-reviews?limit=20'),request('/api/compliance-overview'),request('/api/phase3-validation'),request('/api/discovery-audit?limit=50'),request('/api/activity')]);const s=status.settings;
+  const [status,campaigns,candidates,reviews,overview,phase3,audit,activity,published,removed]=await Promise.all([request('/api/status'),request('/api/campaigns'),request('/api/candidates?limit=20'),request('/api/shadow-profile-reviews?limit=20'),request('/api/compliance-overview'),request('/api/phase3-validation'),request('/api/discovery-audit?limit=50'),request('/api/activity'),request('/api/published-suppliers?limit=20'),request('/api/removed-candidates?limit=20')]);const s=status.settings;
   if(!settingsDirty){
     $('mode').value=s.mode;$('quality').value=s.minimumPublicationQuality;$('dailyTarget').value=s.dailyTarget;$('dailyHardLimit').value=s.dailyHardLimit;$('maxCrawls').value=s.maxCrawlsPerDay;$('softAi').value=s.softAiSpendGbpPerDay;$('hardAi').value=s.hardAiSpendGbpPerDay;
     ['discoveryEnabled','refreshEnabled','publishingEnabled','claimNoticesEnabled','marketingEnabled','seoIndexingEnabled'].forEach(id=>$(id).checked=!!s[id]);
@@ -286,6 +295,10 @@ async function refresh(){
       await refresh();
     }catch(error){setFeedback(error.message,true);}
   }));
+
+  $('publishedRows').innerHTML=(published.items||[]).map(item=>`<tr><td>${escapeHtml(item.businessName||item.canonicalDomain)}</td><td>${item.publicProfilePath?externalLink(`${EVENTFLOW_ORIGIN}${item.publicProfilePath}`,'view live'):'<span class="muted">—</span>'}</td><td>${escapeHtml(item.source)}</td><td>${new Date(item.publishedAt).toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="4" class="muted">Nothing published yet.</td></tr>';
+
+  $('removedRows').innerHTML=(removed.items||[]).map(item=>`<tr><td>${escapeHtml(item.businessName||'—')}</td><td>${escapeHtml(item.canonicalDomain||'—')}</td><td>${new Date(item.removedAt).toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">Nothing removed yet.</td></tr>';
 }
 $('loginForm').addEventListener('submit',async event=>{event.preventDefault();$('loginError').textContent='';try{const data=await request('/api/auth/login',{method:'POST',body:JSON.stringify({key:$('adminKey').value})});csrfToken=data.csrfToken;showApp();await refresh();}catch(error){$('loginError').textContent=error.message;}});
 $('settingsForm').addEventListener('input',()=>{settingsDirty=true;});
