@@ -5,6 +5,7 @@ import {
   invalidateAllComplianceAssessments,
   withCompliancePolicyLock,
 } from '../repositories/compliance-assessment.repository.js';
+import { performHardReset } from './hard-reset.service.js';
 import { reconcilePhase3Validation } from './phase3-validation.service.js';
 
 const PIPELINE_QUEUE_KEYS = (Object.keys(QUEUE_NAMES) as QueueKey[]).filter(key => key !== 'orchestration');
@@ -79,6 +80,14 @@ export async function emergencyStopBot(actor: string) {
   await pausePipelineQueues();
   await recordAuditEvent(actor, 'bot.emergency_stop', { queuesPaused: PIPELINE_QUEUE_KEYS });
   return settings;
+}
+
+export async function hardResetBot(actor: string) {
+  await pausePipelineQueues();
+  const settings = await patchSettings({ runState: 'paused' }, actor);
+  const deletedCounts = await performHardReset();
+  await recordAuditEvent(actor, 'bot.hard_reset', { deletedCounts });
+  return { settings, deletedCounts };
 }
 
 export async function updateRuntimeSettings(patch: SettingsPatch, actor: string) {

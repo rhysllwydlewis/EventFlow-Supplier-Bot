@@ -80,8 +80,9 @@
     <section class="grid">
       <div class="card span-12">
         <h2>Bot controls</h2>
-        <div class="controls"><button id="playBtn" class="primary">▶ Run</button><button id="pauseBtn">Ⅱ Pause</button><button id="drainBtn">Drain safely</button><button id="runNowBtn">Run planning cycle now</button><button id="stopBtn" class="danger">Emergency stop</button></div>
+        <div class="controls"><button id="playBtn" class="primary">▶ Run</button><button id="pauseBtn">Ⅱ Pause</button><button id="drainBtn">Drain safely</button><button id="runNowBtn">Run planning cycle now</button><button id="stopBtn" class="danger">Emergency stop</button><button id="hardResetBtn" class="danger">Hard reset</button></div>
         <div class="notice">Shadow mode researches real suppliers without publishing anything to EventFlow. Brave discovery persistence remains capability-gated; manual seed URLs let the full Shadow pipeline be tested independently.</div>
+        <div class="notice">Hard reset permanently deletes all candidates, Shadow profiles, compliance assessments and publication history so you can start again. Settings, campaigns and suppression decisions are kept.</div>
       </div>
 
       <div class="card span-8">
@@ -216,6 +217,16 @@ $('campaignRows').addEventListener('input',()=>{campaignRowsDirty=true;});
 $('settingsForm').addEventListener('submit',async event=>{event.preventDefault();const body={mode:$('mode').value,minimumPublicationQuality:Number($('quality').value),dailyTarget:Number($('dailyTarget').value),dailyHardLimit:Number($('dailyHardLimit').value),maxCrawlsPerDay:Number($('maxCrawls').value),softAiSpendGbpPerDay:Number($('softAi').value),hardAiSpendGbpPerDay:Number($('hardAi').value),discoveryEnabled:$('discoveryEnabled').checked,refreshEnabled:$('refreshEnabled').checked,publishingEnabled:$('publishingEnabled').checked,claimNoticesEnabled:$('claimNoticesEnabled').checked,marketingEnabled:$('marketingEnabled').checked,seoIndexingEnabled:$('seoIndexingEnabled').checked};try{await request('/api/settings',{method:'PUT',body:JSON.stringify(body)});settingsDirty=false;await refresh();}catch(error){alert(error.message);}});
 $('seedForm').addEventListener('submit',async event=>{event.preventDefault();$('seedResult').textContent='Queuing…';try{const result=await request('/api/candidates/seed',{method:'POST',body:JSON.stringify({url:$('seedUrl').value,categoryHint:$('seedCategory').value,locationHint:$('seedLocation').value})});$('seedResult').textContent=result.created?'Candidate created and crawl queued.':'Candidate already exists; no duplicate created.';await refresh();}catch(error){$('seedResult').textContent=error.message;}});
 for(const [id,action] of [['playBtn','play'],['pauseBtn','pause'],['drainBtn','drain'],['stopBtn','emergency-stop']]){$(id).addEventListener('click',async()=>{try{await request(`/api/control/${action}`,{method:'POST',body:'{}'});await refresh();}catch(error){alert(error.message);}});}
+$('hardResetBtn').addEventListener('click',async()=>{
+  const typed=prompt('This permanently deletes ALL candidates, Shadow profiles, compliance assessments and publication history. Settings, campaigns and suppression decisions are kept. This cannot be undone.\n\nType RESET to confirm:');
+  if(typed!=='RESET')return;
+  try{
+    const result=await request('/api/control/hard-reset',{method:'POST',body:JSON.stringify({confirm:'RESET'})});
+    const total=Object.values(result.deletedCounts||{}).reduce((sum,n)=>sum+n,0);
+    alert(`Hard reset complete. ${total} records deleted.`);
+    await refresh();
+  }catch(error){alert(error.message);}
+});
 $('runNowBtn').addEventListener('click',async()=>{try{await request('/api/run-now',{method:'POST',body:'{}'});await refresh();}catch(error){alert(error.message);}});$('logoutBtn').addEventListener('click',async()=>{try{await request('/api/auth/logout',{method:'POST',body:'{}'});}finally{csrfToken='';showLogin();}});
 (async()=>{try{const session=await request('/api/auth/session');csrfToken=session.csrfToken;showApp();await refresh();setInterval(()=>void refresh().catch(()=>{}),15000);}catch{showLogin();}})();
 </script>

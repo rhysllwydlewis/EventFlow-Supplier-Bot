@@ -31,6 +31,7 @@ import { getPhase3ValidationReport } from '../services/phase3-validation.service
 import {
   drainBot,
   emergencyStopBot,
+  hardResetBot,
   pauseBot,
   playBot,
   updateRuntimeSettings,
@@ -196,6 +197,19 @@ app.post('/api/control/:action', requireCsrf, async (req, res, next) => {
     }
     if (action === 'emergency-stop') {
       res.json(await emergencyStopBot(actor));
+      return;
+    }
+    if (action === 'hard-reset') {
+      // Server-side confirmation gate independent of the dashboard's own
+      // typed-confirmation prompt -- this is a destructive, irreversible
+      // action, so it must not be triggerable by a bare POST from anywhere
+      // (a misclick, a replayed request, a future UI bug) without an
+      // explicit, deliberate confirmation string in the request itself.
+      if (req.body?.confirm !== 'RESET') {
+        res.status(400).json({ error: 'Hard reset requires { "confirm": "RESET" } in the request body' });
+        return;
+      }
+      res.json(await hardResetBot(actor));
       return;
     }
     res.status(404).json({ error: 'Unknown control action' });
