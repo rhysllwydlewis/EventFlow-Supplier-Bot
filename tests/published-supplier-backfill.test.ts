@@ -18,7 +18,7 @@ describe('Backfilling published_suppliers from ingestion audit history', () => {
 
   it('skips a domain that already has a published_suppliers record', () => {
     expect(backfillService).toContain('await getPublishedSupplierByDomain(domain)');
-    const guardIndex = backfillService.indexOf('if (await getPublishedSupplierByDomain(domain)) continue;');
+    const guardIndex = backfillService.indexOf('if (await getPublishedSupplierByDomain(domain)) {');
     expect(guardIndex).toBeGreaterThan(-1);
   });
 
@@ -43,5 +43,13 @@ describe('Backfilling published_suppliers from ingestion audit history', () => {
   it('runs at control server startup without ever blocking boot on failure', () => {
     expect(server).toContain('ensurePublishedSupplierBackfill()');
     expect(server).toMatch(/ensurePublishedSupplierBackfill\(\)\.catch\(/);
+  });
+
+  it('always logs how many it scanned and backfilled, not just when it finds something', () => {
+    // A silent no-op run is indistinguishable from a run that never
+    // happened at all -- diagnosing "why didn't this recover my supplier"
+    // needs the scan/backfill counts on every deploy, not only the ones
+    // that found something.
+    expect(backfillService).toContain("'published_suppliers backfill from ingestion audit history complete'");
   });
 });

@@ -28,17 +28,29 @@ async function runBackfill(): Promise<{ scanned: number; backfilled: number }> {
     const supplierId = typeof event.details.supplierId === 'string' ? event.details.supplierId : null;
     const publicProfilePath =
       typeof event.details.publicProfilePath === 'string' ? event.details.publicProfilePath : null;
-    if (!candidateId || !supplierId || !publicProfilePath) continue;
+    if (!candidateId || !supplierId || !publicProfilePath) {
+      logger.debug({ candidateId, supplierId, publicProfilePath }, 'Skipping backfill candidate: missing required audit fields');
+      continue;
+    }
 
     const slugMatch = publicProfilePath.match(PROFILE_PATH_SLUG);
     const slug = slugMatch?.[1];
-    if (!slug) continue;
+    if (!slug) {
+      logger.debug({ candidateId, publicProfilePath }, 'Skipping backfill candidate: publicProfilePath did not match the expected slug format');
+      continue;
+    }
 
     const profile = await getShadowProfile(candidateId);
-    if (!profile) continue;
+    if (!profile) {
+      logger.debug({ candidateId }, 'Skipping backfill candidate: shadow profile no longer exists');
+      continue;
+    }
 
     const domain = canonicalDomain(profile.website);
-    if (await getPublishedSupplierByDomain(domain)) continue;
+    if (await getPublishedSupplierByDomain(domain)) {
+      logger.debug({ candidateId, domain }, 'Skipping backfill candidate: already has a published_suppliers record');
+      continue;
+    }
 
     const publicationScope = event.details.publicationScope;
     await recordPublishedSupplier({
@@ -50,11 +62,10 @@ async function runBackfill(): Promise<{ scanned: number; backfilled: number }> {
       businessName: profile.businessName,
     });
     backfilled += 1;
+    logger.info({ candidateId, domain, businessName: profile.businessName }, 'Backfilled a published_suppliers record from ingestion audit history');
   }
 
-  if (backfilled > 0) {
-    logger.info({ scanned: events.length, backfilled }, 'Backfilled published_suppliers from ingestion audit history');
-  }
+  logger.info({ scanned: events.length, backfilled }, 'published_suppliers backfill from ingestion audit history complete');
   return { scanned: events.length, backfilled };
 }
 
