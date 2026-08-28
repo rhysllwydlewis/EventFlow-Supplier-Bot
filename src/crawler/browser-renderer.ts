@@ -1,7 +1,7 @@
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { env } from '../config/env.js';
 import { startSsrfSafeProxy } from './browser-network-proxy.js';
-import { extractLinks } from './html-links.js';
+import { extractLinksWithText } from './html-links.js';
 import { assertCrawlableUrl, resolvePublicAddresses } from './network-policy.js';
 import { pickNextPage } from './page-selector.js';
 import { fetchRobotsPolicy, robotsAllows, type RobotsPolicy } from './robots.js';
@@ -145,7 +145,7 @@ export async function crawlSupplierSiteWithBrowser(
         // reachable via a subpage's own nav (e.g. behind a JS-only menu the
         // homepage never renders) can still be found, without spending
         // render budget beyond maxPages.
-        let candidatePool = extractLinks(root.html, root.url);
+        let candidatePool: Array<string | { href: string; text?: string }> = extractLinksWithText(root.html, root.url);
 
         while (pages.length < maxPages) {
           const next = pickNextPage(root.url, candidatePool, fetched, value => robotsAllows(policy, value));
@@ -154,7 +154,7 @@ export async function crawlSupplierSiteWithBrowser(
           try {
             const page = await renderOne(context, next, policy);
             pages.push(page);
-            candidatePool = [...candidatePool, ...extractLinks(page.html, page.url)];
+            candidatePool = [...candidatePool, ...extractLinksWithText(page.html, page.url)];
           } catch (error) {
             failures.push({
               url: next,

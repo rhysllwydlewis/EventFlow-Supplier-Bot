@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickNextPage, selectUsefulPages } from '../src/crawler/page-selector.js';
+import { pickNextPage, scoreUsefulPage, selectUsefulPages } from '../src/crawler/page-selector.js';
 
 describe('useful page selection', () => {
   it('prioritises commercial supplier pages and excludes obvious low-value paths', () => {
@@ -16,6 +16,52 @@ describe('useful page selection', () => {
     expect(pages).toContain('https://example.com/pricing');
     expect(pages.some(item => item.includes('/privacy'))).toBe(false);
     expect(pages.some(item => item.startsWith('https://other.example'))).toBe(false);
+  });
+});
+
+describe('anchor text as a scoring signal', () => {
+  it('scores a page with no useful term in its path, but a matching visible link label, above zero', () => {
+    // The real case this closes: a nav link like <a href="/w4">Weddings</a>
+    // -- the path alone ("/w4") has nothing for scoreUsefulPage to match.
+    const withoutText = scoreUsefulPage(new URL('https://example.com/w4'), 'https://example.com', undefined);
+    const withText = scoreUsefulPage(new URL('https://example.com/w4'), 'https://example.com', 'Weddings');
+    expect(withoutText).toBe(0);
+    expect(withText).toBeGreaterThan(0);
+  });
+
+  it('still trusts a path match more than the same term only in link text', () => {
+    const pathMatch = scoreUsefulPage(new URL('https://example.com/wedding-packages'), 'https://example.com');
+    const textOnlyMatch = scoreUsefulPage(new URL('https://example.com/w4'), 'https://example.com', 'wedding packages');
+    expect(pathMatch).toBeGreaterThan(textOnlyMatch);
+  });
+
+  it('excludes a low-value page via its link text even when the path itself looks neutral', () => {
+    const score = scoreUsefulPage(new URL('https://example.com/p42'), 'https://example.com', 'Privacy Policy');
+    expect(score).toBeLessThan(0);
+  });
+
+  it('ranks a text-only-scoring page above an equally neutral, textless one in the real selection path', () => {
+    // Before anchor text was considered, /w4 and /team would tie at score 0
+    // and the alphabetical tiebreak would put /team first -- silently
+    // starving the real Weddings page of a crawl slot whenever the budget
+    // was tight. With text considered, /w4 (Weddings) correctly outranks it.
+    const pages = selectUsefulPages(
+      'https://example.com/',
+      ['/team', { href: '/w4', text: 'Weddings' }],
+      10,
+    );
+    expect(pages).toContain('https://example.com/team');
+    expect(pages.indexOf('https://example.com/w4')).toBeLessThan(pages.indexOf('https://example.com/team'));
+  });
+
+  it('pickNextPage picks the Weddings-labelled page over a same-scoring textless one', () => {
+    const fetched = new Set(['https://example.com/']);
+    const next = pickNextPage(
+      'https://example.com/',
+      ['/team', { href: '/w4', text: 'Weddings' }],
+      fetched,
+    );
+    expect(next).toBe('https://example.com/w4');
   });
 });
 

@@ -1,4 +1,4 @@
-import { extractLinks } from './html-links.js';
+import { extractLinksWithText } from './html-links.js';
 import { pickNextPage } from './page-selector.js';
 import { extractSitemapUrls, fetchRobotsPolicy, robotsAllows } from './robots.js';
 import { safeFetchText } from './safe-fetch.js';
@@ -77,7 +77,10 @@ export async function crawlSupplierSite(rootUrl: string, maxPages = 8): Promise<
   // so a page only reachable via a subpage's nav/footer, e.g. behind a
   // JS-only burger menu the homepage's static HTML never exposes, can still
   // be found, without spending crawl budget beyond maxPages.
-  let candidatePool = [...extractLinks(root.body, root.finalUrl), ...fromSitemap];
+  let candidatePool: Array<string | { href: string; text?: string }> = [
+    ...extractLinksWithText(root.body, root.finalUrl),
+    ...fromSitemap,
+  ];
 
   while (pages.length < maxPages) {
     const next = pickNextPage(root.finalUrl, candidatePool, fetched, url => robotsAllows(policy, url));
@@ -87,7 +90,7 @@ export async function crawlSupplierSite(rootUrl: string, maxPages = 8): Promise<
       await sleep(policy.crawlDelayMs);
       const response = await safeFetchText(next);
       pages.push({ url: response.finalUrl, contentType: response.contentType, html: response.body, bytes: response.bytes });
-      candidatePool = [...candidatePool, ...extractLinks(response.body, response.finalUrl)];
+      candidatePool = [...candidatePool, ...extractLinksWithText(response.body, response.finalUrl)];
     } catch (error) {
       failures.push({ url: next, error: error instanceof Error ? error.message : 'Unknown crawl error' });
     }
