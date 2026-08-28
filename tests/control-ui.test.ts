@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const html = readFileSync(new URL('../public/control.html', import.meta.url), 'utf8');
@@ -81,7 +81,7 @@ describe('Supplier Bot Control Centre review surface', () => {
     expect(html).toMatch(/if\(!settingsDirty\)\{\s*\$\('mode'\)\.value=s\.mode;/);
     expect(html).toContain("$('settingsForm').addEventListener('input',()=>{settingsDirty=true;});");
     expect(html).toContain("$('settingsForm').addEventListener('change',()=>{settingsDirty=true;});");
-    expect(html).toMatch(/settingsDirty=false;\s*await refresh\(\);/);
+    expect(html).toMatch(/settingsDirty=false;[\s\S]*?await refresh\(\);/);
   });
 
   it('lets an operator raise a campaign\'s own daily acquisition target and hard limit', () => {
@@ -106,7 +106,7 @@ describe('Supplier Bot Control Centre review surface', () => {
     expect(html).toContain('let campaignRowsDirty=false;');
     expect(html).toContain("$('campaignRows').addEventListener('input',()=>{campaignRowsDirty=true;});");
     expect(html).toMatch(/if\(!campaignRowsDirty\)\{\s*\$\('campaignRows'\)\.innerHTML=/);
-    expect(html).toMatch(/campaignRowsDirty=false;\s*await refresh\(\);/);
+    expect(html).toMatch(/campaignRowsDirty=false;[\s\S]*?await refresh\(\);/);
   });
 
   it('never lets the browser heuristically cache the dashboard HTML across a deploy', () => {
@@ -124,5 +124,50 @@ describe('Supplier Bot Control Centre review surface', () => {
     expect(catchAllIndex).toBeGreaterThan(-1);
     const catchAllBody = server.slice(catchAllIndex, server.indexOf('});', catchAllIndex));
     expect(catchAllBody).toContain("res.set('Cache-Control', 'no-store')");
+  });
+
+  it('shows the search-to-profile discovery audit trail and photo coverage metrics', () => {
+    // This is the operator's only window into *which real websites* the
+    // bot found, crawled and turned into a Shadow profile -- without it
+    // there is no way to check that discovery is finding actual supplier
+    // sites rather than directories, government pages or affiliate blogs.
+    expect(html).toContain('Discovery & crawl audit');
+    expect(html).toContain("request('/api/discovery-audit?limit=50')");
+    expect(html).toContain('id="auditRows"');
+    expect(html).toContain('Identified website');
+    expect(html).toContain('Pages visited');
+    expect(html).toContain('Photos identified');
+    expect(html).toContain('id="phase3Media"');
+    expect(html).toContain('id="phase3Images"');
+    expect(html).toContain('target="_blank" rel="noopener noreferrer"');
+    expect(html).not.toMatch(/<img\b/i);
+    expect(server).toContain("app.get('/api/discovery-audit'");
+    expect(server).toContain('getDiscoveryAudit(');
+  });
+
+  it('gives visible feedback for control actions instead of failing silently', () => {
+    expect(html).toContain('id="controlFeedback"');
+    expect(html).toContain('function setFeedback(');
+    expect(html).toContain("setFeedback('Queuing planning cycle…')");
+    expect(html).toContain('Planning cycle queued. The dashboard will update as jobs run.');
+  });
+
+  it('keeps the discovery audit endpoint behind authenticated API middleware', () => {
+    expect(server.indexOf("app.use('/api', requireSession)")).toBeLessThan(
+      server.indexOf("app.get('/api/discovery-audit'"),
+    );
+  });
+
+  it('never lets a stray public/index.html shadow the deployed dashboard', () => {
+    // express.static's default `index: 'index.html'` behaviour serves any
+    // same-directory index.html for GET / *before* the catch-all route
+    // below ever runs -- so a leftover index.html (e.g. an old dashboard
+    // duplicate nobody deleted) would silently and permanently shadow every
+    // deployed change to control.html, independent of the browser's cache,
+    // DNS or extensions. Both guards matter: index:false stops this class
+    // of bug outright, and the file must not exist at all so there is
+    // nothing left for a future express.static default change to revive.
+    expect(server).toContain('index: false,');
+    expect(existsSync(new URL('../public/index.html', import.meta.url))).toBe(false);
   });
 });
