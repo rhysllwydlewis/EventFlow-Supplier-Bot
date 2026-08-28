@@ -59,6 +59,15 @@ describe('supplier discovery quality gate', () => {
     ).toMatchObject({ eligible: false, reason: 'editorial_result' });
   });
 
+  it('keeps a genuine single-venue title that happens to use the same wording as roundups', () => {
+    expect(
+      evaluateDiscoverySearchResult(
+        result('https://examplecastle.co.uk/weddings', 'The Perfect Place to Get Married in Wales | Example Castle'),
+        'Venues',
+      ),
+    ).toMatchObject({ eligible: true });
+  });
+
   it('rejects listicles and editorial article paths even on otherwise valid supplier domains', () => {
     expect(
       evaluateDiscoverySearchResult(

@@ -79,8 +79,10 @@ const EDITORIAL_TITLE_PATTERNS = [
   /\bprices?\s*(?:&|and)\s*reviews?\b/i,
   /^(?:affordable|best|cheap|luxury|unique|historic)\b.*\bvenues?\b.*\b(?:in|near)\b/i,
   // Roundups often skip the word "venue" entirely ("16 of the Best Places to
-  // Get Married"), so match the phrase they actually use instead.
-  /\bplaces?\s+to\s+get\s+married\b/i,
+  // Get Married"), so match the phrase they actually use instead -- but
+  // require a leading number so a genuine single-venue title using the same
+  // wording ("The Perfect Place to Get Married in Wales") isn't rejected.
+  /\b\d+\s+(?:\w+\s+){0,3}places?\s+to\s+get\s+married\b/i,
 ] as const;
 
 const VENUE_TERMS = /\b(venue|venues|hotel|manor|castle|barn|estate|vineyard|country house|house|hall|resort|spa|farm)\b/i;
