@@ -19,7 +19,23 @@ describe('Shadow profile review reflects real publication status', () => {
     const handlerEnd = server.indexOf('\n});', handlerStart);
     const handler = server.slice(handlerStart, handlerEnd);
     expect(handler).toContain('publishedDomains.has(canonicalDomain(profile.website))');
-    expect(handler).toContain('const pending = profiles.filter(');
+    expect(handler).toContain('const pending = profiles');
+    expect(handler).toContain('.filter(profile => {');
+    expect(handler).toContain('.slice(0, limit);');
+  });
+
+  it('over-fetches shadow profiles before filtering, so already-published profiles near the top cannot starve the pending list', () => {
+    // listShadowProfiles(limit) is sorted newest-first and capped at exactly
+    // `limit` -- filtering already-published profiles out *after* capping at
+    // the requested page size would silently shrink (or empty) the pending
+    // list once enough of the newest profiles happen to already be
+    // published, hiding real pending profiles further back that were never
+    // fetched at all. Fetching a larger batch before filtering, then
+    // capping the *filtered* result to `limit`, is what keeps the page full.
+    const handlerStart = server.indexOf("app.get('/api/shadow-profile-reviews'");
+    const handlerEnd = server.indexOf('\n});', handlerStart);
+    const handler = server.slice(handlerStart, handlerEnd);
+    expect(handler).toContain('listShadowProfiles(Math.min(limit * 5, 500))');
   });
 
   it('exposes what has actually shipped to EventFlow, self-contained and reset-proof', () => {

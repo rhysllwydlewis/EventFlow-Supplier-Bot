@@ -324,21 +324,28 @@ app.get('/api/shadow-profiles', async (req, res, next) => {
 app.get('/api/shadow-profile-reviews', async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    // listShadowProfiles is capped at (and sorted newest-first within) the
+    // fetch size, so filtering *after* capping would silently shrink -- or
+    // even empty out -- the pending list once enough of the newest profiles
+    // happen to already be published, hiding real pending profiles further
+    // back that were never fetched. Over-fetch, filter, then cap for real.
     const [profiles, publishedDomains] = await Promise.all([
-      listShadowProfiles(limit),
+      listShadowProfiles(Math.min(limit * 5, 500)),
       listPublishedDomains(),
     ]);
     // Once a profile is actually live on EventFlow there's nothing left for
     // an operator to decide here -- leaving it showing "Ready" (compliance
     // eligibility, not publication status) reads as "still waiting on you"
     // when it's already done. It moves to /api/published-suppliers instead.
-    const pending = profiles.filter(profile => {
-      try {
-        return !publishedDomains.has(canonicalDomain(profile.website));
-      } catch {
-        return true;
-      }
-    });
+    const pending = profiles
+      .filter(profile => {
+        try {
+          return !publishedDomains.has(canonicalDomain(profile.website));
+        } catch {
+          return true;
+        }
+      })
+      .slice(0, limit);
     const assessments = await getComplianceAssessmentsForCandidates(pending.map(profile => profile.candidateId));
     const byCandidate = new Map(assessments.map(assessment => [assessment.candidateId, assessment]));
     res.json({
