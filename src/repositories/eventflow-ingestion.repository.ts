@@ -113,3 +113,19 @@ export async function listRetryableEventFlowCandidateIds(limit = 100): Promise<s
   ]).toArray();
   return rows.map(row => row.candidateId).filter(Boolean);
 }
+
+// A 'conflict' status means EventFlow itself rejected the publish attempt
+// because a supplier with that website already exists -- most often a real,
+// independently-registered business the bot separately discovered and
+// crawled. This is resolved, not pending: it will never become publishable
+// by waiting, so it must not be retried (listRetryableEventFlowCandidateIds
+// above deliberately excludes it) and must not sit looking actionable in
+// Shadow review forever either.
+export async function listConflictedEventFlowIngestions(limit = 100): Promise<EventFlowIngestionRecord[]> {
+  const store = await collection();
+  return store
+    .find({ status: 'conflict' })
+    .sort({ updatedAt: -1 })
+    .limit(Math.min(Math.max(limit, 1), 500))
+    .toArray();
+}
