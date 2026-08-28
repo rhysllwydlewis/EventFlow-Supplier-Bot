@@ -122,4 +122,27 @@ describe('Phase 2 EventFlow ingestion contract', () => {
     expect(workerSource).toContain('reconcileEventFlowPublicationQueue');
     expect(workerSource).toContain('QUEUE_NAMES.publication');
   });
+
+  it('retries an "ineligible" candidate too, since compliance reassessment can flip it back to eligible without ever touching eventflow_ingestions', () => {
+    // A candidate marked 'ineligible' (compliance/dedup/suppression refused
+    // it at the time) is not necessarily blocked forever: lowering
+    // minimumPublicationQuality wipes and re-scores every compliance
+    // assessment (invalidateAllComplianceAssessments, triggered from
+    // runtime-control.service.ts's updateRuntimeSettings), which can make a
+    // previously-ineligible candidate compliant again -- but that
+    // reassessment path never writes to eventflow_ingestions. Excluding
+    // 'ineligible' from the retry query left such a candidate showing
+    // "Ready" in Shadow review permanently, with nothing ever re-queuing it
+    // for actual publication.
+    expect(ingestionRepositorySource).toContain("{ 'ingestion.status': 'ineligible' }");
+    const matchStart = ingestionRepositorySource.indexOf('listRetryableEventFlowCandidateIds');
+    const matchEnd = ingestionRepositorySource.indexOf('$sort: { generatedAt: 1 }', matchStart);
+    const matchBlock = ingestionRepositorySource.slice(matchStart, matchEnd);
+    // Must sit alongside the other retryable statuses inside the same $or,
+    // not merely appear somewhere else in the file.
+    expect(matchBlock).toContain("{ ingestion: null }");
+    expect(matchBlock).toContain("{ 'ingestion.status': 'pending' }");
+    expect(matchBlock).toContain("{ 'ingestion.status': 'ineligible' }");
+    expect(matchBlock).toContain("{ 'ingestion.status': 'failed' }");
+  });
 });
