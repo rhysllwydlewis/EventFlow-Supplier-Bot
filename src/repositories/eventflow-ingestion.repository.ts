@@ -144,3 +144,21 @@ export async function listConflictedEventFlowIngestions(limit = 100): Promise<Ev
     .limit(Math.min(Math.max(limit, 1), 500))
     .toArray();
 }
+
+// A 'created'/'existing' status means EventFlow already confirmed this
+// candidate is live -- written directly and unconditionally by
+// processEventFlowPublication (via saveEventFlowIngestionState), unlike
+// published_suppliers.recordPublishedSupplier, which is a best-effort write
+// that can silently fail without ever blocking the publish it's recording.
+// This is the most reliable source for reconciling published_suppliers when
+// the two have drifted apart, since it's keyed by candidateId (no need for
+// the shadow profile's website to be looked up via an old audit trail that
+// may not have carried it) -- see published-supplier-backfill.service.ts.
+export async function listCreatedOrExistingEventFlowIngestions(limit = 500): Promise<EventFlowIngestionRecord[]> {
+  const store = await collection();
+  return store
+    .find({ status: { $in: ['created', 'existing'] } })
+    .sort({ updatedAt: -1 })
+    .limit(Math.min(Math.max(limit, 1), 500))
+    .toArray();
+}
