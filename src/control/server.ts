@@ -37,6 +37,7 @@ import {
   playBot,
   updateRuntimeSettings,
 } from '../services/runtime-control.service.js';
+import { rejectShadowProfile } from '../services/shadow-profile-review.service.js';
 import { loginWithAdminKey, logout, requireCsrf, requireSession, sessionInfo } from './auth.js';
 
 const VERSION = '0.8.0';
@@ -330,6 +331,24 @@ app.get('/api/shadow-profile-reviews', async (req, res, next) => {
       })),
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/shadow-profiles/:candidateId', requireCsrf, async (req, res, next) => {
+  try {
+    const candidateId = String(req.params.candidateId ?? '');
+    if (!candidateId) {
+      res.status(400).json({ error: 'candidateId is required' });
+      return;
+    }
+    await rejectShadowProfile(candidateId, 'control-admin');
+    res.status(204).end();
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Shadow profile not found') {
+      res.status(404).json({ error: error.message });
+      return;
+    }
     next(error);
   }
 });
