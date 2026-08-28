@@ -93,24 +93,27 @@ export async function listRetryableEventFlowCandidateIds(limit = 100): Promise<s
         $or: [
           { ingestion: null },
           { 'ingestion.status': 'pending' },
-          // 'ineligible' means "compliance/dedup/suppression refused this at
-          // the time it was last attempted" -- not "never retry again". It is
-          // re-derived fresh on every processEventFlowPublication run, so
-          // retrying it is cheap and self-correcting: a candidate that is
-          // still genuinely blocked (known non-supplier domain, do-not-list)
-          // just gets marked 'ineligible' again for near-zero cost. Without
-          // this, a candidate that failed compliance once and was later
-          // reassessed as eligible (e.g. an operator lowering
-          // minimumPublicationQuality, which wipes and re-scores every
-          // compliance_assessments record via
-          // invalidateAllComplianceAssessments -- see
-          // compliance-reassessment.service.ts) shows "Ready" in Shadow
-          // review forever, because reassessment never touches this
-          // collection and nothing else ever re-queues it for publication.
-          { 'ingestion.status': 'ineligible' },
           {
             $and: [
-              { 'ingestion.status': 'failed' },
+              // 'ineligible' means "compliance/dedup/suppression refused this
+              // at the time it was last attempted" -- not "never retry
+              // again". It is re-derived fresh on every
+              // processEventFlowPublication run, so retrying it is
+              // self-correcting: a candidate that failed compliance once and
+              // was later reassessed as eligible (e.g. an operator lowering
+              // minimumPublicationQuality, which wipes and re-scores every
+              // compliance_assessments record via
+              // invalidateAllComplianceAssessments -- see
+              // compliance-reassessment.service.ts) would otherwise show
+              // "Ready" in Shadow review forever, because reassessment never
+              // touches this collection and nothing else ever re-queues it.
+              // Backed off on the same exponential nextRetryAt schedule as
+              // 'failed' (markIneligible, eventflow-publication.service.ts)
+              // so a *structurally* ineligible candidate (a known
+              // non-supplier domain, an active suppression) doesn't
+              // re-qualify for retry on literally every 5-minute reconcile
+              // cycle forever.
+              { 'ingestion.status': { $in: ['failed', 'ineligible'] } },
               {
                 $or: [
                   { 'ingestion.nextRetryAt': null },
