@@ -153,6 +153,18 @@ export function isBlockedAddress(address: string): boolean {
   return true;
 }
 
+// The URL spec requires an IPv6 literal in an authority component to be
+// bracketed (new URL('http://[::1]/').hostname === '[::1]'), but
+// net.isIP() only recognizes the bare address -- isIP('[::1]') returns 0,
+// not 6. Without stripping the brackets first, isIP(host) is always falsy
+// for an IPv6-literal URL, so the blocklist branch below it never runs for
+// one. It fails safe today only because the still-bracketed hostname then
+// gets passed to dns.lookup(), which throws ENOTFOUND on the malformed
+// input -- not because the intended guard actually fired.
+function stripIpv6Brackets(host: string): string {
+  return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+}
+
 export function assertCrawlableUrl(input: string | URL): URL {
   const url = input instanceof URL ? new URL(input.href) : new URL(input);
   if (!['http:', 'https:'].includes(url.protocol)) {
@@ -168,7 +180,8 @@ export function assertCrawlableUrl(input: string | URL): URL {
   if (!host || BLOCKED_HOSTS.has(host) || BLOCKED_HOST_SUFFIXES.some(suffix => host.endsWith(suffix))) {
     throw new Error('Crawler destination is not public');
   }
-  if (isIP(host) && isBlockedAddress(host)) {
+  const ipCandidate = stripIpv6Brackets(host);
+  if (isIP(ipCandidate) && isBlockedAddress(ipCandidate)) {
     throw new Error('Crawler destination IP is not public');
   }
   return url;
@@ -181,12 +194,15 @@ export interface ApprovedAddress {
 
 export async function resolvePublicAddresses(url: URL): Promise<ApprovedAddress[]> {
   assertCrawlableUrl(url);
-  if (isIP(url.hostname)) {
-    const family = isIP(url.hostname) as 4 | 6;
-    if (isBlockedAddress(url.hostname)) {
+  const ipCandidate = stripIpv6Brackets(url.hostname);
+  const literalFamily = isIP(ipCandidate);
+  if (literalFamily) {
+    if (isBlockedAddress(ipCandidate)) {
       throw new Error('Crawler destination IP is not public');
     }
-    return [{ address: url.hostname, family }];
+    // Downstream socket options (http.request's hostname, net.connect's
+    // host) expect the bare address, not the bracketed URL-authority form.
+    return [{ address: ipCandidate, family: literalFamily as 4 | 6 }];
   }
 
   const resolved = await dns.lookup(url.hostname, { all: true, family: 0, order: 'verbatim' });

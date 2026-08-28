@@ -59,15 +59,24 @@ async function renderOne(
       throw new Error(`Browser crawler received HTTP ${response?.status() ?? 'unknown'}`);
     }
 
-    await page.waitForLoadState('networkidle', { timeout: env.BROWSER_RENDER_SETTLE_MS }).catch(() => undefined);
-    await page.waitForTimeout(Math.min(env.BROWSER_RENDER_SETTLE_MS, 2_500));
-
+    // page.url() already reflects the post-redirect destination as soon as
+    // goto() resolves -- checking robots.txt here, before letting the page
+    // settle further, avoids driving any *additional* activity (JS-triggered
+    // requests during the networkidle wait, the full rendered content
+    // extraction below) against a final URL that turns out to be
+    // robots-disallowed. The initial document fetch itself is unavoidable:
+    // Chromium's redirect chain isn't observable to know the final URL
+    // without letting navigation complete, but nothing past that is owed to
+    // a disallowed page.
     const finalUrl = assertCrawlableUrl(page.url());
     await resolvePublicAddresses(finalUrl);
     const finalPolicy = finalUrl.origin === target.origin ? policy : await fetchRobotsPolicy(finalUrl);
     if (!robotsAllows(finalPolicy, finalUrl)) {
       throw new Error('Browser crawler blocked by robots.txt after redirect');
     }
+
+    await page.waitForLoadState('networkidle', { timeout: env.BROWSER_RENDER_SETTLE_MS }).catch(() => undefined);
+    await page.waitForTimeout(Math.min(env.BROWSER_RENDER_SETTLE_MS, 2_500));
 
     const html = await page.content();
     const bytes = Buffer.byteLength(html, 'utf8');

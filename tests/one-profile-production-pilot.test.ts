@@ -57,6 +57,17 @@ describe('one-profile EventFlow production pilot', () => {
     expect(normalPublicationSource).toContain('!settings.publishingEnabled');
   });
 
+  it('threads the live publishingEnabled value through on the normal publication path too, not a hardcoded true', () => {
+    // A hardcoded `true` here was "safe" only because liveControlBlockReason
+    // immediately above it already proves the setting is true at this point
+    // -- but it can silently drift from the real Control setting if a
+    // future refactor moves or removes that earlier check. Passing the live
+    // value through, like the pilot path already does, makes that
+    // impossible instead of merely currently-true.
+    expect(normalPublicationSource).toContain('publishingEnabled: liveSettings.publishingEnabled');
+    expect(normalPublicationSource).not.toContain('publishingEnabled: true');
+  });
+
   it('blocks the pilot on the same mode/publishing gate as normal publication', () => {
     expect(pilotSource).toContain("if (settings.mode !== 'live') return 'mode_not_live'");
     expect(pilotSource).toContain("if (!settings.publishingEnabled) return 'publishing_disabled'");

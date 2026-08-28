@@ -31,7 +31,10 @@ export const aiEnrichmentSchema = z.object({
     priceDisplay: z.string().min(1).max(120),
     features: z.array(z.string().min(1).max(160)).max(30),
     evidenceIds,
-  })).max(20),
+  // Matches the wire JSON schema's maxItems: 10 for packages in
+  // ai-enrichment.service.ts, which is the constraint actually binding on
+  // what the model can return -- a looser cap here was dead and misleading.
+  })).max(10),
 });
 
 export type AiEnrichment = z.infer<typeof aiEnrichmentSchema>;

@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import { logger } from '../../lib/logger.js';
 import type {
   DiscoveryProvider,
   DiscoveryProviderCapabilities,
@@ -57,6 +58,18 @@ export class BraveDiscoveryProvider implements DiscoveryProvider {
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        // A generic "HTTP 429" log line reads the same as any other
+        // transient failure -- surfacing the provider's own Retry-After
+        // (when it sends one) gives an operator looking at logs the actual
+        // signal that this is rate-limiting specifically, not a one-off
+        // error, without building a full proactive-backoff mechanism this
+        // provider doesn't otherwise have.
+        logger.warn(
+          { retryAfter: response.headers.get('retry-after') },
+          'Brave Search rate-limited this request (HTTP 429)',
+        );
+      }
       throw new Error(`Brave Search failed with HTTP ${response.status}`);
     }
 

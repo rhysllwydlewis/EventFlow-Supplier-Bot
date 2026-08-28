@@ -4,7 +4,7 @@ import type { EvidenceFragment } from '../evidence/evidence.js';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 import { saveAiExtraction } from '../repositories/ai-extraction.repository.js';
-import { tryReserveDailyAiBudget } from './ai-budget.service.js';
+import { currentUtcDay, releaseDailyAiBudget, tryReserveDailyAiBudget } from './ai-budget.service.js';
 import {
   openAiCircuitAllowsRequest,
   recordOpenAiFailure,
@@ -506,10 +506,12 @@ export async function enrichShadowProfileWithAi(input: {
     return { profile: input.profile, status: 'disabled', model: env.OPENAI_EXTRACTION_MODEL, responseId: null };
   }
 
+  const reservationDay = currentUtcDay();
   const reserved = await tryReserveDailyAiBudget(
     input.hardBudgetGbp,
     env.ABSOLUTE_MAX_AI_SPEND_GBP_PER_DAY,
     env.OPENAI_BUDGET_RESERVATION_GBP_PER_CALL,
+    reservationDay,
   );
   if (!reserved) {
     return { profile: input.profile, status: 'budget_exhausted', model: env.OPENAI_EXTRACTION_MODEL, responseId: null };
@@ -560,6 +562,10 @@ export async function enrichShadowProfileWithAi(input: {
     };
   } catch (error) {
     await recordOpenAiFailure().catch(() => undefined);
+    // The reservation was claimed to cover the cost of a call that ended up
+    // never actually spending anything -- without releasing it, the budget
+    // ledger drifts further from the actual-cost ledger with every failure.
+    await releaseDailyAiBudget(env.OPENAI_BUDGET_RESERVATION_GBP_PER_CALL, reservationDay).catch(() => undefined);
     logger.warn(
       { err: error, candidateId: input.profile.candidateId, model: env.OPENAI_EXTRACTION_MODEL },
       'AI enrichment failed; deterministic Shadow profile retained',

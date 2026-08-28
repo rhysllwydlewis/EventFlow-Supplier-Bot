@@ -8,7 +8,7 @@ import {
 } from '../repositories/candidate.repository.js';
 import { getPublishedSupplierByDomain } from '../repositories/published-supplier.repository.js';
 import { isSuppressed } from '../repositories/suppression.repository.js';
-import { tryClaimDailyAcquisitionSlot } from './acquisition-budget.service.js';
+import { currentUtcDay, releaseDailyAcquisitionSlot, tryClaimDailyAcquisitionSlot } from './acquisition-budget.service.js';
 import { evaluateDiscoverySearchResult } from './discovery-result-quality.service.js';
 import { tryClaimProviderSearch } from './provider-usage.service.js';
 import { buildDiscoveryQueries } from './query-builder.service.js';
@@ -118,10 +118,12 @@ export async function runDiscoveryCycle(
         continue;
       }
 
+      const slotDay = currentUtcDay();
       const slotClaimed = await tryClaimDailyAcquisitionSlot(
         campaign.id,
         campaign.dailyHardLimit,
         globalHardLimit,
+        slotDay,
       );
       if (!slotClaimed) {
         result.limitReached = true;
@@ -143,6 +145,11 @@ export async function runDiscoveryCycle(
         result.candidateIdsCreated.push(saved.candidate.id);
       } else {
         result.duplicatesSkipped += 1;
+        // The domain-uniqueness race was lost at the database level -- no
+        // candidate was actually created here, so this slot claim was
+        // wasted and must be handed back rather than sitting spent for the
+        // rest of the day.
+        await releaseDailyAcquisitionSlot(campaign.id, slotDay);
       }
     }
   }

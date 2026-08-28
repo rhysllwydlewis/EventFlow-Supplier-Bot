@@ -79,23 +79,69 @@ function startOfUtcDayIso(): string {
 }
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+
+// A one-off scanner or a legitimate visitor's single mistyped key leaves an
+// entry here that nothing else ever removes -- over the life of a
+// long-running process, that's an unbounded amount of memory for IPs that
+// will never come back. Sweeping expired entries on every check keeps the
+// map bounded to roughly "distinct IPs active in the last 15 minutes".
+function pruneExpiredLoginAttempts(now: number): void {
+  for (const [key, bucket] of loginAttempts) {
+    if (bucket.resetAt <= now) loginAttempts.delete(key);
+  }
+}
+
 function loginRateLimit(req: Request, res: Response, next: NextFunction): void {
   const key = req.ip || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
-  const existing = loginAttempts.get(key);
-  const bucket = existing && existing.resetAt > now ? existing : { count: 0, resetAt: now + 15 * 60_000 };
-  bucket.count += 1;
-  loginAttempts.set(key, bucket);
-  if (bucket.count > 10) {
+  pruneExpiredLoginAttempts(now);
+  const bucket = loginAttempts.get(key) ?? { count: 0, resetAt: now + 15 * 60_000 };
+  if (bucket.count >= 10) {
     res.status(429).json({ error: 'Too many login attempts. Try again later.' });
     return;
   }
+  loginAttempts.set(key, bucket);
   next();
+}
+
+// Only a *failed* attempt should count against the limit -- incrementing on
+// every attempt (including a successful one) meant a legitimate admin who
+// simply logs in more than 10 times in 15 minutes (a flaky connection, a
+// few browser tabs) could lock themselves out.
+function recordFailedLoginAttempt(req: Request): void {
+  const key = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const bucket = loginAttempts.get(key) ?? { count: 0, resetAt: now + 15 * 60_000 };
+  bucket.count += 1;
+  loginAttempts.set(key, bucket);
 }
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
-app.use(helmet({ contentSecurityPolicy: false }));
+// control.html is a static file with an inline <script>/<style> (no
+// per-request templating to attach a nonce to), so 'unsafe-inline' is kept
+// for both -- this CSP's real value isn't stopping an injected inline
+// handler, it's the default-src/connect-src/img-src lockdown to 'self':
+// even if the escaping discipline this page currently relies on ever slips
+// on a future field, an injected payload can't load an external script,
+// exfiltrate over fetch()/XHR to an attacker-controlled origin, or beacon
+// via an external image.
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+}));
 app.use(compression());
 app.use(express.json({ limit: '64kb' }));
 app.use(pinoHttp({ logger }));
@@ -117,7 +163,12 @@ app.get('/ready', async (_req, res) => {
   }
 });
 
-app.post('/api/auth/login', loginRateLimit, loginWithAdminKey);
+app.post('/api/auth/login', loginRateLimit, (req, res) => {
+  loginWithAdminKey(req, res);
+  if (res.statusCode === 401) {
+    recordFailedLoginAttempt(req);
+  }
+});
 app.get('/api/auth/session', sessionInfo);
 app.post('/api/auth/logout', requireSession, requireCsrf, logout);
 
@@ -493,9 +544,12 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     res.status(400).json({ error: 'Validation failed', details: error.issues });
     return;
   }
-  const message = error instanceof Error ? error.message : 'Unexpected error';
   logger.error({ err: error }, 'Control API request failed');
-  res.status(500).json({ error: message });
+  // Every expected/operational error already has its own specific status
+  // code above this catch-all -- what reaches here is unexpected, so its
+  // message (which can be a raw Mongo driver string, a file path, or other
+  // internal detail) is for the server log, not the response body.
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 const workerId = `control-${hostname()}-${process.pid}`;
@@ -543,7 +597,15 @@ async function start(): Promise<void> {
       clearInterval(heartbeatTimer);
     }
     await heartbeat('stopping').catch(() => undefined);
-    server.close();
+    // server.close() alone only stops accepting new connections -- without
+    // awaiting it, Mongo/Redis are torn down immediately regardless of
+    // in-flight requests, unlike worker/index.ts's shutdown (which does
+    // await each BullMQ Worker.close()). A bounded timeout keeps a stuck
+    // connection from blocking shutdown indefinitely.
+    await Promise.race([
+      new Promise<void>(resolve => server.close(() => resolve())),
+      new Promise<void>(resolve => setTimeout(resolve, 10_000)),
+    ]);
     await closeQueues();
     await closeRedis();
     await closeMongo();
