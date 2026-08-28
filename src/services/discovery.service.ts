@@ -6,6 +6,7 @@ import {
   getCandidateByCanonicalDomain,
   upsertDiscoveredCandidate,
 } from '../repositories/candidate.repository.js';
+import { getPublishedSupplierByDomain } from '../repositories/published-supplier.repository.js';
 import { isSuppressed } from '../repositories/suppression.repository.js';
 import { tryClaimDailyAcquisitionSlot } from './acquisition-budget.service.js';
 import { evaluateDiscoverySearchResult } from './discovery-result-quality.service.js';
@@ -19,6 +20,7 @@ export interface DiscoveryCycleResult {
   candidateIdsCreated: string[];
   duplicatesSkipped: number;
   suppressedSkipped: number;
+  alreadyPublishedSkipped: number;
   qualityFilteredSkipped: number;
   persistenceBlocked: number;
   limitReached: boolean;
@@ -45,6 +47,7 @@ export async function runDiscoveryCycle(
     candidateIdsCreated: [],
     duplicatesSkipped: 0,
     suppressedSkipped: 0,
+    alreadyPublishedSkipped: 0,
     qualityFilteredSkipped: 0,
     persistenceBlocked: 0,
     limitReached: candidateLimit === 0,
@@ -79,6 +82,17 @@ export async function runDiscoveryCycle(
 
       if (await isSuppressed(domain, 'do_not_crawl')) {
         result.suppressedSkipped += 1;
+        continue;
+      }
+
+      // A Hard Reset wipes candidate history so the bot can start over, but
+      // must never make it forget a domain it has already published to
+      // EventFlow -- otherwise every future discovery cycle re-crawls,
+      // re-extracts and re-assesses suppliers already live on the site,
+      // burning real crawl and AI budget on work that's already done.
+      // published_suppliers is the durable record that survives a reset.
+      if (await getPublishedSupplierByDomain(domain)) {
+        result.alreadyPublishedSkipped += 1;
         continue;
       }
 

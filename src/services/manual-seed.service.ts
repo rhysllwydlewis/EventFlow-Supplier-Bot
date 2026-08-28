@@ -6,6 +6,7 @@ import {
   setCandidateStatus,
   upsertDiscoveredCandidate,
 } from '../repositories/candidate.repository.js';
+import { getPublishedSupplierByDomain } from '../repositories/published-supplier.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
 import { isSuppressed } from '../repositories/suppression.repository.js';
 import { canonicalDomain, canonicalizePublicHttpUrl } from '../utils/url.js';
@@ -50,6 +51,14 @@ export async function seedCandidate(input: ManualSeedInput) {
   // regardless), with no feedback until someone notices it stuck in review.
   if (isKnownNonSupplierDomain(domain)) {
     throw new Error('This domain is a directory, editorial, government or UGC site, not a supplier');
+  }
+  // Same reasoning as above, for a domain that is already a live EventFlow
+  // supplier (published via this pipeline or the one-profile pilot): a Hard
+  // Reset or a re-seed of a domain the operator has simply forgotten about
+  // would otherwise spend a full crawl/extraction/compliance cycle on a
+  // supplier that's already published.
+  if (await getPublishedSupplierByDomain(domain)) {
+    throw new Error('This domain is already a published EventFlow supplier');
   }
 
   const existing = await getCandidateByCanonicalDomain(domain);

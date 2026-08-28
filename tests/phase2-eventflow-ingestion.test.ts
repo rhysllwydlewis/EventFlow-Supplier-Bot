@@ -93,6 +93,28 @@ describe('Phase 2 EventFlow ingestion contract', () => {
     expect(runtimeControlSource).toContain('effectivePatch');
   });
 
+  it('records every successful publish as a durable, reset-proof published supplier', () => {
+    // Both the generic campaign pipeline and the one-profile pilot call
+    // this shared function to actually publish, so recording here (rather
+    // than in each caller separately) guarantees future discovery cycles
+    // can recognise any already-published domain regardless of which path
+    // published it -- and, critically, that record must survive a Hard
+    // Reset (published-supplier.repository.ts is explicitly excluded from
+    // hard-reset.service.ts's RESET_COLLECTIONS) or the whole point is lost.
+    expect(ingestionSource).toContain(
+      "import { recordPublishedSupplier } from '../repositories/published-supplier.repository.js';",
+    );
+    const recordIndex = ingestionSource.indexOf('await recordPublishedSupplier(');
+    const succeededIndex = ingestionSource.indexOf("'eventflow.ingestion_succeeded'");
+    expect(recordIndex).toBeGreaterThan(-1);
+    expect(recordIndex).toBeGreaterThan(succeededIndex);
+    // Best-effort: recording this must never fail the publish itself, which
+    // has already succeeded by the time this runs.
+    const recordBlockEnd = ingestionSource.indexOf('return {', recordIndex);
+    const recordBlock = ingestionSource.slice(recordIndex, recordBlockEnd);
+    expect(recordBlock).toContain('catch (error)');
+  });
+
   it('has a durable publication worker and reconciliation path', () => {
     expect(queueSource).toContain("getQueue('publication').add");
     expect(queueSource).toContain('listRetryableEventFlowCandidateIds');

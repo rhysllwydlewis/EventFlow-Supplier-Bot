@@ -24,4 +24,19 @@ describe('manual supplier seeding', () => {
     expect(checkIndex).toBeGreaterThan(suppressionIndex);
     expect(checkIndex).toBeLessThan(allowanceIndex);
   });
+
+  it('rejects a domain that is already a published EventFlow supplier', () => {
+    // A Hard Reset wipes candidate history so the operator can start over,
+    // but must never make the bot forget a domain it has already published
+    // -- otherwise a re-seed (deliberate or by an operator who's forgotten)
+    // spends a full crawl/extraction/compliance cycle re-processing a
+    // supplier that's already live.
+    expect(source).toContain(
+      "import { getPublishedSupplierByDomain } from '../repositories/published-supplier.repository.js';",
+    );
+    const checkIndex = source.indexOf('getPublishedSupplierByDomain(domain)');
+    const allowanceIndex = source.indexOf('remainingDailyAllowance(');
+    expect(checkIndex).toBeGreaterThan(-1);
+    expect(checkIndex).toBeLessThan(allowanceIndex);
+  });
 });

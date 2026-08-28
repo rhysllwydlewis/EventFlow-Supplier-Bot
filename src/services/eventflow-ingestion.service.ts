@@ -5,6 +5,8 @@ import type { ShadowProfile } from '../domain/shadow-profile.js';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 import { recordAuditEvent } from '../repositories/audit.repository.js';
+import { recordPublishedSupplier } from '../repositories/published-supplier.repository.js';
+import { canonicalDomain } from '../utils/url.js';
 
 export const PUBLIC_UNCLAIMED_SCOPE = 'public_unclaimed' as const;
 export const PILOT_UNCLAIMED_SCOPE = 'pilot_unclaimed' as const;
@@ -142,6 +144,26 @@ export async function ingestShadowProfileToEventFlow(input: {
       publicationScope: parsed.publicationScope ?? null,
       publicProfilePath: parsed.publicProfilePath ?? null,
     });
+    // Durable, reset-proof record that this domain is now a live EventFlow
+    // supplier -- checked at discovery time (discovery.service.ts) so a
+    // future Hard Reset (or any other candidate-history loss) can never
+    // cause the bot to rediscover, recrawl and re-extract a supplier it has
+    // already published. Best-effort: a failure here must never fail the
+    // publish itself, which has already succeeded by this point.
+    try {
+      await recordPublishedSupplier({
+        canonicalDomain: canonicalDomain(input.profile.website),
+        supplierId: parsed.supplierId,
+        slug: parsed.slug,
+        publicProfilePath: parsed.publicProfilePath ?? null,
+        source: input.publicationScope === PILOT_UNCLAIMED_SCOPE ? 'pilot' : 'campaign',
+      });
+    } catch (error) {
+      logger.error(
+        { err: error, candidateId: input.profile.candidateId },
+        'Failed to record published supplier for future duplicate-discovery prevention',
+      );
+    }
     return {
       status: parsed.created ? 'created' : 'existing',
       supplierId: parsed.supplierId,
