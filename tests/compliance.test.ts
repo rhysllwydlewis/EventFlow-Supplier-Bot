@@ -118,6 +118,31 @@ describe('Shadow compliance gate', () => {
     expect(assessment.reasons).toContain('quality_below_publication_threshold');
   });
 
+  it('blocks a known directory/editorial/government/UGC domain and keeps the review table honest', () => {
+    // eventflow-publication.service.ts independently refuses to publish
+    // these domains regardless of compliance, but that check is invisible
+    // from the Control dashboard's Shadow profile review table -- without
+    // catching it here too, an operator would see "Ready" for a candidate
+    // that can never actually publish.
+    const assessment = assessShadowProfileCompliance({
+      profile: { ...deterministic, website: 'https://www.hitched.co.uk/wedding-venues/' },
+      evidence,
+      minimumPublicationQuality: 75,
+    });
+    expect(assessment.publicationEligible).toBe(false);
+    expect(assessment.status).toBe('block');
+    expect(assessment.reasons).toContain('non_supplier_domain');
+  });
+
+  it('does not block a genuine supplier domain that merely resembles a directory in wording', () => {
+    const assessment = assessShadowProfileCompliance({
+      profile: deterministic,
+      evidence,
+      minimumPublicationQuality: 75,
+    });
+    expect(assessment.reasons).not.toContain('non_supplier_domain');
+  });
+
   it('blocks profiles that claim provenance which was not supplied to the assessment', () => {
     const assessment = assessShadowProfileCompliance({
       profile: { ...deterministic, evidenceIds: ['evidence_1', 'evidence_missing'] },
