@@ -65,6 +65,18 @@ describe('Phase 1 final hardening regressions', () => {
     expect(mongoLease).toContain('clearInterval(renewTimer)');
   });
 
+  it('matches potential identity duplicates on canonical domain, not just name/email/phone/location', () => {
+    // Same-domain is the single highest-value dedup signal, but the match
+    // query never queried by it -- the safety outcome was only correct
+    // because claimStrongIdentityKeys (a separate mechanism) also keys on
+    // domain and caught the collision after the fact, with a less accurate
+    // audit-trail label.
+    const matchStart = identityRepository.indexOf('export async function findPotentialIdentityMatches(');
+    const matchBody = identityRepository.slice(matchStart, matchStart + 800);
+    expect(matchBody).toContain('clauses.push({ canonicalDomain: identity.canonicalDomain })');
+    expect(mongo).toContain("db.collection('supplier_identities').createIndex({ canonicalDomain: 1 })");
+  });
+
   it('does not let a duplicate-domain conflict on an already-populated collection crash server startup', () => {
     // published_suppliers ran without a unique constraint on canonicalDomain
     // until this index was added, so a duplicate can already exist in a live
@@ -101,6 +113,18 @@ describe('Phase 1 final hardening regressions', () => {
     // tunnel would keep it from ever resolving.
     expect(browserNetworkProxy).toContain("server.on('connection'");
     expect(browserNetworkProxy).toContain('for (const socket of sockets) socket.destroy()');
+  });
+
+  it('indexes shadow_profiles.generatedAt, candidates.discoveredAt and audit_events.action', () => {
+    // These three real query patterns previously had nothing covering
+    // them: listShadowProfiles sorts by generatedAt every reconcile cycle,
+    // countCandidatesDiscoveredSince(ForCampaign) filters by discoveredAt
+    // on every discovery job and coverage-plan cycle, and
+    // listAuditEventsByAction filters by action against indexes that only
+    // covered createdAt/actor.
+    expect(mongo).toContain("db.collection('shadow_profiles').createIndex({ generatedAt: -1 })");
+    expect(mongo).toContain("db.collection('candidates').createIndex({ discoveredAt: -1 })");
+    expect(mongo).toContain("db.collection('audit_events').createIndex({ action: 1, createdAt: -1 })");
   });
 
   it('fails closed on temporary robots errors and respects sitemap request cadence', () => {

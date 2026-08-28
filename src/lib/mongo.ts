@@ -29,9 +29,16 @@ export async function ensureMongoIndexes(): Promise<void> {
     db.collection('worker_heartbeats').createIndex({ updatedAt: -1 }),
     db.collection('audit_events').createIndex({ createdAt: -1 }),
     db.collection('audit_events').createIndex({ actor: 1, createdAt: -1 }),
+    // listAuditEventsByAction filters by action and sorts by createdAt --
+    // without this, it falls back to the createdAt-only index above and
+    // scans every event to find the ones matching action.
+    db.collection('audit_events').createIndex({ action: 1, createdAt: -1 }),
     db.collection('candidates').createIndex({ canonicalDomain: 1 }, { unique: true, sparse: true }),
     db.collection('candidates').createIndex({ status: 1, updatedAt: -1 }),
     db.collection('candidates').createIndex({ dedupDecision: 1, updatedAt: -1 }),
+    // Filtered on every discovery job and every coverage-plan cycle
+    // (countCandidatesDiscoveredSince / countCandidatesDiscoveredSinceForCampaign).
+    db.collection('candidates').createIndex({ discoveredAt: -1 }),
     db.collection('evidence_fragments').createIndex({ candidateId: 1, observedAt: 1 }),
     db.collection('provider_usage').createIndex({ provider: 1, day: 1 }, { unique: true }),
     db.collection('ai_usage').createIndex({ provider: 1, day: 1 }, { unique: true }),
@@ -41,6 +48,9 @@ export async function ensureMongoIndexes(): Promise<void> {
     db.collection('compliance_assessments').createIndex({ candidateId: 1 }, { unique: true }),
     db.collection('compliance_assessments').createIndex({ publicationEligible: 1, seoIndexEligible: 1, assessedAt: -1 }),
     db.collection('supplier_identities').createIndex({ candidateId: 1 }, { unique: true }),
+    // Backs the canonicalDomain clause in findPotentialIdentityMatches --
+    // without it, that $or branch would need a full collection scan.
+    db.collection('supplier_identities').createIndex({ canonicalDomain: 1 }),
     db.collection('supplier_identities').createIndex({ normalizedName: 1, normalizedLocation: 1, normalizedCategory: 1 }),
     db.collection('supplier_identities').createIndex({ normalizedEmail: 1 }, { sparse: true }),
     db.collection('supplier_identities').createIndex({ normalizedPhone: 1 }, { sparse: true }),
@@ -52,6 +62,9 @@ export async function ensureMongoIndexes(): Promise<void> {
     db.collection('eventflow_ingestions').createIndex({ candidateId: 1 }, { unique: true }),
     db.collection('eventflow_ingestions').createIndex({ status: 1, nextRetryAt: 1, updatedAt: -1 }),
     db.collection('published_suppliers').createIndex({ publishedAt: -1 }),
+    // shadow_profiles had no index at all, yet the reconcile cycle sorts it
+    // by generatedAt every 5 minutes (listShadowProfiles).
+    db.collection('shadow_profiles').createIndex({ generatedAt: -1 }),
   ]);
 
   // published_suppliers is checked once per discovered search result on the

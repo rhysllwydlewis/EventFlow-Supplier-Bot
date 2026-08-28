@@ -33,7 +33,7 @@ export class SafeFetchError extends Error {
 
 const DEFAULT_CONTENT_TYPES = ['text/html', 'application/xhtml+xml', 'text/plain'];
 
-function requestPinned(
+export function requestPinned(
   url: URL,
   address: string,
   family: 4 | 6,
@@ -90,9 +90,14 @@ function requestPinned(
       });
     });
 
-    req.setTimeout(options.timeoutMs, () => {
+    // req.setTimeout is an *idle* timeout -- it resets on every byte of
+    // activity, so a server dripping the response one byte at a time never
+    // triggers it and can hold this worker slot open indefinitely past
+    // options.timeoutMs. An absolute deadline fires regardless of activity.
+    const deadline = setTimeout(() => {
       req.destroy(new Error(`Crawler request timed out after ${options.timeoutMs}ms`));
-    });
+    }, options.timeoutMs);
+    req.on('close', () => clearTimeout(deadline));
     req.on('error', reject);
     req.end();
   });

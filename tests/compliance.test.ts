@@ -143,6 +143,33 @@ describe('Shadow compliance gate', () => {
     expect(assessment.reasons).not.toContain('non_supplier_domain');
   });
 
+  it('blocks auto-publication of a profile with no location', () => {
+    // missing_location previously only downgraded the dashboard `status` to
+    // 'review' without being in blockingReasons -- but the actual publish
+    // path (eventflow-publication.service.ts) checks only
+    // publicationEligible, not status, so a profile with contact info but
+    // no address could clear the quality bar and auto-publish anyway.
+    const assessment = assessShadowProfileCompliance({
+      profile: { ...deterministic, location: '' },
+      evidence,
+      minimumPublicationQuality: 75,
+    });
+    expect(assessment.publicationEligible).toBe(false);
+    expect(assessment.status).toBe('block');
+    expect(assessment.reasons).toContain('missing_location');
+  });
+
+  it('blocks auto-publication of a profile with no services listed', () => {
+    const assessment = assessShadowProfileCompliance({
+      profile: { ...deterministic, services: [] },
+      evidence,
+      minimumPublicationQuality: 75,
+    });
+    expect(assessment.publicationEligible).toBe(false);
+    expect(assessment.status).toBe('block');
+    expect(assessment.reasons).toContain('missing_service_depth');
+  });
+
   it('blocks profiles that claim provenance which was not supplied to the assessment', () => {
     const assessment = assessShadowProfileCompliance({
       profile: { ...deterministic, evidenceIds: ['evidence_1', 'evidence_missing'] },
