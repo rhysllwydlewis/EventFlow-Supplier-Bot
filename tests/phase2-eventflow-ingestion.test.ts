@@ -122,4 +122,52 @@ describe('Phase 2 EventFlow ingestion contract', () => {
     expect(workerSource).toContain('reconcileEventFlowPublicationQueue');
     expect(workerSource).toContain('QUEUE_NAMES.publication');
   });
+
+  it('retries an "ineligible" candidate too, since compliance reassessment can flip it back to eligible without ever touching eventflow_ingestions', () => {
+    // A candidate marked 'ineligible' (compliance/dedup/suppression refused
+    // it at the time) is not necessarily blocked forever: lowering
+    // minimumPublicationQuality wipes and re-scores every compliance
+    // assessment (invalidateAllComplianceAssessments, triggered from
+    // runtime-control.service.ts's updateRuntimeSettings), which can make a
+    // previously-ineligible candidate compliant again -- but that
+    // reassessment path never writes to eventflow_ingestions. Excluding
+    // 'ineligible' from the retry query left such a candidate showing
+    // "Ready" in Shadow review permanently, with nothing ever re-queuing it
+    // for actual publication.
+    const matchStart = ingestionRepositorySource.indexOf('listRetryableEventFlowCandidateIds');
+    const matchEnd = ingestionRepositorySource.indexOf('$sort: { generatedAt: 1 }', matchStart);
+    const matchBlock = ingestionRepositorySource.slice(matchStart, matchEnd);
+    // Must sit alongside the other retryable statuses inside the same $or,
+    // not merely appear somewhere else in the file.
+    expect(matchBlock).toContain("{ ingestion: null }");
+    expect(matchBlock).toContain("{ 'ingestion.status': 'pending' }");
+    expect(matchBlock).toContain("{ 'ingestion.status': { $in: ['failed', 'ineligible'] } }");
+  });
+
+  it('backs off a retried "ineligible" candidate on the same exponential schedule as "failed", instead of retrying it every 5-minute reconcile cycle forever', () => {
+    // A *structurally* ineligible candidate (a known non-supplier domain, an
+    // active do-not-list suppression) will never stop being ineligible --
+    // without a backoff it would re-qualify for retry on every single
+    // system-reconcile run (every 5 minutes, worker/index.ts), forever,
+    // crowding listRetryableEventFlowCandidateIds's limited window with
+    // candidates that will never actually change.
+    expect(publicationSource).toContain('async function markIneligible(candidateId: string, reason: string)');
+    const markIneligibleStart = publicationSource.indexOf('async function markIneligible');
+    const markIneligibleEnd = publicationSource.indexOf('\n}', markIneligibleStart);
+    const markIneligibleFn = publicationSource.slice(markIneligibleStart, markIneligibleEnd);
+    expect(markIneligibleFn).toContain('incrementAttempts: true');
+    expect(markIneligibleFn).toContain('nextRetryAt: retryAt(nextAttempt)');
+    // Every ineligible-marking call site outside the helper itself must go
+    // through it, not saveEventFlowIngestionState directly (which would
+    // silently drop back to being retried on every cycle).
+    const outsideHelper = publicationSource.slice(markIneligibleEnd);
+    expect(outsideHelper).not.toMatch(/status:\s*'ineligible'/);
+    expect(publicationSource.match(/await markIneligible\(/g)?.length).toBeGreaterThanOrEqual(7);
+    const matchBlock = ingestionRepositorySource.slice(
+      ingestionRepositorySource.indexOf('listRetryableEventFlowCandidateIds'),
+      ingestionRepositorySource.indexOf('$sort: { generatedAt: 1 }'),
+    );
+    expect(matchBlock).toContain("{ 'ingestion.nextRetryAt': null }");
+    expect(matchBlock).toContain("{ 'ingestion.nextRetryAt': { $lte: now } }");
+  });
 });

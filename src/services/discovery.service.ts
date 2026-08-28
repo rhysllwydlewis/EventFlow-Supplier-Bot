@@ -10,6 +10,7 @@ import { getPublishedSupplierByDomain } from '../repositories/published-supplier
 import { isSuppressed } from '../repositories/suppression.repository.js';
 import { currentUtcDay, releaseDailyAcquisitionSlot, tryClaimDailyAcquisitionSlot } from './acquisition-budget.service.js';
 import { evaluateDiscoverySearchResult } from './discovery-result-quality.service.js';
+import { eventFlowAlreadyHasSupplierForDomain } from './eventflow-supplier-lookup.service.js';
 import { tryClaimProviderSearch } from './provider-usage.service.js';
 import { buildDiscoveryQueries } from './query-builder.service.js';
 
@@ -22,6 +23,7 @@ export interface DiscoveryCycleResult {
   duplicatesSkipped: number;
   suppressedSkipped: number;
   alreadyPublishedSkipped: number;
+  alreadyOnEventFlowSkipped: number;
   qualityFilteredSkipped: number;
   persistenceBlocked: number;
   limitReached: boolean;
@@ -49,6 +51,7 @@ export async function runDiscoveryCycle(
     duplicatesSkipped: 0,
     suppressedSkipped: 0,
     alreadyPublishedSkipped: 0,
+    alreadyOnEventFlowSkipped: 0,
     qualityFilteredSkipped: 0,
     persistenceBlocked: 0,
     limitReached: candidateLimit === 0,
@@ -115,6 +118,20 @@ export async function runDiscoveryCycle(
 
       if (await getCandidateByCanonicalDomain(domain)) {
         result.duplicatesSkipped += 1;
+        continue;
+      }
+
+      // Placed after every free local check (published_suppliers,
+      // candidate dedup) so this network round-trip is only ever spent on a
+      // domain that's genuinely new to the bot -- about to have real crawl
+      // and AI budget committed to it. Catches what published_suppliers
+      // structurally can't: a business that signed up for EventFlow
+      // directly, which this bot has no other way of ever learning about.
+      // Best-effort and fail-open (see eventflow-supplier-lookup.service.ts)
+      // -- an unreachable EventFlow never blocks discovery, it just loses
+      // this one optimisation for this one cycle.
+      if (await eventFlowAlreadyHasSupplierForDomain(domain)) {
+        result.alreadyOnEventFlowSkipped += 1;
         continue;
       }
 

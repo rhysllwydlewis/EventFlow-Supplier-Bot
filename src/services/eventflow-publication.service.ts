@@ -32,6 +32,27 @@ function retryAt(attempt: number): string {
   return new Date(Date.now() + delayMs).toISOString();
 }
 
+// 'ineligible' is retried (listRetryableEventFlowCandidateIds) because the
+// block can lift -- a compliance reassessment, a lifted do-not-list
+// suppression, a resolved dedup decision. But the system-reconcile job runs
+// every 5 minutes forever, and a *structurally* ineligible candidate (a
+// known non-supplier domain, an active suppression) will keep re-qualifying
+// for retry indefinitely otherwise, crowding the retry query's limited
+// window with candidates that will never actually change. Back it off with
+// the same exponential schedule already used for 'failed' (capped at 6h)
+// instead of hammering it every single cycle.
+async function markIneligible(candidateId: string, reason: string): Promise<void> {
+  const previous = await getEventFlowIngestion(candidateId);
+  const nextAttempt = (previous?.attempts ?? 0) + 1;
+  await saveEventFlowIngestionState({
+    candidateId,
+    status: 'ineligible',
+    reason,
+    incrementAttempts: true,
+    nextRetryAt: retryAt(nextAttempt),
+  });
+}
+
 function publicationControlBlockReason(settings: {
   mode: string;
   runState: string;
@@ -54,20 +75,12 @@ export async function processEventFlowPublication(candidateId: string): Promise<
   ]);
 
   if (!profile || !candidate) {
-    await saveEventFlowIngestionState({
-      candidateId,
-      status: 'ineligible',
-      reason: 'missing_shadow_profile_or_candidate',
-    });
+    await markIneligible(candidateId, 'missing_shadow_profile_or_candidate');
     return { skipped: true, reason: 'missing_shadow_profile_or_candidate' };
   }
 
   if (await isSuppressed(candidate.canonicalDomain, 'do_not_list')) {
-    await saveEventFlowIngestionState({
-      candidateId,
-      status: 'ineligible',
-      reason: 'do_not_list_suppression',
-    });
+    await markIneligible(candidateId, 'do_not_list_suppression');
     return { skipped: true, reason: 'do_not_list_suppression' };
   }
 
@@ -76,11 +89,7 @@ export async function processEventFlowPublication(candidateId: string): Promise<
   // editorial, government or UGC domain must never be published as if it
   // were the supplier itself.
   if (isKnownNonSupplierDomain(candidate.canonicalDomain)) {
-    await saveEventFlowIngestionState({
-      candidateId,
-      status: 'ineligible',
-      reason: 'known_non_supplier_domain',
-    });
+    await markIneligible(candidateId, 'known_non_supplier_domain');
     return { skipped: true, reason: 'known_non_supplier_domain' };
   }
 
@@ -88,11 +97,14 @@ export async function processEventFlowPublication(candidateId: string): Promise<
     const reason = candidate.dedupDecision
       ? `identity_${candidate.dedupDecision}`
       : 'identity_dedup_not_ready';
-    await saveEventFlowIngestionState({
-      candidateId,
-      status: candidate.dedupDecision ? 'ineligible' : 'pending',
-      reason,
-    });
+    if (candidate.dedupDecision) {
+      await markIneligible(candidateId, reason);
+    } else {
+      // Dedup hasn't reached a decision yet at all -- not a refusal, just
+      // not ready, so it keeps the tight untimed 'pending' retry cadence
+      // rather than the ineligible backoff.
+      await saveEventFlowIngestionState({ candidateId, status: 'pending', reason });
+    }
     return { skipped: true, reason };
   }
 
@@ -131,11 +143,7 @@ export async function processEventFlowPublication(candidateId: string): Promise<
     }));
 
     if (!compliance.publicationEligible) {
-      await saveEventFlowIngestionState({
-        candidateId,
-        status: 'ineligible',
-        reason: `compliance_${compliance.status}`,
-      });
+      await markIneligible(candidateId, `compliance_${compliance.status}`);
       return { skipped: true, reason: 'compliance_not_publication_eligible' };
     }
 
@@ -153,20 +161,12 @@ export async function processEventFlowPublication(candidateId: string): Promise<
     // Suppression is rechecked immediately before the external write so a
     // do-not-list decision made while compliance was being assessed wins the race.
     if (await isSuppressed(candidate.canonicalDomain, 'do_not_list')) {
-      await saveEventFlowIngestionState({
-        candidateId,
-        status: 'ineligible',
-        reason: 'do_not_list_suppression',
-      });
+      await markIneligible(candidateId, 'do_not_list_suppression');
       return { skipped: true, reason: 'do_not_list_suppression' };
     }
 
     if (isKnownNonSupplierDomain(candidate.canonicalDomain)) {
-      await saveEventFlowIngestionState({
-        candidateId,
-        status: 'ineligible',
-        reason: 'known_non_supplier_domain',
-      });
+      await markIneligible(candidateId, 'known_non_supplier_domain');
       return { skipped: true, reason: 'known_non_supplier_domain' };
     }
 
@@ -203,12 +203,14 @@ export async function processEventFlowPublication(candidateId: string): Promise<
       });
       return result;
     }
-    if (result.status === 'conflict' || result.status === 'ineligible') {
-      await saveEventFlowIngestionState({
-        candidateId,
-        status: result.status,
-        reason: result.reason,
-      });
+    if (result.status === 'conflict') {
+      // Terminal, not backed off -- listRetryableEventFlowCandidateIds
+      // deliberately never retries 'conflict' at all (see its own comment).
+      await saveEventFlowIngestionState({ candidateId, status: 'conflict', reason: result.reason });
+      return result;
+    }
+    if (result.status === 'ineligible') {
+      await markIneligible(candidateId, result.reason);
       return result;
     }
     if (result.status === 'disabled' || result.status === 'not_configured') {

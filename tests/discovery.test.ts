@@ -22,6 +22,26 @@ describe('discovery cycle', () => {
     expect(source).toContain('alreadyPublishedSkipped');
   });
 
+  it('checks EventFlow directly for a business that signed up on its own, before claiming a daily slot', () => {
+    // published_suppliers only ever gets a row from this bot's own
+    // successful publishes -- it structurally cannot know about a business
+    // that registered on EventFlow directly. Checked after every free local
+    // check (published_suppliers, candidate dedup) so the network call is
+    // only ever spent on a domain that's genuinely new to the bot, and
+    // before tryClaimDailyAcquisitionSlot so it doesn't even consume a slot.
+    expect(source).toContain(
+      "import { eventFlowAlreadyHasSupplierForDomain } from './eventflow-supplier-lookup.service.js';",
+    );
+    const publishedCheckIndex = source.indexOf('await getPublishedSupplierByDomain(domain)');
+    const candidateCheckIndex = source.indexOf('await getCandidateByCanonicalDomain(domain)');
+    const eventFlowCheckIndex = source.indexOf('await eventFlowAlreadyHasSupplierForDomain(domain)');
+    const claimIndex = source.indexOf('await tryClaimDailyAcquisitionSlot(');
+    expect(eventFlowCheckIndex).toBeGreaterThan(publishedCheckIndex);
+    expect(eventFlowCheckIndex).toBeGreaterThan(candidateCheckIndex);
+    expect(eventFlowCheckIndex).toBeLessThan(claimIndex);
+    expect(source).toContain('alreadyOnEventFlowSkipped');
+  });
+
   it('claims a daily provider-search slot before every search call, not just an acquisition slot', () => {
     // A search is issued once per query regardless of how many results
     // survive quality filtering, suppression or dedup -- without its own

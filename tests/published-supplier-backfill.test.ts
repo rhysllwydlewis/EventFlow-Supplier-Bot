@@ -52,4 +52,47 @@ describe('Backfilling published_suppliers from ingestion audit history', () => {
     // that found something.
     expect(backfillService).toContain("'published_suppliers backfill from ingestion audit history complete'");
   });
+
+  it('also reconciles directly from eventflow_ingestions, which is written unconditionally unlike the best-effort published_suppliers write', () => {
+    // recordPublishedSupplier (published-supplier.repository.ts) is wrapped
+    // in a try/catch specifically so a failure there can never fail the
+    // publish it's recording (eventflow-ingestion.service.ts) -- which means
+    // it can silently leave published_suppliers missing a row for a
+    // candidate that really is live on EventFlow, with nothing else ever
+    // correcting it. This pass recovers that: the same candidateId's
+    // eventflow_ingestions record still says 'created'/'existing' and its
+    // shadow profile is still right there in Shadow review, but
+    // published_suppliers was never linked back. (It does not cover a Hard
+    // Reset followed by rediscovery under a new candidateId -- that case is
+    // wiped from eventflow_ingestions too, and self-resolves instead via a
+    // fresh publish attempt correctly hitting a 409 conflict and landing in
+    // Blocked; see the comment above backfillFromIngestionRecords.)
+    expect(backfillService).toContain(
+      "import { listCreatedOrExistingEventFlowIngestions } from '../repositories/eventflow-ingestion.repository.js';",
+    );
+    expect(backfillService).toContain('async function backfillFromIngestionRecords()');
+    expect(backfillService).toContain('await listCreatedOrExistingEventFlowIngestions(');
+    expect(backfillService).toContain('await getShadowProfile(ingestion.candidateId)');
+    const ingestionFnStart = backfillService.indexOf('async function backfillFromIngestionRecords()');
+    const ingestionFnEnd = backfillService.indexOf('\n}', backfillService.indexOf('await recordPublishedSupplier(', ingestionFnStart));
+    const ingestionFn = backfillService.slice(ingestionFnStart, ingestionFnEnd);
+    expect(ingestionFn).toContain('await getPublishedSupplierByDomain(domain)');
+    expect(ingestionFn).toContain('supplierId: ingestion.supplierId');
+    expect(ingestionFn).toContain('slug: ingestion.slug');
+  });
+
+  it('runs both reconciliation passes on every backfill and sums their totals', () => {
+    expect(backfillService).toContain('async function backfillFromAuditHistory()');
+    const runBackfillStart = backfillService.indexOf('async function runBackfill()');
+    const runBackfillEnd = backfillService.indexOf('\n}', runBackfillStart);
+    const runBackfillFn = backfillService.slice(runBackfillStart, runBackfillEnd);
+    expect(runBackfillFn).toContain('backfillFromAuditHistory()');
+    expect(runBackfillFn).toContain('backfillFromIngestionRecords()');
+  });
+
+  it('exposes a repository query for created/existing ingestions distinct from the conflicted-ingestions query', () => {
+    const ingestionRepository = readFileSync('src/repositories/eventflow-ingestion.repository.ts', 'utf8');
+    expect(ingestionRepository).toContain('export async function listCreatedOrExistingEventFlowIngestions');
+    expect(ingestionRepository).toContain("status: { $in: ['created', 'existing'] } }");
+  });
 });
