@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loginWithAdminKey, logout, requireCsrf, requireSession, sessionInfo } from '../src/control/auth.js';
@@ -53,6 +54,15 @@ function mockRequest(cookie?: string, headers: Record<string, string> = {}, body
 
 function extractCookieValue(setCookieHeader: string): string {
   return setCookieHeader.split(';')[0]!.split('=').slice(1).join('=');
+}
+
+// Mirrors auth.ts's own signing scheme so a forged-but-validly-signed token
+// can be built directly, to exercise payload shapes loginWithAdminKey would
+// never itself produce.
+function signedCookieFor(rawJson: string): string {
+  const encoded = Buffer.from(rawJson, 'utf8').toString('base64url');
+  const sig = createHmac('sha256', 'test-control-session-secret-0000000000000000').update(encoded).digest('base64url');
+  return `ef_supplier_bot_session=${encoded}.${sig}`;
 }
 
 async function login(): Promise<{ cookie: string; csrfToken: string }> {
@@ -130,6 +140,21 @@ describe('control panel session auth', () => {
     const res = mockResponse();
     loginWithAdminKey(mockRequest(undefined, {}, { key: 'test-control-admin-key-0000000000' }), res);
     expect(res.headers['Set-Cookie']).toContain('; Secure');
+  });
+
+  it('rejects a validly-signed token whose payload is a non-object JSON value, without throwing', async () => {
+    // A signed-but-degenerate payload (here, literally "null") must be
+    // rejected with 401, not crash the request: JSON.parse('null') succeeds
+    // without throwing, so a shape check that runs after the try/catch
+    // (rather than inside it) would throw when reading a property off
+    // `null`, turning what should be a 401 into an unhandled rejection.
+    for (const rawJson of ['null', '42', '"just a string"', '[]']) {
+      const next = vi.fn();
+      const res = mockResponse();
+      await expect(requireSession(mockRequest(signedCookieFor(rawJson)), res, next)).resolves.toBeUndefined();
+      expect(next).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(401);
+    }
   });
 
   it('does not let one session revocation affect a different, still-valid session', async () => {

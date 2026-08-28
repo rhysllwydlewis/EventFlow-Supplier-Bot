@@ -79,11 +79,20 @@ async function parseSession(req: Request): Promise<SessionPayload | null> {
   }
   let payload: SessionPayload;
   try {
-    payload = JSON.parse(decode(payloadPart)) as SessionPayload;
+    // JSON.parse succeeds (without throwing) for any valid JSON value, not
+    // just objects -- a decoded payload of "null" or "42" would otherwise
+    // reach the field checks below and throw when a property is read off a
+    // non-object, outside this try/catch. Both the parse and the shape
+    // check have to be covered by the same catch.
+    const parsed: unknown = JSON.parse(decode(payloadPart));
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+    payload = parsed as SessionPayload;
+    if (payload.v !== 1 || !payload.csrf || !payload.sid || !Number.isFinite(payload.exp) || payload.exp < Date.now()) {
+      return null;
+    }
   } catch {
-    return null;
-  }
-  if (payload.v !== 1 || !payload.csrf || !payload.sid || !Number.isFinite(payload.exp) || payload.exp < Date.now()) {
     return null;
   }
   if (await isSessionRevoked(payload.sid)) {
@@ -124,7 +133,11 @@ export function loginWithAdminKey(req: Request, res: Response): void {
 }
 
 export async function logout(req: Request, res: Response): Promise<void> {
-  const session = await parseSession(req);
+  // requireSession and requireCsrf both run before this handler on the
+  // logout route and already parsed (and Redis-checked) the session,
+  // storing it on res.locals -- re-parsing here would mean a third
+  // signature check and Redis round trip for what is already known.
+  const session = (res.locals.session as SessionPayload | undefined) ?? (await parseSession(req));
   if (session) {
     await revokeSession(session.sid, session.exp);
   }
