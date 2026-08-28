@@ -3,7 +3,7 @@ import { env } from '../config/env.js';
 import { startSsrfSafeProxy } from './browser-network-proxy.js';
 import { extractLinks } from './html-links.js';
 import { assertCrawlableUrl, resolvePublicAddresses } from './network-policy.js';
-import { selectUsefulPages } from './page-selector.js';
+import { pickNextPage } from './page-selector.js';
 import { fetchRobotsPolicy, robotsAllows, type RobotsPolicy } from './robots.js';
 import type { CrawledPage, SiteCrawlResult } from './site-crawler.js';
 
@@ -136,19 +136,28 @@ export async function crawlSupplierSiteWithBrowser(
         const root = await renderOne(context, requested.href, rootPolicy);
         const finalRoot = new URL(root.url);
         const policy = finalRoot.origin === requested.origin ? rootPolicy : await fetchRobotsPolicy(finalRoot);
-        const links = extractLinks(root.html, root.url);
-        const selected = selectUsefulPages(root.url, links, Math.max(1, maxPages))
-          .filter(value => robotsAllows(policy, value));
 
         const pages: CrawledPage[] = [root];
         const failures: Array<{ url: string; error: string }> = [];
-        for (const url of selected) {
-          if (url === root.url || pages.length >= maxPages) continue;
+        const fetched = new Set([root.url]);
+        // Mirrors site-crawler.ts's same fix: mine links out of every page
+        // rendered below too, not just the homepage, so a page only
+        // reachable via a subpage's own nav (e.g. behind a JS-only menu the
+        // homepage never renders) can still be found, without spending
+        // render budget beyond maxPages.
+        let candidatePool = extractLinks(root.html, root.url);
+
+        while (pages.length < maxPages) {
+          const next = pickNextPage(root.url, candidatePool, fetched, value => robotsAllows(policy, value));
+          if (!next) break;
+          fetched.add(next);
           try {
-            pages.push(await renderOne(context, url, policy));
+            const page = await renderOne(context, next, policy);
+            pages.push(page);
+            candidatePool = [...candidatePool, ...extractLinks(page.html, page.url)];
           } catch (error) {
             failures.push({
-              url,
+              url: next,
               error: error instanceof Error ? error.message : 'Unknown browser crawl error',
             });
           }

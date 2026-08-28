@@ -1,5 +1,5 @@
 import { extractLinks } from './html-links.js';
-import { selectUsefulPages } from './page-selector.js';
+import { pickNextPage } from './page-selector.js';
 import { extractSitemapUrls, fetchRobotsPolicy, robotsAllows } from './robots.js';
 import { safeFetchText } from './safe-fetch.js';
 
@@ -63,10 +63,7 @@ export async function crawlSupplierSite(rootUrl: string, maxPages = 8): Promise<
     throw new Error('Crawler blocked by robots.txt after redirect');
   }
 
-  const internalLinks = extractLinks(root.body, root.finalUrl);
   const fromSitemap = await sitemapLinks(finalRoot, policy.sitemaps, policy.crawlDelayMs);
-  const selected = selectUsefulPages(root.finalUrl, [...internalLinks, ...fromSitemap], maxPages)
-    .filter(url => robotsAllows(policy, url));
   const pages: CrawledPage[] = [{
     url: root.finalUrl,
     contentType: root.contentType,
@@ -74,15 +71,25 @@ export async function crawlSupplierSite(rootUrl: string, maxPages = 8): Promise<
     bytes: root.bytes,
   }];
   const failures: Array<{ url: string; error: string }> = [];
+  const fetched = new Set([root.finalUrl]);
+  // Seeded from the homepage's own links plus the sitemap. Each page fetched
+  // below has its own links mined into this same pool (see pickNextPage) --
+  // so a page only reachable via a subpage's nav/footer, e.g. behind a
+  // JS-only burger menu the homepage's static HTML never exposes, can still
+  // be found, without spending crawl budget beyond maxPages.
+  let candidatePool = [...extractLinks(root.body, root.finalUrl), ...fromSitemap];
 
-  for (const url of selected) {
-    if (url === root.finalUrl || pages.length >= maxPages) continue;
+  while (pages.length < maxPages) {
+    const next = pickNextPage(root.finalUrl, candidatePool, fetched, url => robotsAllows(policy, url));
+    if (!next) break;
+    fetched.add(next);
     try {
       await sleep(policy.crawlDelayMs);
-      const response = await safeFetchText(url);
+      const response = await safeFetchText(next);
       pages.push({ url: response.finalUrl, contentType: response.contentType, html: response.body, bytes: response.bytes });
+      candidatePool = [...candidatePool, ...extractLinks(response.body, response.finalUrl)];
     } catch (error) {
-      failures.push({ url, error: error instanceof Error ? error.message : 'Unknown crawl error' });
+      failures.push({ url: next, error: error instanceof Error ? error.message : 'Unknown crawl error' });
     }
   }
 
