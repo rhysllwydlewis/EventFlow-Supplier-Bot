@@ -53,23 +53,30 @@ export async function saveEventFlowIngestionState(input: {
 }): Promise<void> {
   const store = await collection();
   const now = new Date().toISOString();
-  const setOnInsert: Partial<EventFlowIngestionRecord> = {
-    candidateId: input.candidateId,
-    createdAt: now,
+  const set: Partial<EventFlowIngestionRecord> = {
+    status: input.status,
+    supplierId: input.supplierId ?? null,
+    slug: input.slug ?? null,
+    publicProfilePath: input.publicProfilePath ?? null,
+    reason: input.reason ?? null,
+    nextRetryAt: input.nextRetryAt ?? null,
+    updatedAt: now,
   };
-  if (!input.incrementAttempts) setOnInsert.attempts = 0;
+  // $setOnInsert only ever applies on a genuine insert, never on an update
+  // to an existing document -- so putting attempts:0 there (as this used to)
+  // meant an existing record's attempts count was left untouched by every
+  // non-incrementing save, not reset. A candidate that cycles through e.g.
+  // ineligible -> pending (a fresh crawl) -> ineligible again would keep
+  // accumulating attempts across unrelated episodes, backing off faster
+  // each time even though each occurrence is really a fresh one. Every
+  // non-incrementing status (pending, created, existing, conflict) is
+  // conceptually the start of a new episode, so reset the count in $set
+  // instead, where it actually takes effect on both insert and update.
+  if (!input.incrementAttempts) set.attempts = 0;
 
   const update: UpdateFilter<EventFlowIngestionRecord> = {
-    $set: {
-      status: input.status,
-      supplierId: input.supplierId ?? null,
-      slug: input.slug ?? null,
-      publicProfilePath: input.publicProfilePath ?? null,
-      reason: input.reason ?? null,
-      nextRetryAt: input.nextRetryAt ?? null,
-      updatedAt: now,
-    },
-    $setOnInsert: setOnInsert,
+    $set: set,
+    $setOnInsert: { candidateId: input.candidateId, createdAt: now },
   };
   if (input.incrementAttempts) update.$inc = { attempts: 1 };
   await store.updateOne({ candidateId: input.candidateId }, update, { upsert: true });
