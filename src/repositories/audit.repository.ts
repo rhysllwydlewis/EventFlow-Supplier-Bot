@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Filter } from 'mongodb';
 import { getDatabase } from '../lib/mongo.js';
 
 export interface AuditEvent {
@@ -33,4 +34,9 @@ export async function listAuditEventsByAction(action: string, limit = 100): Prom
     .sort({ createdAt: -1 })
     .limit(Math.min(Math.max(limit, 1), 500))
     .toArray();
+}
+
+export async function findLatestAuditEvent(filter: Filter<AuditEvent>): Promise<AuditEvent | null> {
+  const db = await getDatabase();
+  return db.collection<AuditEvent>('audit_events').findOne(filter, { sort: { createdAt: -1 } });
 }

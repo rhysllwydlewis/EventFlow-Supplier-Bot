@@ -15,6 +15,7 @@ import { getEventFlowPilotState } from '../repositories/eventflow-pilot.reposito
 import { bootstrapPhase3Validation } from '../services/phase3-autostart.service.js';
 import { applyPhase3DiscoveryQualityRevision } from '../services/phase3-discovery-quality-revision.service.js';
 import { pilotPublicProfileUrl, runOneProfileEventFlowPilot } from '../services/eventflow-one-profile-pilot.service.js';
+import { getOperatorIdleStatusForReport } from '../services/operator-idle.service.js';
 import {
   getPhase3ValidationReport,
   PHASE3_TARGET_CANDIDATES,
@@ -81,11 +82,13 @@ async function writePublicPhase3Progress(): Promise<void> {
   const latestCompletion = happenedDuringRun(discovery.latestCompletion, report.run?.startedAt)
     ? discovery.latestCompletion
     : null;
+  const operatorIdle = await getOperatorIdleStatusForReport(settings, report);
 
   const payload = {
     phase: 3,
     status,
     autostart: autostartOutcome,
+    operatorIdle,
     startedAt: report.run?.startedAt ?? null,
     completedAt: report.run?.completedAt ?? null,
     candidateCount,
