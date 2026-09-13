@@ -82,6 +82,21 @@ export async function saveEventFlowIngestionState(input: {
   await store.updateOne({ candidateId: input.candidateId }, update, { upsert: true });
 }
 
+// Forces a 'failed'/'ineligible' candidate's exponential backoff to expire
+// immediately (without touching status or attempts) so the next 5-minute
+// reconcile picks it up right away instead of waiting out a schedule that
+// can be capped as far out as 6 hours -- used when an operator (or the AI
+// supervisor) has just fixed the actual cause of the failures and wants
+// confirmation sooner than the backoff would otherwise allow.
+export async function clearEventFlowRetryBackoff(candidateId: string): Promise<boolean> {
+  const store = await collection();
+  const result = await store.updateOne(
+    { candidateId, status: { $in: ['failed', 'ineligible'] } },
+    { $set: { nextRetryAt: null, updatedAt: new Date().toISOString() } },
+  );
+  return result.modifiedCount > 0;
+}
+
 export async function listRetryableEventFlowCandidateIds(limit = 100): Promise<string[]> {
   const db = await getDatabase();
   const now = new Date().toISOString();
@@ -146,6 +161,15 @@ export async function listRetryableEventFlowCandidateIds(limit = 100): Promise<s
 // by waiting, so it must not be retried (listRetryableEventFlowCandidateIds
 // above deliberately excludes it) and must not sit looking actionable in
 // Shadow review forever either.
+export async function listRecentFailedEventFlowIngestions(limit = 10): Promise<EventFlowIngestionRecord[]> {
+  const store = await collection();
+  return store
+    .find({ status: 'failed' })
+    .sort({ updatedAt: -1 })
+    .limit(Math.min(Math.max(limit, 1), 100))
+    .toArray();
+}
+
 export async function listConflictedEventFlowIngestions(limit = 100): Promise<EventFlowIngestionRecord[]> {
   const store = await collection();
   return store

@@ -21,6 +21,7 @@ import { enqueueBrowserCrawlCandidate, reconcileQueuedBrowserCrawlCandidates } f
 import { tryClaimDailyCrawlSlot } from '../services/crawl-budget.service.js';
 import { enqueueCrawlCandidate, reconcileQueuedCrawlCandidates } from '../services/crawl-queue.service.js';
 import { reassessPendingCompliance } from '../services/compliance-reassessment.service.js';
+import { runSupervisorCycle } from '../services/agent-supervisor.service.js';
 import { remainingDailyAllowance } from '../services/daily-limit.service.js';
 import { runDiscoveryCycle } from '../services/discovery.service.js';
 import { reconcileEventFlowPublicationQueue } from '../services/eventflow-publication-queue.service.js';
@@ -285,8 +286,20 @@ async function handleReconcile(): Promise<Record<string, unknown>> {
 async function processOrchestrationJob(job: Job): Promise<Record<string, unknown>> {
   if (job.name === 'coverage-plan') return handleCoveragePlan(job);
   if (job.name === 'system-reconcile') return handleReconcile();
+  if (job.name === 'supervisor-cycle') {
+    const trigger = job.data?.trigger === 'manual' ? 'manual' : 'scheduler';
+    const entry = await runSupervisorCycle(trigger);
+    return { logEntryId: entry.id, kind: entry.kind, actionCount: entry.actionIds.length };
+  }
   throw new Error(`Unknown orchestration job: ${job.name}`);
 }
+
+// Every 6h rather than tighter: each cycle reserves OPENAI_BUDGET_RESERVATION_GBP_PER_CALL
+// against the same daily AI spend cap real enrichment calls draw from, so a
+// short interval would compete with (or exhaust before) the enrichment
+// budget on a small hardAiSpendGbpPerDay. 4x/day is enough to catch and
+// resume an idle-but-ready bot, or flag a stuck queue, well within a day.
+const SUPERVISOR_CYCLE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 async function registerSchedulers(): Promise<void> {
   const queue = getQueue('orchestration');
@@ -295,6 +308,15 @@ async function registerSchedulers(): Promise<void> {
     { every: 6 * 60 * 60 * 1000 },
     {
       name: 'coverage-plan',
+      data: { trigger: 'scheduler' },
+      opts: { attempts: 1, removeOnComplete: 500, removeOnFail: 500 },
+    },
+  );
+  await queue.upsertJobScheduler(
+    'ai-supervisor-v1',
+    { every: SUPERVISOR_CYCLE_INTERVAL_MS },
+    {
+      name: 'supervisor-cycle',
       data: { trigger: 'scheduler' },
       opts: { attempts: 1, removeOnComplete: 500, removeOnFail: 500 },
     },

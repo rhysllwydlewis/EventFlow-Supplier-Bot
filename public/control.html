@@ -112,6 +112,16 @@
       </div>
 
       <div class="card span-12">
+        <div class="section-head">
+          <div><h2>AI supervisor</h2><p class="muted">Checks in automatically every few hours: resumes the bot when it's idle and ready, and reviews settings, campaigns and failures for issues. Safe/reversible changes are applied and logged; anything that would make the bot more aggressive (live mode, publishing, higher limits, a lower quality bar, wider campaign scope) is logged here for you to approve instead.</p></div>
+          <button id="agentRunNowBtn" class="small">Run now</button>
+        </div>
+        <div id="agentRecommendations"></div>
+        <h3 style="margin:16px 0 8px;font-size:13px;color:#5f646d">Diary</h3>
+        <div id="agentDiary" class="muted">Loading…</div>
+      </div>
+
+      <div class="card span-12">
         <div class="section-head"><div><h2>Live activity</h2><p id="activitySummary" class="muted">Loading…</p></div></div>
         <div id="activityFeed" class="muted">Loading…</div>
       </div>
@@ -245,6 +255,30 @@ const IDLE_CAUSE_LABELS={
   'phase3.validation_invalidated':'emergency-stopped automatically — the safety contract was broken mid-run',
   'settings.update':'changed via a direct settings update',
 };
+function describeAgentAction(a){
+  switch(a.kind){
+    case 'pause_bot': return 'Pause the bot';
+    case 'emergency_stop_bot': return 'Emergency-stop the bot';
+    case 'retry_stuck_publication': return `Retry stuck publication for ${a.candidateId}`;
+    case 'set_mode': return `Set mode to ${a.value}`;
+    case 'set_publishing_enabled': return `${a.value?'Enable':'Disable'} publishing`;
+    case 'set_claim_notices_enabled': return `${a.value?'Enable':'Disable'} claim notices`;
+    case 'set_marketing_enabled': return `${a.value?'Enable':'Disable'} marketing`;
+    case 'set_seo_indexing_enabled': return `${a.value?'Enable':'Disable'} SEO indexing`;
+    case 'set_discovery_enabled': return `${a.value?'Enable':'Disable'} discovery`;
+    case 'set_refresh_enabled': return `${a.value?'Enable':'Disable'} refresh`;
+    case 'adjust_daily_target': return `Set daily target to ${a.value}`;
+    case 'adjust_daily_hard_limit': return `Set daily hard limit to ${a.value}`;
+    case 'adjust_max_crawls_per_day': return `Set max crawls/day to ${a.value}`;
+    case 'adjust_minimum_publication_quality': return `Set minimum publication quality to ${a.value}`;
+    case 'adjust_soft_ai_spend_cap': return `Set soft AI spend cap to £${a.value}/day`;
+    case 'adjust_hard_ai_spend_cap': return `Set hard AI spend cap to £${a.value}/day`;
+    case 'create_campaign_draft': return `Create draft campaign "${a.name}" (${(a.categories||[]).join(', ')} · ${(a.locations||[]).join(', ')})`;
+    case 'set_campaign_status': return `Set campaign ${a.campaignId} to ${a.value}`;
+    case 'adjust_campaign_daily_limits': return `Set campaign ${a.campaignId} daily limits to ${a.dailyTarget}/${a.dailyHardLimit}`;
+    default: return a.kind;
+  }
+}
 function formatDuration(seconds){
   const days=Math.floor(seconds/86400);
   if(days>=1)return `${days} day${days===1?'':'s'}`;
@@ -259,7 +293,7 @@ function dedupLabel(candidate){if(!candidate.dedupDecision)return 'Pending';cons
 async function request(url,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(csrfToken&&['POST','PUT','PATCH','DELETE'].includes((options.method||'GET').toUpperCase()))headers['x-csrf-token']=csrfToken;const response=await fetch(url,{credentials:'same-origin',...options,headers});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body.error||`Request failed (${response.status})`);return body;}
 function showLogin(){$('loginView').classList.remove('hidden');$('appView').classList.add('hidden');}function showApp(){$('loginView').classList.add('hidden');$('appView').classList.remove('hidden');}
 async function refresh(){
-  const [status,campaigns,candidates,reviews,overview,phase3,audit,activity,published,removed,blocked]=await Promise.all([request('/api/status'),request('/api/campaigns'),request('/api/candidates?limit=20'),request('/api/shadow-profile-reviews?limit=20'),request('/api/compliance-overview'),request('/api/phase3-validation'),request('/api/discovery-audit?limit=50'),request('/api/activity'),request('/api/published-suppliers?limit=20'),request('/api/removed-candidates?limit=20'),request('/api/blocked-candidates?limit=20')]);const s=status.settings;
+  const [status,campaigns,candidates,reviews,overview,phase3,audit,activity,published,removed,blocked,agentLog,agentRecommendations]=await Promise.all([request('/api/status'),request('/api/campaigns'),request('/api/candidates?limit=20'),request('/api/shadow-profile-reviews?limit=20'),request('/api/compliance-overview'),request('/api/phase3-validation'),request('/api/discovery-audit?limit=50'),request('/api/activity'),request('/api/published-suppliers?limit=20'),request('/api/removed-candidates?limit=20'),request('/api/blocked-candidates?limit=20'),request('/api/agent/log?limit=15'),request('/api/agent/recommendations')]);const s=status.settings;
   if(!settingsDirty){
     $('mode').value=s.mode;$('quality').value=s.minimumPublicationQuality;$('dailyTarget').value=s.dailyTarget;$('dailyHardLimit').value=s.dailyHardLimit;$('maxCrawls').value=s.maxCrawlsPerDay;$('softAi').value=s.softAiSpendGbpPerDay;$('hardAi').value=s.hardAiSpendGbpPerDay;
     ['discoveryEnabled','refreshEnabled','publishingEnabled','claimNoticesEnabled','marketingEnabled','seoIndexingEnabled'].forEach(id=>$(id).checked=!!s[id]);
@@ -304,6 +338,27 @@ async function refresh(){
     }));
   }
   $('queueRows').innerHTML=Object.entries(status.queues).map(([name,c])=>`<tr><td>${escapeHtml(name)}</td><td>${c.waiting||0}</td><td>${c.active||0}</td><td>${c.failed||0}</td></tr>`).join('');
+
+  const recItems=agentRecommendations.items||[];
+  $('agentRecommendations').innerHTML=recItems.length
+    ? `<div class="notice" style="background:#fff8ea;color:#8a5a00">${recItems.length} recommendation${recItems.length===1?'':'s'} waiting for your approval</div><div class="table-wrap"><table><thead><tr><th>Proposed change</th><th>Why</th><th>Requested</th><th></th></tr></thead><tbody>${recItems.map(item=>`<tr><td>${escapeHtml(describeAgentAction(item.action))}</td><td class="reason-list">${escapeHtml(item.action.reason||'—')}</td><td>${new Date(item.createdAt).toLocaleString()}</td><td><button class="small primary agent-approve" data-id="${escapeAttr(item.id)}">Approve</button> <button class="small danger agent-dismiss" data-id="${escapeAttr(item.id)}">Dismiss</button></td></tr>`).join('')}</tbody></table></div>`
+    : '<p class="muted">No pending recommendations.</p>';
+  document.querySelectorAll('.agent-approve').forEach(button=>button.addEventListener('click',async()=>{
+    try{setFeedback('Approving…');await request(`/api/agent/recommendations/${encodeURIComponent(button.dataset.id)}/approve`,{method:'POST',body:'{}'});setFeedback('Recommendation approved and applied.');await refresh();}catch(error){setFeedback(error.message,true);}
+  }));
+  document.querySelectorAll('.agent-dismiss').forEach(button=>button.addEventListener('click',async()=>{
+    try{setFeedback('Dismissing…');await request(`/api/agent/recommendations/${encodeURIComponent(button.dataset.id)}/dismiss`,{method:'POST',body:'{}'});setFeedback('Recommendation dismissed.');await refresh();}catch(error){setFeedback(error.message,true);}
+  }));
+
+  const agentLogItems=agentLog.items||[];
+  $('agentDiary').innerHTML=agentLogItems.length
+    ? `<ul class="activity-list">${agentLogItems.map(entry=>{
+        const selfHeal=(entry.selfHealNotes||[]).map(note=>`<div class="tiny">🔧 ${escapeHtml(note)}</div>`).join('');
+        const findings=(entry.findings||[]).length?`<div class="tiny">${entry.findings.map(f=>escapeHtml(f)).join(' · ')}</div>`:'';
+        const skipped=entry.kind==='ai_skipped'?` <span class="tiny">(${escapeHtml(entry.skippedReason||'skipped')})</span>`:'';
+        return `<li><strong>${new Date(entry.createdAt).toLocaleString()}</strong>${skipped} — ${escapeHtml(entry.diary||'')}${selfHeal}${findings}</li>`;
+      }).join('')}</ul>`
+    : '<p class="muted">No entries yet — runs automatically every few hours, or press Run now.</p>';
 
   const totalActive=Object.values(status.queues).reduce((sum,c)=>sum+(c.active||0),0);
   const totalWaiting=Object.values(status.queues).reduce((sum,c)=>sum+(c.waiting||0),0);
@@ -365,6 +420,7 @@ $('hardResetBtn').addEventListener('click',async()=>{
   }catch(error){setFeedback(error.message,true);}
 });
 $('runNowBtn').addEventListener('click',async()=>{try{setFeedback('Queuing planning cycle…');await request('/api/run-now',{method:'POST',body:'{}'});setFeedback('Planning cycle queued. The dashboard will update as jobs run.');await refresh();}catch(error){setFeedback(error.message,true);}});
+$('agentRunNowBtn').addEventListener('click',async()=>{try{setFeedback('Running AI supervisor cycle…');await request('/api/agent/run-now',{method:'POST',body:'{}'});setFeedback('Supervisor cycle complete.');await refresh();}catch(error){setFeedback(error.message,true);}});
 $('refreshBtn').addEventListener('click',async()=>{try{setFeedback('Refreshing…');await refresh();setFeedback(`Refreshed ${new Date().toLocaleTimeString()}.`);}catch(error){setFeedback(error.message,true);}});
 $('logoutBtn').addEventListener('click',async()=>{try{await request('/api/auth/logout',{method:'POST',body:'{}'});}finally{csrfToken='';showLogin();}});
 (async()=>{try{const session=await request('/api/auth/session');csrfToken=session.csrfToken;showApp();await refresh();setInterval(()=>void refresh().catch(()=>{}),15000);}catch{showLogin();}})();
