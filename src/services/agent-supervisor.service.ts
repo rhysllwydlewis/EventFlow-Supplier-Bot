@@ -261,12 +261,13 @@ async function runSelfHealing(
 
 export async function runSupervisorCycle(trigger: 'scheduler' | 'manual'): Promise<AgentLogEntry> {
   const settingsBeforeSelfHeal = await getSettings();
-  const idle = await getOperatorIdleStatus(settingsBeforeSelfHeal);
-  const selfHealNotes = await runSelfHealing(idle);
-  // A self-heal (e.g. resuming the bot) changes runState -- re-read so the
-  // AI's snapshot and the ruleset's before/after comparisons both see the
-  // post-self-heal state, not a stale one.
+  const idleBeforeSelfHeal = await getOperatorIdleStatus(settingsBeforeSelfHeal);
+  const selfHealNotes = await runSelfHealing(idleBeforeSelfHeal);
+  // A self-heal (e.g. resuming the bot) changes runState -- re-read both so
+  // the AI's snapshot and the ruleset's before/after comparisons see the
+  // post-self-heal state, not a stale "still idle" one from moments ago.
   const settings = selfHealNotes.length > 0 ? await getSettings() : settingsBeforeSelfHeal;
+  const idle = selfHealNotes.length > 0 ? await getOperatorIdleStatus(settings) : idleBeforeSelfHeal;
 
   if (!env.OPENAI_API_KEY) {
     return insertAgentLogEntry(

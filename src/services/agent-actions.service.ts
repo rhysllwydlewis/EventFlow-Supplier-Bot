@@ -74,7 +74,7 @@ export async function applyAgentAction(action: AgentAction): Promise<string> {
         dailyHardLimit: 1,
         minimumPublicationQuality: 85,
       });
-      return `Draft campaign "${created.name}" created (${created.id}); left paused until an operator activates it.`;
+      return `Draft campaign "${created.name}" created (${created.id}); stays a draft with zero live effect until an operator activates it.`;
     }
     case 'set_campaign_status':
       await updateCampaign(action.campaignId, { status: action.value });

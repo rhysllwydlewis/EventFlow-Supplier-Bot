@@ -38,7 +38,7 @@ describe('AI supervisor: self-healing runs independently of the AI call', () => 
     // the bare 'env.OPENAI_API_KEY' string -- that also appears earlier in
     // the file inside callSupervisorModel's request headers, which would
     // make a plain first-occurrence search find the wrong one.
-    const selfHealIndex = supervisorSource.indexOf('runSelfHealing(idle)');
+    const selfHealIndex = supervisorSource.indexOf('runSelfHealing(idleBeforeSelfHeal)');
     const openAiKeyCheckIndex = supervisorSource.indexOf('if (!env.OPENAI_API_KEY)');
     expect(selfHealIndex).toBeGreaterThan(-1);
     expect(openAiKeyCheckIndex).toBeGreaterThan(-1);

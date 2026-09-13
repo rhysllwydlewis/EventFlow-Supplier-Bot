@@ -78,14 +78,12 @@ export const agentActionSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 export type AgentAction = z.infer<typeof agentActionSchema>;
-export type AgentActionKind = AgentAction['kind'];
 
 export const agentCycleResponseSchema = z.object({
   findings: z.array(z.string().min(1).max(400)).max(10),
   diary: z.string().min(1).max(2000),
   actions: z.array(agentActionSchema).max(10),
 });
-export type AgentCycleResponse = z.infer<typeof agentCycleResponseSchema>;
 
 export const agentActionTierSchema = z.enum(['auto', 'guarded']);
 export type AgentActionTier = z.infer<typeof agentActionTierSchema>;

@@ -48,6 +48,8 @@ const RUN_STATE_CHANGE_FILTER = {
 // rather than treating as a normal operator pause.
 export const OPERATOR_IDLE_ALERT_THRESHOLD_MS = 6 * 60 * 60 * 1000;
 
+export type OperatorIdleBlockedReason = Phase3AutostartDecision['reason'] | 'mode_off';
+
 export interface OperatorIdleStatus {
   idle: boolean;
   runState: RunState;
@@ -58,8 +60,55 @@ export interface OperatorIdleStatus {
   phase3Status: Phase3ValidationStatus | 'not_started';
   awaitingReview: boolean;
   readyToResume: boolean;
-  blockedReason: Phase3AutostartDecision['reason'] | null;
+  blockedReason: OperatorIdleBlockedReason | null;
   alert: boolean;
+}
+
+// phase3AutostartDecision (and the phase3Safety() it calls) hard-requires
+// settings.mode === 'shadow' -- it exists to gate the one-time Phase 3
+// validation batch, not to answer "would resuming the bot do anything
+// useful" in general. Reusing it unconditionally meant readyToResume was
+// structurally false forever the moment an operator moved to 'live' (the
+// mode this bot is actually meant to run in day to day): phase3Safety()
+// would report shadowMode:false, decision.eligible would never be true, and
+// no Phase3ValidationRun document exists outside Shadow mode either, so the
+// 'existing_run' escape hatch never applies. Confirmed against production:
+// the live dashboard reported readyToResume:false with blockedReason
+// 'unsafe_controls' while running normally in live mode with nothing wrong.
+function computeReadyToResume(input: {
+  settings: BotSettings;
+  report: Phase3ValidationReport;
+  capabilities: Phase3AutostartCapabilities;
+  pilotStatus: Campaign['status'];
+}): { ready: boolean; blockedReason: OperatorIdleBlockedReason | null } {
+  const { settings, report, capabilities, pilotStatus } = input;
+
+  if (settings.mode === 'shadow') {
+    // Phase 3's own validation contract is exactly the right authority here
+    // -- this is the regime it was built to gate.
+    const decision = phase3AutostartDecision({
+      settings: { ...settings, runState: 'stopped' },
+      report,
+      capabilities,
+      pilotStatus,
+    });
+    const ready = decision.eligible || decision.reason === 'existing_run';
+    return { ready, blockedReason: ready ? null : decision.reason };
+  }
+
+  // Outside Shadow mode there is no Phase 3 contract to satisfy. Resuming is
+  // worthwhile as long as the mode itself isn't 'off', and, when discovery
+  // is turned on, the providers it depends on are actually configured --
+  // otherwise resuming would just spin without finding anything new.
+  if (settings.mode === 'off') return { ready: false, blockedReason: 'mode_off' };
+  if (settings.discoveryEnabled) {
+    if (!capabilities.braveConfigured) return { ready: false, blockedReason: 'brave_not_configured' };
+    if (!capabilities.bravePersistenceAllowed) {
+      return { ready: false, blockedReason: 'brave_persistence_disabled' };
+    }
+    if (!capabilities.openAiConfigured) return { ready: false, blockedReason: 'openai_not_configured' };
+  }
+  return { ready: true, blockedReason: null };
 }
 
 export function computeOperatorIdleStatus(input: {
@@ -94,21 +143,17 @@ export function computeOperatorIdleStatus(input: {
   const sinceMs = since ? Date.parse(since) : NaN;
   const idleSeconds = Number.isFinite(sinceMs) ? Math.max(0, Math.round((now - sinceMs) / 1000)) : null;
 
-  // Force the hypothetical to 'stopped' so this answers "if the operator
-  // pressed Run right now, would real work actually happen" -- independent of
-  // whether *autostart* (which only ever fires from a fresh 'stopped' state)
-  // would also fire.
-  const decision = phase3AutostartDecision({
-    settings: { ...settings, runState: 'stopped' },
+  // Answers "if the operator pressed Run right now, would real work actually
+  // happen" -- mode-aware, since the criteria for that differ between
+  // Shadow's one-time validation contract and normal live/dry_run operation.
+  const { ready, blockedReason: computedBlockedReason } = computeReadyToResume({
+    settings,
     report,
     capabilities,
     pilotStatus,
   });
-  // Autostart declines to touch an already-started run ('existing_run') only
-  // to avoid competing with it -- pressing Run manually resumes that same
-  // run just fine, so it isn't actually a blocker for an operator.
-  const readyToResume = !awaitingReview && (decision.eligible || decision.reason === 'existing_run');
-  const blockedReason = !awaitingReview && !readyToResume ? decision.reason : null;
+  const readyToResume = !awaitingReview && ready;
+  const blockedReason = !awaitingReview && !readyToResume ? computedBlockedReason : null;
 
   const alert =
     (readyToResume || awaitingReview) &&

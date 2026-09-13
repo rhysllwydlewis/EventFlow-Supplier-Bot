@@ -67,8 +67,10 @@ export async function ensureMongoIndexes(): Promise<void> {
     db.collection('shadow_profiles').createIndex({ generatedAt: -1 }),
     db.collection('agent_log').createIndex({ createdAt: -1 }),
     db.collection('agent_actions').createIndex({ id: 1 }, { unique: true }),
+    // Backs listPendingAgentActions (status filter + createdAt sort).
+    // logEntryId is stored on every action record but nothing queries by it
+    // yet -- add an index if that changes, not speculatively now.
     db.collection('agent_actions').createIndex({ status: 1, createdAt: -1 }),
-    db.collection('agent_actions').createIndex({ logEntryId: 1 }),
   ]);
 
   // published_suppliers is checked once per discovered search result on the

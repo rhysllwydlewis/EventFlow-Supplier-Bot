@@ -90,13 +90,16 @@ export function classifyAgentAction(action: AgentAction, ctx: AgentRulesetContex
       return { action, valid: true, tier: loosening ? 'guarded' : 'auto' };
     }
 
-    default:
-      // Exhaustive at compile time against AgentAction's discriminated union
-      // -- if a new action kind is ever added to the schema without a case
-      // here, this line fails to type-check rather than silently defaulting
-      // an unclassified action to a tier.
-      return ((): never => {
-        throw new Error(`Unclassified agent action kind: ${(action as { kind: string }).kind}`);
-      })();
+    default: {
+      // The standard TS exhaustiveness idiom: this assignment only compiles
+      // if every case above has narrowed `action` away, leaving it typed
+      // `never` here. Adding a new kind to agentActionSchema without a
+      // matching case above makes `action` something other than `never` in
+      // this branch, which fails to type-check -- unlike a cast (e.g.
+      // `action as { kind: string }`), which would silence exactly this
+      // check and let an unclassified kind compile clean.
+      const exhaustiveCheck: never = action;
+      throw new Error(`Unclassified agent action kind: ${JSON.stringify(exhaustiveCheck)}`);
+    }
   }
 }

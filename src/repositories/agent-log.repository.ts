@@ -38,14 +38,6 @@ export async function listPendingAgentActions(limit = 50): Promise<AgentActionRe
     .toArray();
 }
 
-export async function listRecentAgentActions(limit = 50): Promise<AgentActionRecord[]> {
-  return (await actionCollection())
-    .find({})
-    .sort({ createdAt: -1 })
-    .limit(Math.min(Math.max(limit, 1), 200))
-    .toArray();
-}
-
 export async function getAgentAction(id: string): Promise<AgentActionRecord | null> {
   return (await actionCollection()).findOne({ id });
 }

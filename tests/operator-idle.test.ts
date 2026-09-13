@@ -162,6 +162,67 @@ describe('operator idle detection', () => {
     });
   });
 
+  it('is ready to resume when idle in live mode with providers configured (regression: was always false)', () => {
+    // Production bug found in review: readyToResume reused
+    // phase3AutostartDecision unconditionally, which requires mode==='shadow'
+    // to ever report eligible. The moment an operator moves to 'live' -- the
+    // normal, intended day-to-day mode -- readyToResume was structurally
+    // stuck at false forever with blockedReason 'unsafe_controls', even
+    // though nothing was actually wrong. Confirmed against the live
+    // production dashboard before this fix.
+    const settings = { ...defaultSettings(), mode: 'live' as const, runState: 'paused' as const };
+    const status = computeOperatorIdleStatus({
+      settings,
+      now: NOW,
+      latestStateChangeEvent: { action: 'bot.pause', actor: 'control-admin', createdAt: SEVEN_HOURS_AGO },
+      report: report(settings),
+      capabilities: readyCapabilities,
+      pilotStatus: 'running',
+    });
+    expect(status).toMatchObject({ readyToResume: true, blockedReason: null, alert: true });
+  });
+
+  it('reports the real blocking reason in live mode when a provider is actually missing', () => {
+    const settings = { ...defaultSettings(), mode: 'live' as const, runState: 'paused' as const };
+    const status = computeOperatorIdleStatus({
+      settings,
+      now: NOW,
+      latestStateChangeEvent: { action: 'bot.pause', actor: 'control-admin', createdAt: SEVEN_HOURS_AGO },
+      report: report(settings),
+      capabilities: { ...readyCapabilities, braveConfigured: false },
+      pilotStatus: 'running',
+    });
+    expect(status).toMatchObject({ readyToResume: false, blockedReason: 'brave_not_configured', alert: false });
+  });
+
+  it('is not ready to resume when mode is off, regardless of capabilities', () => {
+    const settings = { ...defaultSettings(), mode: 'off' as const, runState: 'paused' as const };
+    const status = computeOperatorIdleStatus({
+      settings,
+      now: NOW,
+      latestStateChangeEvent: { action: 'bot.pause', actor: 'control-admin', createdAt: SEVEN_HOURS_AGO },
+      report: report(settings),
+      capabilities: readyCapabilities,
+      pilotStatus: 'running',
+    });
+    expect(status).toMatchObject({ readyToResume: false, blockedReason: 'mode_off' });
+  });
+
+  it('live mode with discovery off is ready to resume even without provider keys', () => {
+    // Without discovery there is nothing for Brave/OpenAI to feed -- refresh
+    // and publication retries can still be worth resuming for.
+    const settings = { ...defaultSettings(), mode: 'live' as const, runState: 'paused' as const, discoveryEnabled: false };
+    const status = computeOperatorIdleStatus({
+      settings,
+      now: NOW,
+      latestStateChangeEvent: { action: 'bot.pause', actor: 'control-admin', createdAt: SEVEN_HOURS_AGO },
+      report: report(settings),
+      capabilities: { braveConfigured: false, bravePersistenceAllowed: false, openAiConfigured: false },
+      pilotStatus: 'running',
+    });
+    expect(status).toMatchObject({ readyToResume: true, blockedReason: null });
+  });
+
   it('also watches for runState changed via a direct settings update, not just the control actions', () => {
     // settingsPatchSchema (control/server.ts) is derived from the full
     // settings schema and does not omit runState, so PUT /api/settings can
