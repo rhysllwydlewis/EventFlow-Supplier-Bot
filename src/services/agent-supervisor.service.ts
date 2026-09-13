@@ -230,7 +230,8 @@ async function callSupervisorModel(snapshot: SupervisorSnapshot): Promise<Respon
     signal: AbortSignal.timeout(env.OPENAI_REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) {
-    throw new Error(`OpenAI Responses API request failed with HTTP ${response.status}`);
+    const body = await response.text().catch(() => '');
+    throw new Error(`OpenAI Responses API request failed with HTTP ${response.status}: ${body.slice(0, 500)}`);
   }
   return response.json() as Promise<ResponsesApiResponse>;
 }
