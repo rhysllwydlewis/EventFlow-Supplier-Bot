@@ -31,6 +31,7 @@ import { getTodayCrawlCount } from '../services/crawl-budget.service.js';
 import { getDiscoveryAudit } from '../services/discovery-audit.service.js';
 import { getLiveActivity } from '../services/live-activity.service.js';
 import { seedCandidate } from '../services/manual-seed.service.js';
+import { getOperatorIdleStatus } from '../services/operator-idle.service.js';
 import { getPhase3ValidationReport } from '../services/phase3-validation.service.js';
 import { ensurePublishedSupplierBackfill } from '../services/published-supplier-backfill.service.js';
 import {
@@ -185,6 +186,7 @@ app.get('/api/status', async (_req, res, next) => {
       getTodayAiReservedGbp(),
       getTodayAiUsage(),
     ]);
+    const operatorIdle = await getOperatorIdleStatus(settings);
     const now = Date.now();
     const workers = heartbeats.map(item => ({ ...item, fresh: heartbeatIsFresh(item, now) }));
     const workerHealthy = workers.some(item => item.processType === 'worker' && item.fresh && item.status === 'ready');
@@ -193,6 +195,7 @@ app.get('/api/status', async (_req, res, next) => {
       settings,
       workers,
       workerHealthy,
+      operatorIdle,
       queues,
       metrics: {
         candidatesToday,

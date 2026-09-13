@@ -73,6 +73,9 @@
     .activity-list { margin:0; padding-left:18px; display:grid; gap:7px; }
     .activity-list li { font-size:13px; }
     .activity-list .tiny { margin-left:4px; }
+    .idle-banner { border-color:#f0c56b; background:#fff8ea; }
+    .idle-banner .section-head { align-items:center; }
+    .idle-banner h2 { color:#8a5a00; }
     @media (max-width:1100px) { .metric-grid.phase3-grid { grid-template-columns:repeat(4,1fr); } }
     @media (max-width:900px) { .span-8,.span-4,.span-6 { grid-column:span 12; } .form-grid,.metric-grid,.metric-grid.compact,.metric-grid.compliance-grid,.metric-grid.phase3-grid,.toggle-row,.seed-grid { grid-template-columns:1fr; } }
   </style>
@@ -93,6 +96,13 @@
     </header>
 
     <section class="grid">
+      <div id="idleBanner" class="card span-12 idle-banner hidden">
+        <div class="section-head">
+          <div><h2>⚠ Bot has been idle</h2><p id="idleBannerDetail" class="muted"></p></div>
+          <button id="idleBannerPlay" class="primary small">▶ Run</button>
+        </div>
+      </div>
+
       <div class="card span-12">
         <h2>Bot controls</h2>
         <div class="controls"><button id="playBtn" class="primary">▶ Run</button><button id="pauseBtn">Ⅱ Pause</button><button id="drainBtn">Drain safely</button><button id="runNowBtn">Run planning cycle now</button><button id="stopBtn" class="danger">Emergency stop</button><button id="hardResetBtn" class="danger">Hard reset</button></div>
@@ -224,6 +234,24 @@ function externalLink(value,label){const url=safeHttpUrl(value);if(!url)return e
 function urlStack(values,max=3){const urls=(values||[]).map(safeHttpUrl).filter(Boolean);if(!urls.length)return '<span class="muted">—</span>';const shown=urls.slice(0,max);const links=shown.map((url,index)=>externalLink(url,index===0?(new URL(url).pathname||'/'):`page ${index+1}`)).join('');const extra=urls.length>max?`<span class="tiny">+${urls.length-max} more</span>`:'';return `<div class="link-stack">${links}${extra}</div>`;}
 function photoStack(item,max=3){const urls=item?.profile?.images||[];if(!urls.length)return '<span class="muted">0</span>';const links=urls.slice(0,max).map((url,index)=>externalLink(url,`photo ${index+1}`)).join('');const extra=urls.length>max?`<span class="tiny">+${urls.length-max} more</span>`:'';return `<div class="link-stack"><span class="photo-count">${urls.length}</span>${links}${extra}</div>`;}
 function money(value){const number=Number(value)||0;return `£${number.toFixed(number<1?2:1)}`;}
+const IDLE_CAUSE_LABELS={
+  'bot.pause':'paused by an operator',
+  'bot.drain':'set to drain by an operator',
+  'bot.emergency_stop':'emergency-stopped by an operator',
+  'bot.hard_reset':'paused automatically after a hard reset',
+  'bot.drain_completed':'stopped automatically after safely draining',
+  'phase3.validation_target_reached':'paused automatically after reaching its Phase 3 target',
+  'phase3.validation_start_failed':'failed to start automatically — the safety contract was not satisfied',
+  'phase3.validation_invalidated':'emergency-stopped automatically — the safety contract was broken mid-run',
+};
+function formatDuration(seconds){
+  const days=Math.floor(seconds/86400);
+  if(days>=1)return `${days} day${days===1?'':'s'}`;
+  const hours=Math.floor(seconds/3600);
+  if(hours>=1)return `${hours} hour${hours===1?'':'s'}`;
+  const minutes=Math.max(1,Math.floor(seconds/60));
+  return `${minutes} minute${minutes===1?'':'s'}`;
+}
 function setFeedback(message,isError=false){$('controlFeedback').textContent=message||'';$('controlFeedback').className=`feedback${isError?' error':''}`;}
 function displayReason(item){if(!item)return 'Assessment pending';const reasons=(item.reasons||[]).filter(reason=>reason!=='pricing_not_publicly_available');return reasons.length?reasons.slice(0,3).map(reason=>reason.replaceAll('_',' ')).join(' · '):'Ready';}
 function dedupLabel(candidate){if(!candidate.dedupDecision)return 'Pending';const signals=(candidate.dedupSignals||[]).map(value=>value.replaceAll('_',' ')).join(' · ');const match=candidate.duplicateOfCandidateId?` · match ${candidate.duplicateOfCandidateId}`:'';return `${candidate.dedupDecision.replaceAll('_',' ')} · ${candidate.dedupScore??0}%${match}${signals?` · ${signals}`:''}`;}
@@ -236,6 +264,18 @@ async function refresh(){
     ['discoveryEnabled','refreshEnabled','publishingEnabled','claimNoticesEnabled','marketingEnabled','seoIndexingEnabled'].forEach(id=>$(id).checked=!!s[id]);
   }
   $('statusText').textContent=s.runState.replaceAll('_',' ').toUpperCase();$('statusDot').className=`dot ${s.runState==='running'&&status.workerHealthy?'running':s.runState==='stopped'?'':'warning'}`;
+  const idle=status.operatorIdle;
+  if(idle&&idle.alert){
+    const duration=idle.idleSeconds!=null?formatDuration(idle.idleSeconds):'an unknown period';
+    const since=idle.since?new Date(idle.since).toLocaleString():'an unknown time';
+    $('idleBannerDetail').textContent=idle.awaitingReview
+      ? `Phase 3 validation completed ${duration} ago after reaching its target and is waiting for review — it will not restart itself from here.`
+      : `Idle for ${duration} (${IDLE_CAUSE_LABELS[idle.cause]||'stopped'} on ${since}) and ready to resume — nothing else is blocking it.`;
+    $('idleBannerPlay').classList.toggle('hidden',idle.awaitingReview);
+    $('idleBanner').classList.remove('hidden');
+  }else{
+    $('idleBanner').classList.add('hidden');
+  }
   $('workerMetric').textContent=status.workerHealthy?'Healthy':'Offline';$('modeMetric').textContent=s.mode.replaceAll('_',' ');$('todayMetric').textContent=status.metrics?.candidatesToday??0;$('crawlMetric').textContent=status.metrics?.crawlsToday??0;$('aiCallsMetric').textContent=status.metrics?.aiCallsToday??0;$('aiCostMetric').textContent=money(status.metrics?.aiEstimatedCostGbpToday);$('aiReservedMetric').textContent=money(status.metrics?.aiReservedGbp);$('capMetric').textContent=s.dailyHardLimit;
   $('publishReadyMetric').textContent=overview.publicationEligible??0;$('reviewMetric').textContent=overview.review??0;$('pendingMetric').textContent=overview.pending??0;$('blockedMetric').textContent=overview.blocked??0;$('seoReadyMetric').textContent=overview.seoReady??0;$('complianceScope').textContent=`${overview.assessed??0} assessed of ${overview.totalProfiles??0} profiles`;
   const p=status.providerCapabilities;$('providerInfo').textContent=`OpenAI ${p.openAiConfigured?'configured':'not configured'} · Brave ${p.braveConfigured?'configured':'not configured'} · persistence ${p.bravePersistenceAllowed?'allowed':'gated'} · EventFlow ${p.eventFlowIntegrationConfigured?'configured':'not configured'}`;
@@ -311,7 +351,7 @@ $('settingsForm').addEventListener('change',()=>{settingsDirty=true;});
 $('campaignRows').addEventListener('input',()=>{campaignRowsDirty=true;});
 $('settingsForm').addEventListener('submit',async event=>{event.preventDefault();const body={mode:$('mode').value,minimumPublicationQuality:Number($('quality').value),dailyTarget:Number($('dailyTarget').value),dailyHardLimit:Number($('dailyHardLimit').value),maxCrawlsPerDay:Number($('maxCrawls').value),softAiSpendGbpPerDay:Number($('softAi').value),hardAiSpendGbpPerDay:Number($('hardAi').value),discoveryEnabled:$('discoveryEnabled').checked,refreshEnabled:$('refreshEnabled').checked,publishingEnabled:$('publishingEnabled').checked,claimNoticesEnabled:$('claimNoticesEnabled').checked,marketingEnabled:$('marketingEnabled').checked,seoIndexingEnabled:$('seoIndexingEnabled').checked};try{setFeedback('Saving settings…');await request('/api/settings',{method:'PUT',body:JSON.stringify(body)});settingsDirty=false;setFeedback('Settings saved.');await refresh();}catch(error){setFeedback(error.message,true);}});
 $('seedForm').addEventListener('submit',async event=>{event.preventDefault();$('seedResult').textContent='Queuing…';try{const result=await request('/api/candidates/seed',{method:'POST',body:JSON.stringify({url:$('seedUrl').value,categoryHint:$('seedCategory').value,locationHint:$('seedLocation').value})});$('seedResult').textContent=result.created?'Candidate created and crawl queued.':'Candidate already exists; no duplicate created.';await refresh();}catch(error){$('seedResult').textContent=error.message;}});
-for(const [id,action,label] of [['playBtn','play','Starting bot…'],['pauseBtn','pause','Pausing bot…'],['drainBtn','drain','Starting safe drain…'],['stopBtn','emergency-stop','Emergency stop requested…']]){$(id).addEventListener('click',async()=>{try{setFeedback(label);await request(`/api/control/${action}`,{method:'POST',body:'{}'});setFeedback(`Control action completed: ${action.replaceAll('-',' ')}.`);await refresh();}catch(error){setFeedback(error.message,true);}});}
+for(const [id,action,label] of [['playBtn','play','Starting bot…'],['idleBannerPlay','play','Starting bot…'],['pauseBtn','pause','Pausing bot…'],['drainBtn','drain','Starting safe drain…'],['stopBtn','emergency-stop','Emergency stop requested…']]){$(id).addEventListener('click',async()=>{try{setFeedback(label);await request(`/api/control/${action}`,{method:'POST',body:'{}'});setFeedback(`Control action completed: ${action.replaceAll('-',' ')}.`);await refresh();}catch(error){setFeedback(error.message,true);}});}
 $('hardResetBtn').addEventListener('click',async()=>{
   const typed=prompt('This permanently deletes ALL candidates, Shadow profiles, compliance assessments and publication history. Settings, campaigns and suppression decisions are kept. This cannot be undone.\n\nType RESET to confirm:');
   if(typed!=='RESET')return;
