@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { defaultSettings } from '../src/domain/settings.js';
 import {
@@ -159,5 +160,18 @@ describe('operator idle detection', () => {
       blockedReason: null,
       alert: true,
     });
+  });
+
+  it('also watches for runState changed via a direct settings update, not just the control actions', () => {
+    // settingsPatchSchema (control/server.ts) is derived from the full
+    // settings schema and does not omit runState, so PUT /api/settings can
+    // move the bot out of 'running' too -- recording a plain 'settings.update'
+    // audit event instead of bot.pause/drain/emergency_stop/hard_reset. A
+    // source-string check (rather than exercising the real Mongo query) is
+    // this repo's usual way of covering something that needs a live database
+    // to actually run -- findLatestAuditEvent's filter is what's asserted on.
+    const source = readFileSync(new URL('../src/services/operator-idle.service.ts', import.meta.url), 'utf8');
+    expect(source).toContain("action: 'settings.update'");
+    expect(source).toContain("'details.effectivePatch.runState': { $exists: true }");
   });
 });

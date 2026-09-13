@@ -1,6 +1,6 @@
 import type { Campaign } from '../domain/campaign.js';
 import type { BotSettings, RunState } from '../domain/settings.js';
-import { type AuditEvent, listAuditEventsByAction } from '../repositories/audit.repository.js';
+import { findLatestAuditEvent } from '../repositories/audit.repository.js';
 import { ensurePilotCampaign } from '../repositories/campaign.repository.js';
 import {
   phase3AutostartCapabilities,
@@ -29,6 +29,20 @@ const STATE_CHANGE_AWAY_FROM_RUNNING_ACTIONS = [
   'phase3.validation_start_failed',
   'phase3.validation_invalidated',
 ] as const;
+
+// settingsPatchSchema (control/server.ts) is derived from the full settings
+// schema and doesn't omit runState, so a direct PUT /api/settings can also
+// move runState away from 'running' -- bypassing pauseBot/drainBot/etc and
+// recording a plain 'settings.update' event instead of one of the actions
+// above. Without this, such a change would be invisible to idle detection:
+// 'since'/'cause' would fall back to whatever tracked event happened to be
+// last, or null.
+const RUN_STATE_CHANGE_FILTER = {
+  $or: [
+    { action: { $in: STATE_CHANGE_AWAY_FROM_RUNNING_ACTIONS } },
+    { action: 'settings.update', 'details.effectivePatch.runState': { $exists: true } },
+  ],
+};
 
 // How long the bot can sit idle-but-resumable before it's worth flagging
 // rather than treating as a normal operator pause.
@@ -116,18 +130,6 @@ export function computeOperatorIdleStatus(input: {
   };
 }
 
-async function latestStateChangeAwayFromRunning(): Promise<AuditEvent | null> {
-  const eventLists = await Promise.all(
-    STATE_CHANGE_AWAY_FROM_RUNNING_ACTIONS.map(action => listAuditEventsByAction(action, 1)),
-  );
-  return (
-    eventLists
-      .map(events => events[0])
-      .filter((event): event is AuditEvent => Boolean(event))
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
-  );
-}
-
 // Takes an already-fetched Phase 3 report so a caller that has one in hand
 // (entry.ts's progress writer runs this every 5 minutes right alongside its
 // own report fetch) doesn't pay for a second, identical Mongo round trip.
@@ -137,7 +139,7 @@ export async function getOperatorIdleStatusForReport(
 ): Promise<OperatorIdleStatus> {
   const [pilot, latestEvent] = await Promise.all([
     ensurePilotCampaign(),
-    settings.runState === 'running' ? Promise.resolve(null) : latestStateChangeAwayFromRunning(),
+    settings.runState === 'running' ? Promise.resolve(null) : findLatestAuditEvent(RUN_STATE_CHANGE_FILTER),
   ]);
 
   return computeOperatorIdleStatus({
