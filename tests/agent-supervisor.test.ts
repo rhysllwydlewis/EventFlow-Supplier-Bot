@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { RESPONSE_JSON_SCHEMA } from '../src/services/agent-supervisor.service.js';
 
 const supervisorSource = readFileSync('src/services/agent-supervisor.service.ts', 'utf8');
 const actionsSource = readFileSync('src/services/agent-actions.service.ts', 'utf8');
@@ -111,5 +112,38 @@ describe('AI supervisor: wired into the worker scheduler and control API', () =>
     const approveHandler = serverSource.slice(approveStart, approveEnd);
     expect(approveHandler).toContain('classifyAgentAction(record.action');
     expect(approveHandler).toContain("if (!reclassified.valid)");
+  });
+});
+
+describe('AI supervisor: OpenAI strict json_schema compliance', () => {
+  // Regression test for a real production failure: every action variant's
+  // 'kind' discriminator was declared as a bare `{ const: '...' }`, which is
+  // valid JSON Schema in general but is rejected by OpenAI's strict
+  // json_schema mode with "schema must have a 'type' key" -- confirmed
+  // directly against the live API (HTTP 400, invalid_json_schema) after
+  // this PR's supervisor cycle was first deployed. A schema this shape
+  // parses fine locally (it's never sent through a JSON Schema validator in
+  // this codebase) and only fails once OpenAI itself rejects it, so this
+  // walks the actual schema object structurally instead of trusting that.
+  function assertEveryLeafHasType(node: unknown, path: string): void {
+    if (node === null || typeof node !== 'object') return;
+    const schema = node as Record<string, unknown>;
+    if ('anyOf' in schema) {
+      (schema.anyOf as unknown[]).forEach((variant, index) => assertEveryLeafHasType(variant, `${path}.anyOf[${index}]`));
+      return;
+    }
+    expect(schema.type, `${path} is missing a "type" key`).toBeTruthy();
+    if (schema.properties && typeof schema.properties === 'object') {
+      for (const [key, value] of Object.entries(schema.properties as Record<string, unknown>)) {
+        assertEveryLeafHasType(value, `${path}.properties.${key}`);
+      }
+    }
+    if (schema.items) {
+      assertEveryLeafHasType(schema.items, `${path}.items`);
+    }
+  }
+
+  it('every schema node (outside an anyOf wrapper) declares an explicit type', () => {
+    assertEveryLeafHasType(RESPONSE_JSON_SCHEMA, 'RESPONSE_JSON_SCHEMA');
   });
 });

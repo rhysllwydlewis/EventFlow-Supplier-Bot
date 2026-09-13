@@ -35,17 +35,23 @@ function startOfUtcDayIso(): string {
 }
 
 const REASON = { type: 'string', minLength: 1, maxLength: 300 } as const;
+// OpenAI's strict json_schema mode rejects any property schema that lacks
+// an explicit "type" key -- including a bare `{ const: ... }` discriminator,
+// which is valid JSON Schema in general but not accepted here. Confirmed
+// directly against the live API (HTTP 400, invalid_json_schema) before this
+// fix: "schema must have a 'type' key" on exactly this kind of property.
+const KIND = (value: string) => ({ type: 'string', const: value });
 const boolAction = (kind: string) => ({
   type: 'object',
   additionalProperties: false,
   required: ['kind', 'value', 'reason'],
-  properties: { kind: { const: kind }, value: { type: 'boolean' }, reason: REASON },
+  properties: { kind: KIND(kind), value: { type: 'boolean' }, reason: REASON },
 });
 const numberAction = (kind: string, extra: Record<string, unknown> = {}) => ({
   type: 'object',
   additionalProperties: false,
   required: ['kind', 'value', 'reason'],
-  properties: { kind: { const: kind }, value: { type: 'number', ...extra }, reason: REASON },
+  properties: { kind: KIND(kind), value: { type: 'number', ...extra }, reason: REASON },
 });
 
 const ACTION_JSON_SCHEMAS = [
@@ -53,20 +59,20 @@ const ACTION_JSON_SCHEMAS = [
     type: 'object',
     additionalProperties: false,
     required: ['kind', 'reason'],
-    properties: { kind: { const: 'pause_bot' }, reason: REASON },
+    properties: { kind: KIND('pause_bot'), reason: REASON },
   },
   {
     type: 'object',
     additionalProperties: false,
     required: ['kind', 'reason'],
-    properties: { kind: { const: 'emergency_stop_bot' }, reason: REASON },
+    properties: { kind: KIND('emergency_stop_bot'), reason: REASON },
   },
   {
     type: 'object',
     additionalProperties: false,
     required: ['kind', 'candidateId', 'reason'],
     properties: {
-      kind: { const: 'retry_stuck_publication' },
+      kind: KIND('retry_stuck_publication'),
       candidateId: { type: 'string', minLength: 1, maxLength: 200 },
       reason: REASON,
     },
@@ -76,7 +82,7 @@ const ACTION_JSON_SCHEMAS = [
     additionalProperties: false,
     required: ['kind', 'value', 'reason'],
     properties: {
-      kind: { const: 'set_mode' },
+      kind: KIND('set_mode'),
       value: { type: 'string', enum: ['off', 'dry_run', 'shadow', 'live'] },
       reason: REASON,
     },
@@ -98,7 +104,7 @@ const ACTION_JSON_SCHEMAS = [
     additionalProperties: false,
     required: ['kind', 'name', 'categories', 'locations', 'reason'],
     properties: {
-      kind: { const: 'create_campaign_draft' },
+      kind: KIND('create_campaign_draft'),
       name: { type: 'string', minLength: 1, maxLength: 120 },
       categories: { type: 'array', minItems: 1, maxItems: 5, items: { type: 'string', minLength: 1, maxLength: 60 } },
       locations: { type: 'array', minItems: 1, maxItems: 5, items: { type: 'string', minLength: 1, maxLength: 60 } },
@@ -110,7 +116,7 @@ const ACTION_JSON_SCHEMAS = [
     additionalProperties: false,
     required: ['kind', 'campaignId', 'value', 'reason'],
     properties: {
-      kind: { const: 'set_campaign_status' },
+      kind: KIND('set_campaign_status'),
       campaignId: { type: 'string', minLength: 1, maxLength: 200 },
       value: { type: 'string', enum: ['running', 'paused', 'archived'] },
       reason: REASON,
@@ -121,7 +127,7 @@ const ACTION_JSON_SCHEMAS = [
     additionalProperties: false,
     required: ['kind', 'campaignId', 'dailyTarget', 'dailyHardLimit', 'reason'],
     properties: {
-      kind: { const: 'adjust_campaign_daily_limits' },
+      kind: KIND('adjust_campaign_daily_limits'),
       campaignId: { type: 'string', minLength: 1, maxLength: 200 },
       dailyTarget: { type: 'number', minimum: 0, maximum: 1000 },
       dailyHardLimit: { type: 'number', minimum: 1, maximum: 1000 },
@@ -130,7 +136,7 @@ const ACTION_JSON_SCHEMAS = [
   },
 ];
 
-const RESPONSE_JSON_SCHEMA = {
+export const RESPONSE_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['findings', 'diary', 'actions'],
