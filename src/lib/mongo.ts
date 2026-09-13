@@ -65,6 +65,10 @@ export async function ensureMongoIndexes(): Promise<void> {
     // shadow_profiles had no index at all, yet the reconcile cycle sorts it
     // by generatedAt every 5 minutes (listShadowProfiles).
     db.collection('shadow_profiles').createIndex({ generatedAt: -1 }),
+    db.collection('agent_log').createIndex({ createdAt: -1 }),
+    db.collection('agent_actions').createIndex({ id: 1 }, { unique: true }),
+    db.collection('agent_actions').createIndex({ status: 1, createdAt: -1 }),
+    db.collection('agent_actions').createIndex({ logEntryId: 1 }),
   ]);
 
   // published_suppliers is checked once per discovered search result on the

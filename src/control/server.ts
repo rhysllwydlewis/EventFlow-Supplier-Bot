@@ -32,6 +32,15 @@ import { getDiscoveryAudit } from '../services/discovery-audit.service.js';
 import { getLiveActivity } from '../services/live-activity.service.js';
 import { seedCandidate } from '../services/manual-seed.service.js';
 import { getOperatorIdleStatus } from '../services/operator-idle.service.js';
+import { applyAgentAction } from '../services/agent-actions.service.js';
+import { classifyAgentAction } from '../services/agent-ruleset.service.js';
+import { runSupervisorCycle } from '../services/agent-supervisor.service.js';
+import {
+  getAgentAction,
+  listAgentLogEntries,
+  listPendingAgentActions,
+  updateAgentActionStatus,
+} from '../repositories/agent-log.repository.js';
 import { getPhase3ValidationReport } from '../services/phase3-validation.service.js';
 import { ensurePublishedSupplierBackfill } from '../services/published-supplier-backfill.service.js';
 import {
@@ -301,6 +310,85 @@ app.post('/api/run-now', requireCsrf, async (_req, res, next) => {
       { jobId: `manual-plan-${Date.now()}` },
     );
     res.status(202).json({ accepted: true, jobId: job.id });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/agent/run-now', requireCsrf, async (_req, res, next) => {
+  try {
+    const entry = await runSupervisorCycle('manual');
+    res.status(202).json(entry);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/agent/log', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 200);
+    res.json({ items: await listAgentLogEntries(limit) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/agent/recommendations', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    res.json({ items: await listPendingAgentActions(limit) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/agent/recommendations/:id/approve', requireCsrf, async (req, res, next) => {
+  try {
+    const record = await getAgentAction(String(req.params.id ?? ''));
+    if (!record) {
+      res.status(404).json({ error: 'Recommendation not found' });
+      return;
+    }
+    if (record.status !== 'pending_approval') {
+      res.status(409).json({ error: `Recommendation is already ${record.status}` });
+      return;
+    }
+    // Re-validate against the ruleset with current state, not the state at
+    // proposal time -- e.g. the campaign it targets may since have been
+    // deleted, or another change may already have made it moot. An operator
+    // approving is always authorised to apply a still-valid action
+    // regardless of tier; it is never re-applied if it no longer is one.
+    const [settings, campaigns] = await Promise.all([getSettings(), listCampaigns()]);
+    const reclassified = classifyAgentAction(record.action, { settings, campaigns });
+    if (!reclassified.valid) {
+      await updateAgentActionStatus(record.id, 'rejected_invalid', {
+        decidedBy: 'control-admin',
+        resultDetail: reclassified.invalidReason,
+      });
+      res.status(409).json({ error: `No longer valid: ${reclassified.invalidReason}` });
+      return;
+    }
+    const resultDetail = await applyAgentAction(record.action);
+    await updateAgentActionStatus(record.id, 'approved', { decidedBy: 'control-admin', resultDetail });
+    res.json({ applied: true, resultDetail });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/agent/recommendations/:id/dismiss', requireCsrf, async (req, res, next) => {
+  try {
+    const record = await getAgentAction(String(req.params.id ?? ''));
+    if (!record) {
+      res.status(404).json({ error: 'Recommendation not found' });
+      return;
+    }
+    if (record.status !== 'pending_approval') {
+      res.status(409).json({ error: `Recommendation is already ${record.status}` });
+      return;
+    }
+    await updateAgentActionStatus(record.id, 'dismissed', { decidedBy: 'control-admin' });
+    res.status(204).end();
   } catch (error) {
     next(error);
   }
