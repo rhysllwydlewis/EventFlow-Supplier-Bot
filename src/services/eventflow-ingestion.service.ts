@@ -13,11 +13,22 @@ export const PILOT_UNCLAIMED_SCOPE = 'pilot_unclaimed' as const;
 const publicationScopeSchema = z.enum([PILOT_UNCLAIMED_SCOPE, PUBLIC_UNCLAIMED_SCOPE]);
 export type EventFlowPublicationScope = z.infer<typeof publicationScopeSchema>;
 
-const responseSchema = z.object({
+// EventFlow's ingestion route (routes/supplier-profile-safe.js) creates the
+// supplier as 'draft' and then, in the same request, promotes it straight to
+// 'active' via ensurePublishedUnclaimedMarketplaceState() whenever it carries
+// a bot publicationScope (pilot_unclaimed/public_unclaimed) -- which every
+// bot-sent payload does. So the response this endpoint actually returns for
+// every successful publish is 'active', never 'draft': the literal('draft')
+// this used to be rejected 100% of real publishes (150 failed, 0 published
+// in production) while a manual EventFlow API test would have looked fine
+// with a hand-built 'draft' fixture. Neither value drives any behavior here
+// (see below -- parsed.status is never read after this parse), so accepting
+// both is exactly what this check should have allowed from the start.
+export const eventFlowIngestionResponseSchema = z.object({
   supplierId: z.string().min(1),
   slug: z.string().min(1),
   publicProfilePath: z.string().regex(/^\/supplier\/[a-z0-9-]+--[a-f0-9]{16}$/).nullable().optional(),
-  status: z.literal('draft'),
+  status: z.enum(['draft', 'active']),
   ownershipStatus: z.literal('unclaimed'),
   publicationScope: publicationScopeSchema.nullable().optional(),
   created: z.boolean(),
@@ -132,7 +143,7 @@ export async function ingestShadowProfileToEventFlow(input: {
       throw new Error(reason);
     }
 
-    const parsed = responseSchema.parse(responseBody);
+    const parsed = eventFlowIngestionResponseSchema.parse(responseBody);
     if (input.publicationScope && parsed.publicationScope !== input.publicationScope) {
       throw new Error(
         `eventflow_publication_scope_mismatch:${parsed.publicationScope ?? 'missing'}`,

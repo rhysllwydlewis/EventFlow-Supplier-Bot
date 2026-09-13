@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { eventFlowIngestionResponseSchema } from '../src/services/eventflow-ingestion.service.js';
 
 const envSource = readFileSync('src/config/env.ts', 'utf8');
 const ingestionSource = readFileSync('src/services/eventflow-ingestion.service.ts', 'utf8');
@@ -169,5 +170,25 @@ describe('Phase 2 EventFlow ingestion contract', () => {
     );
     expect(matchBlock).toContain("{ 'ingestion.nextRetryAt': null }");
     expect(matchBlock).toContain("{ 'ingestion.nextRetryAt': { $lte: now } }");
+  });
+
+  it('accepts both statuses EventFlow actually returns for a bot-sourced supplier', () => {
+    // Production regression: EventFlow's ingestion route creates the supplier
+    // as 'draft', then promotes it to 'active' in the same request via
+    // ensurePublishedUnclaimedMarketplaceState() whenever a bot
+    // publicationScope is present -- which every bot payload carries. A
+    // schema that only accepted literal 'draft' therefore rejected every
+    // real successful publish (150 failed / 0 published in production)
+    // while looking correct against a hand-built 'draft' test fixture.
+    const base = {
+      supplierId: 'supplier_1',
+      slug: 'llechwen-hall',
+      ownershipStatus: 'unclaimed' as const,
+      created: true,
+      idempotent: false,
+    };
+    expect(eventFlowIngestionResponseSchema.safeParse({ ...base, status: 'active' }).success).toBe(true);
+    expect(eventFlowIngestionResponseSchema.safeParse({ ...base, status: 'draft' }).success).toBe(true);
+    expect(eventFlowIngestionResponseSchema.safeParse({ ...base, status: 'published' }).success).toBe(false);
   });
 });
