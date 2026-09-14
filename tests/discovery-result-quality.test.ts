@@ -178,6 +178,22 @@ describe('supplier discovery quality gate', () => {
     expect(isVenueCategoryContentMismatch('Photography', 'Offers skippered canal cruises.')).toBe(false);
   });
 
+  it('catches a wedding photographer published as "Venues" even though her own description says "wedding" throughout', () => {
+    // Real incident, verbatim published description: mentions "wedding"
+    // repeatedly (as any wedding photographer's own copy legitimately would),
+    // so a check that only looked for the absence of venue/event-hosting
+    // words would have missed it -- NON_VENUE_SUPPLIER_TERMS must be checked
+    // first and independently, not only as a fallback.
+    expect(
+      isVenueCategoryContentMismatch(
+        'Venues',
+        'Babs Boardwell Photography provides elopement and small wedding photography across North Wales. '
+          + 'The photographer also helps couples find locations, work out timings and shape their day, '
+          + 'with a gentle, natural approach to capturing photographs.',
+      ),
+    ).toBe(true);
+  });
+
   it('rejects malformed URLs without throwing', () => {
     expect(evaluateDiscoverySearchResult(result('not-a-url', 'Venue'), 'Venues')).toEqual({
       eligible: false,

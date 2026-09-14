@@ -153,12 +153,18 @@ function categoryMismatch(item: DiscoverySearchResult, category: string): boolea
 // check above, but against a shadow profile's own extracted description and
 // services -- much richer text than a search snippet, and available at
 // compliance time regardless of how the candidate entered the pipeline.
-// Confirmed live in production: a canal-boat cruise operator and a wedding
-// photographer were both published as category "Venues" (inherited from
-// whichever campaign search query happened to surface them, never checked
-// against what the business actually turned out to be).
+// Confirmed live in production: a canal-boat cruise operator was published
+// as category "Venues" (inherited from whichever campaign search query
+// happened to surface it, never checked against what the business actually
+// turned out to be). NON_VENUE_SUPPLIER_TERMS is checked first and
+// independently of the venue/event-hosting absence check below it: a
+// wedding photographer's own AI-written description legitimately says
+// "wedding" throughout (also confirmed live -- "Babs Boardwell Photography
+// provides elopement and small wedding photography..."), which would pass
+// the absence check on EVENT_HOSTING_TERMS alone and stay unflagged.
 export function isVenueCategoryContentMismatch(category: string, text: string): boolean {
   if (category.trim().toLowerCase() !== 'venues') return false;
+  if (NON_VENUE_SUPPLIER_TERMS.test(text)) return true;
   return !VENUE_TERMS.test(text) && !EVENT_HOSTING_TERMS.test(text);
 }
 
