@@ -1,11 +1,35 @@
 import type { ComplianceAssessment } from '../domain/compliance-assessment.js';
 import type { ShadowProfile } from '../domain/shadow-profile.js';
 import type { EvidenceFragment } from '../evidence/evidence.js';
-import { isKnownNonSupplierDomain } from './discovery-result-quality.service.js';
+import { isKnownNonSupplierDomain, isVenueCategoryContentMismatch } from './discovery-result-quality.service.js';
 
 export const COMPLIANCE_POLICY_VERSION = 'shadow-compliance-v1';
 const COPY_BLOCK_THRESHOLD = 0.65;
 const SEO_COPY_THRESHOLD = 0.45;
+
+// Well-known English/Scottish regions clearly outside any Wales-focused
+// campaign's target area. Confirmed live in production: "Appleby Castle", a
+// real venue in Cumbria (the Lake District), was published under a North
+// Wales campaign because nothing checked the extracted location against
+// what the campaign actually targets. Deliberately a denylist of markers
+// foreign to Wales, not an allowlist requiring the word "Wales" itself --
+// several genuinely correct North Wales profiles (e.g. a Rhyl or Llangollen
+// postcode-only address) never say "Wales" at all, so requiring it would
+// have blocked them too.
+const NON_TARGET_REGION_MARKERS =
+  /\b(cumbria|lake district|yorkshire|lancashire|cornwall|devon|somerset|dorset|hampshire|surrey|kent|essex|norfolk|suffolk|scotland|northern ireland|london|midlands)\b/i;
+
+function hasNumericPriceContent(profile: ShadowProfile): boolean {
+  const strings = [...profile.advertisedPrices, ...profile.packages.map(item => item.priceDisplay || item.price || '')];
+  return strings.some(value => /\d/.test(value)) || profile.packages.some(item => item.priceDetails?.amount != null);
+}
+
+function isLocationOutsideTargetRegion(profileLocation: string | null, campaignLocations: string[]): boolean {
+  if (!profileLocation || campaignLocations.length === 0) return false;
+  const marker = NON_TARGET_REGION_MARKERS.exec(profileLocation)?.[0]?.toLowerCase();
+  if (!marker) return false;
+  return !campaignLocations.join(' ').toLowerCase().includes(marker);
+}
 
 function words(value: string): string[] {
   return value
@@ -81,6 +105,7 @@ export function assessShadowProfileCompliance(input: {
   evidence: EvidenceFragment[];
   minimumPublicationQuality: number;
   descriptionFallbackApplied?: boolean;
+  campaignLocations?: string[] | undefined;
 }): ComplianceAssessment {
   const profile = input.profile;
   const similarity = descriptionEvidenceSimilarity(profile.description, input.evidence);
@@ -132,6 +157,21 @@ export function assessShadowProfileCompliance(input: {
   if (!profile.location) reasons.push('missing_location');
   if (!profile.services.length) reasons.push('missing_service_depth');
   if (!profile.advertisedPrices.length && !profile.packages.length) reasons.push('pricing_not_publicly_available');
+  // Distinct from pricing_not_publicly_available above: this is not "no price
+  // was found" (common and legitimate -- most suppliers price on enquiry),
+  // it's "a price WAS extracted but it's not a usable one" -- confirmed live
+  // in production as a bare "£" with no number at all.
+  else if (!hasNumericPriceContent(profile)) reasons.push('pricing_format_invalid');
+  // Confirmed live in production: zero real photos published (a directory
+  // page's own URL had been recorded as the "website", so nothing on it was
+  // actually a photo of the business).
+  if (!profile.images.length) reasons.push('missing_media');
+  if (isVenueCategoryContentMismatch(profile.category, `${profile.description} ${profile.services.join(' ')}`)) {
+    reasons.push('category_mismatch_with_content');
+  }
+  if (isLocationOutsideTargetRegion(profile.location, input.campaignLocations ?? [])) {
+    reasons.push('location_outside_target_region');
+  }
 
   const blockingReasons = new Set([
     'quality_below_publication_threshold',
@@ -140,6 +180,10 @@ export function assessShadowProfileCompliance(input: {
     'missing_core_identity',
     'description_too_similar_to_source',
     'non_supplier_domain',
+    'pricing_format_invalid',
+    'missing_media',
+    'category_mismatch_with_content',
+    'location_outside_target_region',
     // A supplier profile with contact details but no location or services is
     // not a useful listing -- these already downgrade `status` to 'review',
     // but without being blocking too, the actual publish path (which checks

@@ -140,6 +140,7 @@ export async function processEventFlowPublication(candidateId: string): Promise<
       profile,
       evidence,
       minimumPublicationQuality,
+      campaignLocations: campaign?.locations,
     }));
 
     if (!compliance.publicationEligible) {

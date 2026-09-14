@@ -73,6 +73,27 @@ describe('supplier media extraction', () => {
     `))).not.toThrow();
   });
 
+  it('rejects placeholder/dummy graphics that real production supplier profiles were published with', () => {
+    // Two real production incidents: a supplier's og:image resolved to a
+    // directory theme's category_default.png (no real photo at all), and
+    // another's cover image was a WordPress slider plugin's own dummy.png --
+    // neither is a photo of the actual business, but neither matched any
+    // existing negative hint at the time.
+    const result = extractSupplierMedia(crawl(`
+      <meta property="og:image" content="https://venue.example/theme/img/categories/category_default.png">
+      <img src="/wp-content/plugins/revslider/sr6/assets/assets/dummy.png" alt="" width="1200" height="600">
+      <img src="/gallery/reception.jpg" alt="Reception room" width="1200" height="800">
+    `));
+
+    expect(result.map(item => item.url)).not.toContain(
+      'https://venue.example/theme/img/categories/category_default.png',
+    );
+    expect(result.map(item => item.url)).not.toContain(
+      'https://venue.example/wp-content/plugins/revslider/sr6/assets/assets/dummy.png',
+    );
+    expect(result.map(item => item.url)).toContain('https://venue.example/gallery/reception.jpg');
+  });
+
   it('deduplicates an image referenced on several crawled pages', () => {
     const html = '<img src="/media/venue-exterior.jpg" alt="Venue exterior" width="1400" height="800">';
     const result = extractSupplierMedia({

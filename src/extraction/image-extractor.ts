@@ -8,7 +8,11 @@ const MAX_MEDIA_EVIDENCE = 20;
 const MIN_ACCEPTED_SCORE = 45;
 const UK_SECOND_LEVEL_SUFFIXES = new Set(['co.uk', 'org.uk', 'me.uk', 'ac.uk', 'gov.uk', 'ltd.uk', 'plc.uk']);
 const PHOTO_HINT_RE = /\b(wedding|venue|ceremony|reception|ballroom|barn|castle|manor|estate|vineyard|hotel|hall|interior|exterior|garden|grounds|suite|room|event|celebration)\b/i;
-const NEGATIVE_HINT_RE = /\b(logo|icon|favicon|avatar|sprite|badge|payment|paypal|visa|mastercard|facebook|instagram|youtube|tiktok|tripadvisor|trustpilot|emoji|placeholder|loading|spinner|pixel|tracking|map|pin|arrow|chevron)\b/i;
+// "dummy"/"default" confirmed live in production: a real supplier's cover
+// image was a WordPress slider plugin's own dummy.png, and another's was a
+// directory theme's generic category_default.png icon -- neither is a photo
+// of the actual business, but neither matched any existing negative hint.
+const NEGATIVE_HINT_RE = /\b(logo|icon|favicon|avatar|sprite|badge|payment|paypal|visa|mastercard|facebook|instagram|youtube|tiktok|tripadvisor|trustpilot|emoji|placeholder|loading|spinner|pixel|tracking|map|pin|arrow|chevron|dummy|default|no image|noimage|coming soon)\b/i;
 const NON_PHOTO_EXTENSION_RE = /\.(?:svg|ico|gif)(?:$|[?#])/i;
 const IMAGE_LIKE_EXTENSION_RE = /\.(?:jpe?g|png|webp|avif)(?:$|[?#])/i;
 

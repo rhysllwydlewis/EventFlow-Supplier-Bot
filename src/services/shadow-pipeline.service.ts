@@ -114,6 +114,7 @@ async function completeShadowProfile(
     evidence,
     minimumPublicationQuality,
     descriptionFallbackApplied: compliantDescription.fallbackApplied,
+    campaignLocations: campaign?.locations,
   }));
 
   if (dedup.assessment.decision === 'probable_duplicate') {

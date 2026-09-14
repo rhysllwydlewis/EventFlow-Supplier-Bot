@@ -121,6 +121,10 @@ const EDITORIAL_TITLE_PATTERNS = [
 ] as const;
 
 const VENUE_TERMS = /\b(venue|venues|hotel|manor|castle|barn|estate|vineyard|country house|house|hall|resort|spa|farm)\b/i;
+// Broader than VENUE_TERMS: a genuine venue's own description talks about
+// hosting/hiring space even when it never uses one of the specific building
+// words above (e.g. a park pavilion, a boathouse, a marquee field).
+const EVENT_HOSTING_TERMS = /\b(host(?:s|ing)?|hire|hired|hiring|wedding|conference|ceremony|reception|function room|event space|meeting room|private event)\b/i;
 const NON_VENUE_SUPPLIER_TERMS = /\b(photograph(?:er|ers|y|ic)?|videograph(?:er|ers|y|ic)?|florist|flowers?|caterer|catering|photo booth|wedding dj|mobile dj)\b/i;
 
 function domainMatches(domain: string, blocked: string): boolean {
@@ -143,6 +147,25 @@ function categoryMismatch(item: DiscoverySearchResult, category: string): boolea
   if (category.trim().toLowerCase() !== 'venues') return false;
   const text = `${item.title} ${item.snippet ?? ''}`;
   return NON_VENUE_SUPPLIER_TERMS.test(text) && !VENUE_TERMS.test(text);
+}
+
+// Reuses the same venue vocabulary as the discovery-time categoryMismatch
+// check above, but against a shadow profile's own extracted description and
+// services -- much richer text than a search snippet, and available at
+// compliance time regardless of how the candidate entered the pipeline.
+// Confirmed live in production: a canal-boat cruise operator was published
+// as category "Venues" (inherited from whichever campaign search query
+// happened to surface it, never checked against what the business actually
+// turned out to be). NON_VENUE_SUPPLIER_TERMS is checked first and
+// independently of the venue/event-hosting absence check below it: a
+// wedding photographer's own AI-written description legitimately says
+// "wedding" throughout (also confirmed live -- "Babs Boardwell Photography
+// provides elopement and small wedding photography..."), which would pass
+// the absence check on EVENT_HOSTING_TERMS alone and stay unflagged.
+export function isVenueCategoryContentMismatch(category: string, text: string): boolean {
+  if (category.trim().toLowerCase() !== 'venues') return false;
+  if (NON_VENUE_SUPPLIER_TERMS.test(text)) return true;
+  return !VENUE_TERMS.test(text) && !EVENT_HOSTING_TERMS.test(text);
 }
 
 export function evaluateDiscoverySearchResult(
