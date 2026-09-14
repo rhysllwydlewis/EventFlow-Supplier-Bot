@@ -137,6 +137,26 @@ describe('live listing remediation (one-off startup migration)', () => {
     expect(enqueueCrawlCandidate).not.toHaveBeenCalled();
   });
 
+  it('does not record completion, and retries on the next call, when an unpublish call fails non-terminally', async () => {
+    // Simulates the real deploy-ordering risk this migration runs under: this
+    // repo's PR can ship before rhysllwydlewis/EventFlow#1666 (the endpoint
+    // it calls) is deployed, so the first attempt may fail with 'failed' or
+    // 'not_configured' rather than a terminal outcome.
+    seedCandidate('candidate_faenol', 'faenolfawrhotel.co.uk');
+    seedCandidate('candidate_events', 'eventsmadesimple.co.uk');
+    seedCandidate('candidate_babs', 'babsboardwellweddings.co.uk');
+    unpublishFromEventFlow.mockResolvedValue({ status: 'failed', reason: 'eventflow_http_404' });
+
+    await runLiveListingRemediation();
+    unpublishFromEventFlow.mockClear();
+    enqueueCrawlCandidate.mockClear();
+    unpublishFromEventFlow.mockResolvedValue({ status: 'unpublished' });
+
+    await runLiveListingRemediation();
+
+    expect(unpublishFromEventFlow).toHaveBeenCalledTimes(2);
+  });
+
   it('skips a recrawl target whose candidate is not found, without failing the whole batch', async () => {
     // Only seed two of the three recrawl candidates -- the third (and both
     // unpublish targets, which don't depend on a local candidate at all)

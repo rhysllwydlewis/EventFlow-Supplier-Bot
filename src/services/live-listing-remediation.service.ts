@@ -91,6 +91,15 @@ export async function runLiveListingRemediation(): Promise<void> {
     return;
   }
 
+  // This bot repo's own PR ships before the EventFlow endpoint it calls is
+  // guaranteed to be deployed (rhysllwydlewis/EventFlow#1666) -- two separate
+  // repos, two separate deploys, no ordering guarantee between them. If an
+  // unpublish call fails for a reason that could resolve itself (the
+  // endpoint not deployed yet, a transient network error), the whole
+  // migration must stay retryable on the next worker restart rather than
+  // being marked done after one attempt that silently never fixed anything.
+  let allTerminal = true;
+
   for (const item of REMEDIATIONS) {
     try {
       if (item.action === 'unpublish') {
@@ -100,6 +109,9 @@ export async function runLiveListingRemediation(): Promise<void> {
           reason: item.reason,
         });
         logger.info({ businessName: item.businessName, result }, 'Live listing remediation: unpublish attempted');
+        if (result.status !== 'unpublished' && result.status !== 'not_found' && result.status !== 'not_bot_managed') {
+          allTerminal = false;
+        }
         continue;
       }
 
@@ -129,7 +141,13 @@ export async function runLiveListingRemediation(): Promise<void> {
       logger.info({ businessName: item.businessName, candidateId: candidate.id, crawlQueued }, 'Live listing remediation: recrawl queued');
     } catch (error) {
       logger.error({ err: error, businessName: item.businessName }, 'Live listing remediation: action failed');
+      allTerminal = false;
     }
+  }
+
+  if (!allTerminal) {
+    logger.warn('Live listing remediation: at least one action did not reach a terminal state, will retry on next worker startup');
+    return;
   }
 
   await migrations.updateOne(
