@@ -42,6 +42,16 @@ const BLOCKED_DISCOVERY_DOMAINS = [
   'reddit.com',
   'quora.com',
   'mumsnet.com',
+  // Regional tourism-board / venue-directory sites: a page here describes
+  // (or lists search results for) many venues run by other businesses, not
+  // a supplier of its own. Confirmed live in production -- both slipped
+  // past every other check here and were published with the directory's
+  // own URL recorded as the individual business's "website", a wrong and
+  // misleading link for a real business (britainsfinest.co.uk/.../search/
+  // for "Appleby Castle"; meetnorthwales.co.uk/venues/ for "Anglo Welsh").
+  'britainsfinest.co.uk',
+  'meetnorthwales.co.uk',
+  'meetcardiff.com',
 ] as const;
 
 // Government and public-body domains are never a commercial wedding supplier,
@@ -83,6 +93,16 @@ const EDITORIAL_PATH_SEGMENTS = new Set([
   'ideas',
   'tips',
   'journal',
+  // Not editorial content, but the same underlying problem: a page whose
+  // URL path is a directory's own search/finder mechanism lists results
+  // for many other businesses -- it is never itself a single supplier's
+  // page, even when it plausibly ranks for a category+location query and
+  // its content names a specific real business. Confirmed live in
+  // production ("Appleby Castle" published with a britainsfinest.co.uk
+  // /weddingvenues/search/in/northwales URL recorded as its own website).
+  'search',
+  'venue-finder',
+  'find-a-venue',
 ]);
 
 const EDITORIAL_TITLE_PATTERNS = [

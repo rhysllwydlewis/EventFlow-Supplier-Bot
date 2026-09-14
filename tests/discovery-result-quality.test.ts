@@ -23,6 +23,44 @@ describe('supplier discovery quality gate', () => {
     }
   });
 
+  it('rejects the regional tourism-board/venue-directory domains that slipped through live', () => {
+    // Real production incident: a broadened campaign's discovery cycle
+    // published "Appleby Castle" with a britainsfinest.co.uk search-results
+    // URL, and "Anglo Welsh" with a meetnorthwales.co.uk listings URL,
+    // recorded as if either were that business's own website -- a wrong,
+    // misleading public link for a real business. Neither domain nor path
+    // was caught by anything here at the time.
+    for (const item of [
+      result(
+        'https://www.britainsfinest.co.uk/weddingvenues/search/in/northwales',
+        'Appleby Castle Wedding Venue',
+      ),
+      result('https://meetnorthwales.co.uk/venues/', 'Anglo Welsh Canal Cruises'),
+      result('https://meetcardiff.com/venue-finder/', 'Meet Cardiff Venue Finder'),
+    ]) {
+      const decision = evaluateDiscoverySearchResult(item, 'Venues');
+      expect(decision.eligible).toBe(false);
+    }
+  });
+
+  it('rejects a search/venue-finder path even on a domain not explicitly blocklisted', () => {
+    // The domain-blocklist entries above cover the three domains already
+    // confirmed live; this is the general-purpose safety net for the same
+    // class of bug on a future, not-yet-seen directory domain.
+    expect(
+      evaluateDiscoverySearchResult(
+        result('https://example-directory.co.uk/weddingvenues/search/in/southwales', 'Some Real Venue Name'),
+        'Venues',
+      ),
+    ).toMatchObject({ eligible: false, reason: 'editorial_result' });
+    expect(
+      evaluateDiscoverySearchResult(
+        result('https://example-directory.co.uk/find-a-venue/', 'Some Real Venue Name'),
+        'Venues',
+      ),
+    ).toMatchObject({ eligible: false, reason: 'editorial_result' });
+  });
+
   it('rejects government and public-body domains regardless of title wording', () => {
     for (const item of [
       result('https://cadw.gov.wales/visit/castles-monuments', 'Weddings at Cadw historic sites'),
