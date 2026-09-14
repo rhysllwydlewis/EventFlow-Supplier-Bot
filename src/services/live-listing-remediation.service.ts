@@ -3,6 +3,7 @@ import { logger } from '../lib/logger.js';
 import { recordAuditEvent } from '../repositories/audit.repository.js';
 import {
   getCandidateByCanonicalDomain,
+  setCandidateCanonicalUrl,
   setCandidateCategoryHint,
   setCandidateStatus,
 } from '../repositories/candidate.repository.js';
@@ -16,6 +17,7 @@ type RemediationItem =
       action: 'recrawl';
       canonicalDomain: string;
       categoryHintOverride?: string;
+      canonicalUrlOverride?: string;
       reason: string;
     };
 
@@ -79,6 +81,9 @@ async function runRemediationBatch(migrationId: string, items: readonly Remediat
       if (item.categoryHintOverride && candidate.categoryHint !== item.categoryHintOverride) {
         await setCandidateCategoryHint(candidate.id, item.categoryHintOverride);
       }
+      if (item.canonicalUrlOverride && candidate.canonicalUrl !== item.canonicalUrlOverride) {
+        await setCandidateCanonicalUrl(candidate.id, item.canonicalUrlOverride);
+      }
       await setCandidateStatus(candidate.id, 'queued_for_crawl');
       // Not enqueueCrawlCandidate: every one of these candidates was already
       // crawled once (that's how it got published), so its dedup -- an
@@ -91,6 +96,7 @@ async function runRemediationBatch(migrationId: string, items: readonly Remediat
         candidateId: candidate.id,
         canonicalDomain: item.canonicalDomain,
         categoryHintOverride: item.categoryHintOverride ?? null,
+        canonicalUrlOverride: item.canonicalUrlOverride ?? null,
         reason: item.reason,
       });
       logger.info({ businessName: item.businessName, candidateId: candidate.id }, 'Live listing remediation: recrawl queued');
@@ -213,7 +219,48 @@ const BATCH_2_ITEMS: readonly RemediationItem[] = [
 ];
 const BATCH_2_MIGRATION_ID = 'live_listing_remediation_2026_09_14_v3';
 
+// Batch 3, same day: manually reviewing Faenol Fawr's and Babs Boardwell
+// Photography's own sites (after batch 1's recrawl left both still
+// compliance-blocked) found their real photos/pricing genuinely exist and
+// are reachable from their homepages -- but neither candidate's
+// canonicalUrl was ever corrected, so the batch-1 forced recrawl started
+// from the exact same wrong page each was originally (mis)published from:
+//  - Babs Boardwell's canonicalUrl was still her own roundup blog post
+//    (the original bug's entry point, /my-favourite-wedding-venues-in-
+//    north-wales) rather than her homepage -- a page with a thin,
+//    unrelated link graph that likely never reaches her real pricing page
+//    (/snowdonia-wedding-photographer/, "starting at £1000/£1200")
+//    within an 8-page crawl budget.
+//  - Faenol Fawr's canonicalUrl was a deep subpage
+//    (/conference-and-function-rooms-north-wales), not the homepage.
+//    Its real, non-placeholder photos sit on /barn-north-wales-events-venue/,
+//    reachable from the homepage's main nav but never reliably reached from
+//    that subpage's own, differently-shaped link graph.
+// Both get canonicalUrlOverride here, alongside the same page-selector.ts
+// media-term scoring fix this PR ships (so a page like Faenol Fawr's Barn
+// page -- slug reading only "events-venue", no dedicated gallery term --
+// competes properly for a crawl slot against pricing/menu pages once the
+// crawl actually starts from a page whose nav links to it).
+const BATCH_3_ITEMS: readonly RemediationItem[] = [
+  {
+    businessName: 'Faenol Fawr Country House and Barn',
+    action: 'recrawl',
+    canonicalDomain: 'faenolfawrhotel.co.uk',
+    canonicalUrlOverride: 'https://faenolfawrhotel.co.uk/',
+    reason: 'canonicalUrl was a deep subpage whose link graph never reached the real photos on /barn-north-wales-events-venue/',
+  },
+  {
+    businessName: 'Babs Boardwell Photography',
+    action: 'recrawl',
+    canonicalDomain: 'babsboardwellweddings.co.uk',
+    canonicalUrlOverride: 'https://www.babsboardwellweddings.co.uk/',
+    reason: 'canonicalUrl was still her own roundup blog post (the original bug\'s entry point), not her homepage',
+  },
+];
+const BATCH_3_MIGRATION_ID = 'live_listing_remediation_2026_09_14_v4';
+
 export async function runLiveListingRemediation(): Promise<void> {
   await runRemediationBatch(BATCH_1_MIGRATION_ID, BATCH_1_ITEMS);
   await runRemediationBatch(BATCH_2_MIGRATION_ID, BATCH_2_ITEMS);
+  await runRemediationBatch(BATCH_3_MIGRATION_ID, BATCH_3_ITEMS);
 }

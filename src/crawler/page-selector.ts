@@ -23,6 +23,27 @@ const USEFUL_PATH_TERMS = [
   'events',
 ];
 
+// Weighted the same as COMMERCIAL_PATH_TERMS, not USEFUL_PATH_TERMS: a real
+// supplier photo is exactly what compliance.service.ts's missing_media check
+// requires, and until this the crawler had no scoring signal at all for
+// finding one -- a page's only route to a crawl slot was a pricing/service
+// term match, even when its actual photos sat on a page whose slug happened
+// to contain neither. Confirmed live in production: a real venue's crawl
+// consistently filled its page budget with pricing/menu/service pages
+// (baked-in commercial-term scoring) while a page holding its only real,
+// non-placeholder photos -- linked from the same top-level nav, slug reading
+// only "barn-north-wales-events-venue" -- never won a slot.
+const MEDIA_PATH_TERMS = [
+  'gallery',
+  'galleries',
+  'photos',
+  'photo',
+  'photography',
+  'rooms',
+  'grounds',
+  'facilities',
+];
+
 const LOW_VALUE_PATH_TERMS = [
   'blog',
   'news',
@@ -68,6 +89,10 @@ export function scoreUsefulPage(url: URL, rootOrigin: string, linkText = ''): nu
   USEFUL_PATH_TERMS.forEach(term => {
     if (path.includes(term)) score += 15;
     else if (text.includes(term)) score += 10;
+  });
+  MEDIA_PATH_TERMS.forEach(term => {
+    if (path.includes(term)) score += 35;
+    else if (text.includes(term)) score += 20;
   });
   score -= Math.max(0, url.pathname.split('/').filter(Boolean).length - 2) * 3;
   return score;
