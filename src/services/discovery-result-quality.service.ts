@@ -112,7 +112,13 @@ const EDITORIAL_TITLE_PATTERNS = [
   /\b\d+\s+of\s+the\s+best\b/i,
   /\bcompare\s+prices?\b/i,
   /\bprices?\s*(?:&|and)\s*reviews?\b/i,
-  /^(?:affordable|best|cheap|luxury|unique|historic)\b.*\bvenues?\b.*\b(?:in|near)\b/i,
+  // An optional leading article ("The best..."/"Our top...") is common in a
+  // roundup's own <title>/H1 even when the search snippet that originally
+  // surfaced it didn't carry one. Confirmed live in production: a real
+  // page titled "The best wedding and elopement venues in North Wales" (a
+  // photographer's own roundup blog post) passed straight through this
+  // check because it doesn't start with "best" -- it starts with "The".
+  /^(?:the\s+|a\s+|our\s+)?(?:affordable|best|cheap|luxury|unique|historic)\b.*\bvenues?\b.*\b(?:in|near)\b/i,
   // Roundups often skip the word "venue" entirely ("16 of the Best Places to
   // Get Married"), so match the phrase they actually use instead -- but
   // require a leading number so a genuine single-venue title using the same
