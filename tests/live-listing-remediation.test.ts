@@ -60,8 +60,8 @@ vi.mock('../src/repositories/candidate.repository.js', () => ({
 const unpublishFromEventFlow = vi.fn();
 vi.mock('../src/services/eventflow-unpublish.service.js', () => ({ unpublishFromEventFlow }));
 
-const enqueueCrawlCandidate = vi.fn().mockResolvedValue(true);
-vi.mock('../src/services/crawl-queue.service.js', () => ({ enqueueCrawlCandidate }));
+const enqueueForcedCrawlCandidate = vi.fn().mockResolvedValue(undefined);
+vi.mock('../src/services/crawl-queue.service.js', () => ({ enqueueForcedCrawlCandidate }));
 
 const { runLiveListingRemediation } = await import('../src/services/live-listing-remediation.service.js');
 
@@ -76,7 +76,7 @@ describe('live listing remediation (one-off startup migration)', () => {
     auditEvents.length = 0;
     vi.clearAllMocks();
     unpublishFromEventFlow.mockResolvedValue({ status: 'unpublished' });
-    enqueueCrawlCandidate.mockResolvedValue(true);
+    enqueueForcedCrawlCandidate.mockResolvedValue(undefined);
   });
 
   it('unpublishes the two listings that do not belong on the marketplace at all', async () => {
@@ -95,7 +95,11 @@ describe('live listing remediation (one-off startup migration)', () => {
     expect(unpublishFromEventFlow).toHaveBeenCalledTimes(2);
   });
 
-  it('forces a recrawl for the three genuine businesses with fixable data', async () => {
+  it('forces a recrawl for the three genuine businesses with fixable data, bypassing the normal same-day dedup', async () => {
+    // Real incident this guards against: the v1 run found all three recrawl
+    // targets already had a job under the ordinary day-scoped/legacy jobId
+    // (organic crawl activity earlier the same day), so going through
+    // enqueueCrawlCandidate's dedup silently queued nothing for any of them.
     seedCandidate('candidate_faenol', 'faenolfawrhotel.co.uk');
     seedCandidate('candidate_events', 'eventsmadesimple.co.uk');
     seedCandidate('candidate_babs', 'babsboardwellweddings.co.uk');
@@ -105,9 +109,9 @@ describe('live listing remediation (one-off startup migration)', () => {
     expect(candidates.get('candidate_faenol')?.status).toBe('queued_for_crawl');
     expect(candidates.get('candidate_events')?.status).toBe('queued_for_crawl');
     expect(candidates.get('candidate_babs')?.status).toBe('queued_for_crawl');
-    expect(enqueueCrawlCandidate).toHaveBeenCalledWith('candidate_faenol', 'live_listing_remediation');
-    expect(enqueueCrawlCandidate).toHaveBeenCalledWith('candidate_events', 'live_listing_remediation');
-    expect(enqueueCrawlCandidate).toHaveBeenCalledWith('candidate_babs', 'live_listing_remediation');
+    expect(enqueueForcedCrawlCandidate).toHaveBeenCalledWith('candidate_faenol', 'live_listing_remediation');
+    expect(enqueueForcedCrawlCandidate).toHaveBeenCalledWith('candidate_events', 'live_listing_remediation');
+    expect(enqueueForcedCrawlCandidate).toHaveBeenCalledWith('candidate_babs', 'live_listing_remediation');
   });
 
   it('overrides the category hint only for the one candidate whose category was wrong', async () => {
@@ -129,12 +133,12 @@ describe('live listing remediation (one-off startup migration)', () => {
 
     await runLiveListingRemediation();
     unpublishFromEventFlow.mockClear();
-    enqueueCrawlCandidate.mockClear();
+    enqueueForcedCrawlCandidate.mockClear();
 
     await runLiveListingRemediation();
 
     expect(unpublishFromEventFlow).not.toHaveBeenCalled();
-    expect(enqueueCrawlCandidate).not.toHaveBeenCalled();
+    expect(enqueueForcedCrawlCandidate).not.toHaveBeenCalled();
   });
 
   it('does not record completion, and retries on the next call, when an unpublish call fails non-terminally', async () => {
@@ -149,7 +153,27 @@ describe('live listing remediation (one-off startup migration)', () => {
 
     await runLiveListingRemediation();
     unpublishFromEventFlow.mockClear();
-    enqueueCrawlCandidate.mockClear();
+    enqueueForcedCrawlCandidate.mockClear();
+    unpublishFromEventFlow.mockResolvedValue({ status: 'unpublished' });
+
+    await runLiveListingRemediation();
+
+    expect(unpublishFromEventFlow).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not record completion, and retries, on a 404 not_found -- indistinguishable from the endpoint not being deployed yet', async () => {
+    // Real incident, not a hypothetical: the v1 run got exactly this for
+    // both unpublish targets, because EventFlow's own PR (#1666) was still
+    // mid-deploy when this migration's first attempt ran -- a plain Express
+    // 404 for the not-yet-existing route reports identically to a genuinely
+    // unknown supplier id.
+    seedCandidate('candidate_faenol', 'faenolfawrhotel.co.uk');
+    seedCandidate('candidate_events', 'eventsmadesimple.co.uk');
+    seedCandidate('candidate_babs', 'babsboardwellweddings.co.uk');
+    unpublishFromEventFlow.mockResolvedValue({ status: 'not_found', reason: 'eventflow_supplier_not_found' });
+
+    await runLiveListingRemediation();
+    unpublishFromEventFlow.mockClear();
     unpublishFromEventFlow.mockResolvedValue({ status: 'unpublished' });
 
     await runLiveListingRemediation();
@@ -167,7 +191,7 @@ describe('live listing remediation (one-off startup migration)', () => {
     await runLiveListingRemediation();
 
     expect(unpublishFromEventFlow).toHaveBeenCalledTimes(2);
-    expect(enqueueCrawlCandidate).toHaveBeenCalledTimes(2);
+    expect(enqueueForcedCrawlCandidate).toHaveBeenCalledTimes(2);
     expect(auditEvents.some(event => event.action === 'remediation.candidate_not_found')).toBe(true);
   });
 });
