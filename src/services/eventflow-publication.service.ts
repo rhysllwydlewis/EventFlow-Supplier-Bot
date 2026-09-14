@@ -150,6 +150,13 @@ export async function processEventFlowPublication(candidateId: string): Promise<
     }));
 
     if (!compliance.publicationEligible) {
+      // The generic `compliance_${status}` reason markIneligible logs is not
+      // enough on its own to diagnose which specific compliance rule is
+      // blocking a given candidate (missing_media, pricing_format_invalid,
+      // category_mismatch_with_content, location_outside_target_region, ...)
+      // -- that detail lives only in compliance.reasons, otherwise visible
+      // solely via an authenticated /api/compliance-assessments session.
+      logger.warn({ candidateId, reasons: compliance.reasons }, 'EventFlow publication: compliance reasons for ineligible candidate');
       await markIneligible(candidateId, `compliance_${compliance.status}`);
       return { skipped: true, reason: 'compliance_not_publication_eligible' };
     }
