@@ -76,6 +76,13 @@ export const agentActionSchema = z.discriminatedUnion('kind', [
     dailyHardLimit: z.number().int().min(1).max(1000),
     reason: z.string().min(1).max(300),
   }),
+  z.object({
+    kind: z.literal('adjust_campaign_scope'),
+    campaignId: z.string().min(1).max(200),
+    categories: z.array(z.string().min(1).max(60)).min(1).max(10),
+    locations: z.array(z.string().min(1).max(60)).min(1).max(10),
+    reason: z.string().min(1).max(300),
+  }),
 ]);
 export type AgentAction = z.infer<typeof agentActionSchema>;
 

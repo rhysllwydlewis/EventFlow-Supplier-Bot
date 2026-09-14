@@ -90,6 +90,22 @@ export function classifyAgentAction(action: AgentAction, ctx: AgentRulesetContex
       return { action, valid: true, tier: loosening ? 'guarded' : 'auto' };
     }
 
+    case 'adjust_campaign_scope': {
+      const campaign = ctx.campaigns.find(item => item.id === action.campaignId);
+      if (!campaign) {
+        return { action, valid: false, tier: 'guarded', invalidReason: 'campaign_not_found' };
+      }
+      // Widening what the campaign searches for (a new category or location
+      // not already covered) pulls in more crawl/AI spend and more publish
+      // candidates -- the same "wider surface needs a human" rule as every
+      // other loosening action here. Only removing categories/locations
+      // (narrowing) is safe to apply immediately.
+      const widening =
+        action.categories.some(item => !campaign.categories.includes(item)) ||
+        action.locations.some(item => !campaign.locations.includes(item));
+      return { action, valid: true, tier: widening ? 'guarded' : 'auto' };
+    }
+
     default: {
       // The standard TS exhaustiveness idiom: this assignment only compiles
       // if every case above has narrowed `action` away, leaving it typed

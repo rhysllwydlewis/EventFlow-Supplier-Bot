@@ -85,5 +85,11 @@ export async function applyAgentAction(action: AgentAction): Promise<string> {
         dailyHardLimit: action.dailyHardLimit,
       });
       return `Campaign ${action.campaignId} daily limits set to ${action.dailyTarget}/${action.dailyHardLimit}.`;
+    case 'adjust_campaign_scope':
+      await updateCampaign(action.campaignId, {
+        categories: action.categories,
+        locations: action.locations,
+      });
+      return `Campaign ${action.campaignId} scope set to categories [${action.categories.join(', ')}], locations [${action.locations.join(', ')}].`;
   }
 }
