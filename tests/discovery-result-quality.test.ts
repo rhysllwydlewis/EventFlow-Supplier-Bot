@@ -110,6 +110,21 @@ describe('supplier discovery quality gate', () => {
     ).toMatchObject({ eligible: true });
   });
 
+  it('rejects a roundup title with a leading article, not just a bare "best"/"affordable" start', () => {
+    // Real incident: a photographer's own blog roundup was titled "The best
+    // wedding and elopement venues in North Wales" -- starts with "The", so
+    // the original bare `^(?:affordable|best|...)` anchor never matched it.
+    expect(
+      evaluateDiscoverySearchResult(
+        result(
+          'https://example-photographer.co.uk/my-favourite-wedding-venues-in-north-wales',
+          'The best wedding and elopement venues in North Wales',
+        ),
+        'Venues',
+      ),
+    ).toMatchObject({ eligible: false, reason: 'editorial_result' });
+  });
+
   it('rejects listicles and editorial article paths even on otherwise valid supplier domains', () => {
     expect(
       evaluateDiscoverySearchResult(
