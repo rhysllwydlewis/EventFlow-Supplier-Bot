@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { logger } from '../lib/logger.js';
 import { getCandidate } from '../repositories/candidate.repository.js';
 import { getCampaign } from '../repositories/campaign.repository.js';
 import {
@@ -51,6 +52,11 @@ async function markIneligible(candidateId: string, reason: string): Promise<void
     incrementAttempts: true,
     nextRetryAt: retryAt(nextAttempt),
   });
+  // Diagnosing why a specific candidate never made it to EventFlow otherwise
+  // requires an authenticated session to /api/publication-diagnostics --
+  // unavailable to, for example, a one-off deploy-time migration with no
+  // interactive login of its own. This is visible in plain deploy logs.
+  logger.warn({ candidateId, reason }, 'EventFlow publication: candidate marked ineligible');
 }
 
 function publicationControlBlockReason(settings: {
