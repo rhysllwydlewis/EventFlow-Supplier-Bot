@@ -6,7 +6,7 @@ import {
   setCandidateCategoryHint,
   setCandidateStatus,
 } from '../repositories/candidate.repository.js';
-import { enqueueCrawlCandidate } from './crawl-queue.service.js';
+import { enqueueForcedCrawlCandidate } from './crawl-queue.service.js';
 import { unpublishFromEventFlow } from './eventflow-unpublish.service.js';
 
 // One-off, manually-reviewed corrections for specific listings a full manual
@@ -77,7 +77,19 @@ const REMEDIATIONS: ReadonlyArray<
   },
 ];
 
-const MIGRATION_ID = 'live_listing_remediation_2026_09_14';
+// _v2: the first deployed run (2026-09-14T11:56Z, before this fix) hit two
+// real bugs and still marked itself complete, so a stale v1 record must
+// never block this corrected logic from actually running:
+//  1. It reached EventFlow while that repo's own PR (#1666) was still mid-
+//     deploy, so the unpublish endpoint didn't exist yet -- both calls got
+//     a plain Express 404, which the client reports as status 'not_found'.
+//     v1 treated 'not_found' as terminal (indistinguishable from "this
+//     supplier ID genuinely doesn't exist"), so it never retried.
+//  2. All three recrawl targets already had a job under either the day-
+//     scoped or legacy crawl jobId (organic activity earlier the same day),
+//     so enqueueCrawlCandidate's dedup -- meant to stop double-discovery,
+//     not to be overridden -- silently queued nothing for any of them.
+const MIGRATION_ID = 'live_listing_remediation_2026_09_14_v2';
 
 interface MigrationRecord {
   id: string;
@@ -109,7 +121,14 @@ export async function runLiveListingRemediation(): Promise<void> {
           reason: item.reason,
         });
         logger.info({ businessName: item.businessName, result }, 'Live listing remediation: unpublish attempted');
-        if (result.status !== 'unpublished' && result.status !== 'not_found' && result.status !== 'not_bot_managed') {
+        // 'not_found' is deliberately NOT treated as terminal here: EventFlow
+        // returns the same 404 whether this specific supplier ID genuinely
+        // doesn't exist, or the /unpublish route itself doesn't exist yet on
+        // a not-fully-deployed instance -- confirmed live (see MIGRATION_ID's
+        // v2 comment). A supplier ID hardcoded above that turns out to be
+        // permanently wrong would retry forever rather than fail loudly, but
+        // that is the safer failure mode for live public-listing data.
+        if (result.status !== 'unpublished' && result.status !== 'not_bot_managed') {
           allTerminal = false;
         }
         continue;
@@ -129,16 +148,20 @@ export async function runLiveListingRemediation(): Promise<void> {
         await setCandidateCategoryHint(candidate.id, item.categoryHintOverride);
       }
       await setCandidateStatus(candidate.id, 'queued_for_crawl');
-      const crawlQueued = await enqueueCrawlCandidate(candidate.id, 'live_listing_remediation');
+      // Not enqueueCrawlCandidate: every one of these candidates was already
+      // crawled once (that's how it got published), so its dedup -- an
+      // existing job under the day-scoped or legacy jobId -- would silently
+      // refuse to queue a fresh crawl. Confirmed live: all three recrawl
+      // targets hit exactly this in the v1 run.
+      await enqueueForcedCrawlCandidate(candidate.id, 'live_listing_remediation');
       await recordAuditEvent('live-listing-remediation', 'remediation.recrawl_queued', {
         businessName: item.businessName,
         candidateId: candidate.id,
         canonicalDomain: item.canonicalDomain,
         categoryHintOverride: item.categoryHintOverride ?? null,
-        crawlQueued,
         reason: item.reason,
       });
-      logger.info({ businessName: item.businessName, candidateId: candidate.id, crawlQueued }, 'Live listing remediation: recrawl queued');
+      logger.info({ businessName: item.businessName, candidateId: candidate.id }, 'Live listing remediation: recrawl queued');
     } catch (error) {
       logger.error({ err: error, businessName: item.businessName }, 'Live listing remediation: action failed');
       allTerminal = false;
