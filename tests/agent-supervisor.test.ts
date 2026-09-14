@@ -73,6 +73,33 @@ describe('AI supervisor: shares the existing OpenAI budget and circuit ledgers',
   });
 });
 
+describe('AI supervisor: can tell a stale failure history from a live one', () => {
+  // Regression test for a real production incident: the cycle repeatedly
+  // paused the bot / disabled publishing across multiple runs (23:53, 00:09,
+  // 05:23 on 2026-09-13/14) over the exact same publication failures, which
+  // turned out to be 17-day-old records from before an unrelated schema fix
+  // had already shipped. queues.publication.failed/completed never decrease,
+  // so the model had no way to tell "old, already fixed" from "live" without
+  // a timestamp -- this asserts the snapshot now carries one, and that the
+  // model is actually told to use it, rather than just adding an unused field.
+  it('gives the snapshot a per-failure timestamp and a live-retryable count, not just cumulative totals', () => {
+    expect(supervisorSource).toContain('lastAttemptAt: item.updatedAt');
+    expect(supervisorSource).toContain('nextRetryAt: item.nextRetryAt ?? null');
+    expect(supervisorSource).toContain('retryableCandidateCount: retryableCandidateIds.length');
+    expect(supervisorSource).toContain("now: new Date().toISOString()");
+  });
+
+  it('instructs the model to judge freshness from lastAttemptAt, not the cumulative queue totals', () => {
+    expect(supervisorSource).toContain('recentFailures[].lastAttemptAt');
+    expect(supervisorSource).toContain('cumulative counts that never decrease');
+  });
+
+  it('tells the model not to re-pause over a stale finding it (or an operator) may have already reversed', () => {
+    expect(supervisorSource).toMatch(/genuinely recent lastAttemptAt/);
+    expect(supervisorSource).toContain('not a reason to re-take an action');
+  });
+});
+
 describe('AI supervisor: ruleset is exhaustive against the action schema', () => {
   it('has one classification case per action kind declared in the schema', () => {
     const kindMatches = [...agentLogDomainSource.matchAll(/z\.literal\('([a-z_]+)'\)/g)].map(match => match[1]);
