@@ -65,11 +65,22 @@ vi.mock('../src/services/crawl-queue.service.js', () => ({ enqueueForcedCrawlCan
 
 const { runLiveListingRemediation } = await import('../src/services/live-listing-remediation.service.js');
 
+// Batch 1's two unpublish targets, batch 2's one -- three distinct
+// supplierIds across the two batches this file runs unconditionally.
+const BATCH_1_UNPUBLISH_SUPPLIER_IDS = ['sup_bot_bce520ad8443f3d61efcec0f', 'sup_bot_b554aaff5429b7318128e9a8'];
+const BATCH_2_UNPUBLISH_SUPPLIER_ID = 'sup_bot_190d1dbaf5d9a46b6779949f';
+
 function seedCandidate(id: string, canonicalDomain: string, categoryHint: string | null = 'Venues') {
   candidates.set(id, { id, canonicalDomain, categoryHint, status: 'shadow_ready' });
 }
 
-describe('live listing remediation (one-off startup migration)', () => {
+function seedAllRecrawlCandidates() {
+  seedCandidate('candidate_faenol', 'faenolfawrhotel.co.uk');
+  seedCandidate('candidate_events', 'eventsmadesimple.co.uk');
+  seedCandidate('candidate_babs', 'babsboardwellweddings.co.uk');
+}
+
+describe('live listing remediation (one-off startup migrations, run as separate batches)', () => {
   beforeEach(() => {
     candidates.clear();
     migrations.clear();
@@ -79,30 +90,28 @@ describe('live listing remediation (one-off startup migration)', () => {
     enqueueForcedCrawlCandidate.mockResolvedValue(undefined);
   });
 
-  it('unpublishes the two listings that do not belong on the marketplace at all', async () => {
-    seedCandidate('candidate_faenol', 'faenolfawrhotel.co.uk');
-    seedCandidate('candidate_events', 'eventsmadesimple.co.uk');
-    seedCandidate('candidate_babs', 'babsboardwellweddings.co.uk');
+  it('unpublishes all three listings that do not belong on the marketplace at all, across both batches', async () => {
+    seedAllRecrawlCandidates();
 
     await runLiveListingRemediation();
 
-    expect(unpublishFromEventFlow).toHaveBeenCalledWith(
-      expect.objectContaining({ supplierId: 'sup_bot_bce520ad8443f3d61efcec0f' }),
-    );
-    expect(unpublishFromEventFlow).toHaveBeenCalledWith(
-      expect.objectContaining({ supplierId: 'sup_bot_b554aaff5429b7318128e9a8' }),
-    );
-    expect(unpublishFromEventFlow).toHaveBeenCalledTimes(2);
+    for (const supplierId of [...BATCH_1_UNPUBLISH_SUPPLIER_IDS, BATCH_2_UNPUBLISH_SUPPLIER_ID]) {
+      expect(unpublishFromEventFlow).toHaveBeenCalledWith(expect.objectContaining({ supplierId }));
+    }
+    expect(unpublishFromEventFlow).toHaveBeenCalledTimes(3);
   });
 
-  it('forces a recrawl for the three genuine businesses with fixable data, bypassing the normal same-day dedup', async () => {
-    // Real incident this guards against: the v1 run found all three recrawl
-    // targets already had a job under the ordinary day-scoped/legacy jobId
-    // (organic crawl activity earlier the same day), so going through
+  it('forces a recrawl for batch 1s three targets, bypassing the normal same-day dedup', async () => {
+    // Real incident this guards against: an earlier version found all three
+    // recrawl targets already had a job under the ordinary day-scoped/legacy
+    // jobId (organic crawl activity earlier the same day), so going through
     // enqueueCrawlCandidate's dedup silently queued nothing for any of them.
-    seedCandidate('candidate_faenol', 'faenolfawrhotel.co.uk');
-    seedCandidate('candidate_events', 'eventsmadesimple.co.uk');
-    seedCandidate('candidate_babs', 'babsboardwellweddings.co.uk');
+    // Events Made Simple is still a recrawl target in batch 1's (already-ran)
+    // item list -- batch 2 unpublishing it afterwards (operator-confirmed
+    // it's a directory-style platform, not a genuine supplier) is redundant
+    // but harmless in a from-scratch environment like this test; batch 1's
+    // list itself is kept as the historical record of what actually ran.
+    seedAllRecrawlCandidates();
 
     await runLiveListingRemediation();
 
@@ -112,24 +121,20 @@ describe('live listing remediation (one-off startup migration)', () => {
     expect(enqueueForcedCrawlCandidate).toHaveBeenCalledWith('candidate_faenol', 'live_listing_remediation');
     expect(enqueueForcedCrawlCandidate).toHaveBeenCalledWith('candidate_events', 'live_listing_remediation');
     expect(enqueueForcedCrawlCandidate).toHaveBeenCalledWith('candidate_babs', 'live_listing_remediation');
+    expect(enqueueForcedCrawlCandidate).toHaveBeenCalledTimes(3);
   });
 
   it('overrides the category hint only for the one candidate whose category was wrong', async () => {
-    seedCandidate('candidate_faenol', 'faenolfawrhotel.co.uk', 'Venues');
-    seedCandidate('candidate_events', 'eventsmadesimple.co.uk', 'Venues');
-    seedCandidate('candidate_babs', 'babsboardwellweddings.co.uk', 'Venues');
+    seedAllRecrawlCandidates();
 
     await runLiveListingRemediation();
 
     expect(candidates.get('candidate_babs')?.categoryHint).toBe('Photography');
     expect(candidates.get('candidate_faenol')?.categoryHint).toBe('Venues');
-    expect(candidates.get('candidate_events')?.categoryHint).toBe('Venues');
   });
 
-  it('is idempotent: a second run does nothing once the migration record exists', async () => {
-    seedCandidate('candidate_faenol', 'faenolfawrhotel.co.uk');
-    seedCandidate('candidate_events', 'eventsmadesimple.co.uk');
-    seedCandidate('candidate_babs', 'babsboardwellweddings.co.uk');
+  it('is idempotent: a second run does nothing once both migration records exist', async () => {
+    seedAllRecrawlCandidates();
 
     await runLiveListingRemediation();
     unpublishFromEventFlow.mockClear();
@@ -141,14 +146,12 @@ describe('live listing remediation (one-off startup migration)', () => {
     expect(enqueueForcedCrawlCandidate).not.toHaveBeenCalled();
   });
 
-  it('does not record completion, and retries on the next call, when an unpublish call fails non-terminally', async () => {
-    // Simulates the real deploy-ordering risk this migration runs under: this
+  it('does not record completion for a batch, and retries it on the next call, when an unpublish call fails non-terminally', async () => {
+    // Simulates the real deploy-ordering risk both batches run under: this
     // repo's PR can ship before rhysllwydlewis/EventFlow#1666 (the endpoint
     // it calls) is deployed, so the first attempt may fail with 'failed' or
     // 'not_configured' rather than a terminal outcome.
-    seedCandidate('candidate_faenol', 'faenolfawrhotel.co.uk');
-    seedCandidate('candidate_events', 'eventsmadesimple.co.uk');
-    seedCandidate('candidate_babs', 'babsboardwellweddings.co.uk');
+    seedAllRecrawlCandidates();
     unpublishFromEventFlow.mockResolvedValue({ status: 'failed', reason: 'eventflow_http_404' });
 
     await runLiveListingRemediation();
@@ -158,18 +161,16 @@ describe('live listing remediation (one-off startup migration)', () => {
 
     await runLiveListingRemediation();
 
-    expect(unpublishFromEventFlow).toHaveBeenCalledTimes(2);
+    expect(unpublishFromEventFlow).toHaveBeenCalledTimes(3);
   });
 
   it('does not record completion, and retries, on a 404 not_found -- indistinguishable from the endpoint not being deployed yet', async () => {
-    // Real incident, not a hypothetical: the v1 run got exactly this for
-    // both unpublish targets, because EventFlow's own PR (#1666) was still
-    // mid-deploy when this migration's first attempt ran -- a plain Express
+    // Real incident, not a hypothetical: an earlier deployed run got exactly
+    // this for both batch-1 unpublish targets, because EventFlow's own PR
+    // (#1666) was still mid-deploy when that attempt ran -- a plain Express
     // 404 for the not-yet-existing route reports identically to a genuinely
     // unknown supplier id.
-    seedCandidate('candidate_faenol', 'faenolfawrhotel.co.uk');
-    seedCandidate('candidate_events', 'eventsmadesimple.co.uk');
-    seedCandidate('candidate_babs', 'babsboardwellweddings.co.uk');
+    seedAllRecrawlCandidates();
     unpublishFromEventFlow.mockResolvedValue({ status: 'not_found', reason: 'eventflow_supplier_not_found' });
 
     await runLiveListingRemediation();
@@ -178,20 +179,18 @@ describe('live listing remediation (one-off startup migration)', () => {
 
     await runLiveListingRemediation();
 
-    expect(unpublishFromEventFlow).toHaveBeenCalledTimes(2);
+    expect(unpublishFromEventFlow).toHaveBeenCalledTimes(3);
   });
 
-  it('skips a recrawl target whose candidate is not found, without failing the whole batch', async () => {
-    // Only seed two of the three recrawl candidates -- the third (and both
-    // unpublish targets, which don't depend on a local candidate at all)
-    // must still be processed.
-    seedCandidate('candidate_faenol', 'faenolfawrhotel.co.uk');
+  it('skips a recrawl target whose candidate is not found, without failing the rest of that batch or the other batch', async () => {
+    // Only seed Babs Boardwell -- Faenol Fawr's candidate is missing, and
+    // batch 2's unpublish target doesn't depend on a local candidate at all.
     seedCandidate('candidate_babs', 'babsboardwellweddings.co.uk');
 
     await runLiveListingRemediation();
 
-    expect(unpublishFromEventFlow).toHaveBeenCalledTimes(2);
-    expect(enqueueForcedCrawlCandidate).toHaveBeenCalledTimes(2);
+    expect(unpublishFromEventFlow).toHaveBeenCalledTimes(3);
+    expect(enqueueForcedCrawlCandidate).toHaveBeenCalledTimes(1);
     expect(auditEvents.some(event => event.action === 'remediation.candidate_not_found')).toBe(true);
   });
 });
