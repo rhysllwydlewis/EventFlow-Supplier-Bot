@@ -20,6 +20,7 @@ import {
   listComplianceAssessments,
 } from '../repositories/compliance-assessment.repository.js';
 import {
+  getEventFlowIngestionsForCandidates,
   listConflictedEventFlowIngestions,
   listRecentFailedEventFlowIngestions,
   listRetryableEventFlowCandidateIds,
@@ -573,12 +574,34 @@ app.get('/api/blocked-candidates', async (req, res, next) => {
 app.get('/api/publication-diagnostics', async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
-    const [recentFailures, retryableCandidateIds] = await Promise.all([
+    const [recentFailures, retryableCandidateIds, shadowProfiles, publishedDomains, conflicted] = await Promise.all([
       listRecentFailedEventFlowIngestions(limit),
       listRetryableEventFlowCandidateIds(500),
+      listShadowProfiles(500),
+      listPublishedDomains(),
+      listConflictedEventFlowIngestions(500),
     ]);
     const profiles = await getShadowProfilesForCandidateIds(recentFailures.map(item => item.candidateId));
     const byCandidate = new Map(profiles.map(profile => [profile.candidateId, profile]));
+
+    // 'failed' status only ever covers a candidate that got as far as an
+    // actual EventFlow ingestion attempt -- it says nothing about a
+    // shadow-ready candidate still sitting on 'pending' or 'ineligible'
+    // (or with no eventflow_ingestions record at all), which is exactly the
+    // gap that made "why hasn't this one ever published?" unanswerable from
+    // recentFailures alone.
+    const conflictedCandidateIds = new Set(conflicted.map(ingestion => ingestion.candidateId));
+    const notYetPublished = shadowProfiles.filter(profile => {
+      if (conflictedCandidateIds.has(profile.candidateId)) return false;
+      try {
+        return !publishedDomains.has(canonicalDomain(profile.website));
+      } catch {
+        return true;
+      }
+    });
+    const ingestions = await getEventFlowIngestionsForCandidates(notYetPublished.map(profile => profile.candidateId));
+    const ingestionByCandidate = new Map(ingestions.map(ingestion => [ingestion.candidateId, ingestion]));
+
     res.json({
       retryableCandidateCount: retryableCandidateIds.length,
       recentFailures: recentFailures.map(item => {
@@ -593,6 +616,20 @@ app.get('/api/publication-diagnostics', async (req, res, next) => {
           nextRetryAt: item.nextRetryAt ?? null,
           retryDue: item.nextRetryAt ? item.nextRetryAt <= new Date().toISOString() : true,
           lastAttemptAt: item.updatedAt,
+        };
+      }),
+      notYetPublished: notYetPublished.map(profile => {
+        const ingestion = ingestionByCandidate.get(profile.candidateId) ?? null;
+        return {
+          candidateId: profile.candidateId,
+          businessName: profile.businessName,
+          website: profile.website,
+          publicationQuality: profile.publicationQuality,
+          ingestionStatus: ingestion?.status ?? 'never_attempted',
+          reason: ingestion?.reason ?? null,
+          attempts: ingestion?.attempts ?? 0,
+          nextRetryAt: ingestion?.nextRetryAt ?? null,
+          retryDue: ingestion?.nextRetryAt ? ingestion.nextRetryAt <= new Date().toISOString() : true,
         };
       }),
     });
