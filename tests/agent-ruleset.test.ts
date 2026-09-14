@@ -165,6 +165,65 @@ describe('AI supervisor ruleset: campaigns', () => {
   });
 });
 
+describe('AI supervisor ruleset: campaign scope (categories/locations)', () => {
+  it('adding a category or location not already covered is guarded', () => {
+    expect(
+      classifyAgentAction(
+        {
+          kind: 'adjust_campaign_scope',
+          campaignId: campaign.id,
+          categories: [...campaign.categories, 'Catering'],
+          locations: campaign.locations,
+          reason: reason('x'),
+        },
+        ctx,
+      ),
+    ).toMatchObject({ valid: true, tier: 'guarded' });
+    expect(
+      classifyAgentAction(
+        {
+          kind: 'adjust_campaign_scope',
+          campaignId: campaign.id,
+          categories: campaign.categories,
+          locations: [...campaign.locations, 'North Wales'],
+          reason: reason('x'),
+        },
+        ctx,
+      ),
+    ).toMatchObject({ valid: true, tier: 'guarded' });
+  });
+
+  it('narrowing to a subset of the existing categories/locations is auto', () => {
+    expect(
+      classifyAgentAction(
+        {
+          kind: 'adjust_campaign_scope',
+          campaignId: campaign.id,
+          categories: campaign.categories,
+          locations: campaign.locations,
+          reason: reason('x'),
+        },
+        ctx,
+      ),
+    ).toMatchObject({ valid: true, tier: 'auto' });
+  });
+
+  it('targeting a campaign that no longer exists is invalid, never silently auto-applied', () => {
+    const result = classifyAgentAction(
+      {
+        kind: 'adjust_campaign_scope',
+        campaignId: 'campaign_does_not_exist',
+        categories: ['Venues'],
+        locations: ['South Wales'],
+        reason: reason('x'),
+      },
+      ctx,
+    );
+    expect(result.valid).toBe(false);
+    expect(result.invalidReason).toBe('campaign_not_found');
+  });
+});
+
 describe('AI supervisor ruleset: never allows a destructive action', () => {
   it('hard_reset is not a recognised action kind at all', () => {
     // agentActionSchema (domain/agent-log.ts) has no 'hard_reset' variant, so

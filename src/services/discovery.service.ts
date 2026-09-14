@@ -2,6 +2,7 @@ import { env } from '../config/env.js';
 import type { Campaign } from '../domain/campaign.js';
 import { logger } from '../lib/logger.js';
 import { getDiscoveryProvider } from '../providers/discovery/index.js';
+import { recordAuditEvent } from '../repositories/audit.repository.js';
 import {
   getCandidateByCanonicalDomain,
   upsertDiscoveredCandidate,
@@ -176,5 +177,20 @@ export async function runDiscoveryCycle(
   if (!env.BRAVE_PERSISTENCE_ALLOWED && providerName === 'brave') {
     logger.warn({ persistenceBlocked: result.persistenceBlocked }, 'Brave discovery ran with persistence gated');
   }
+  // The AI supervisor has no other way to see *why* a campaign has stopped
+  // producing new candidates -- candidatesToday alone can't distinguish "the
+  // campaign's fixed query set has exhausted what it can find" (every result
+  // already a duplicate/suppressed/filtered) from a real problem, so it's
+  // recorded here rather than only logged.
+  await recordAuditEvent('discovery-worker', 'discovery.cycle_completed', {
+    campaignId: campaign.id,
+    resultsSeen: result.resultsSeen,
+    candidatesCreated: result.candidatesCreated,
+    duplicatesSkipped: result.duplicatesSkipped,
+    suppressedSkipped: result.suppressedSkipped,
+    qualityFilteredSkipped: result.qualityFilteredSkipped,
+    alreadyPublishedSkipped: result.alreadyPublishedSkipped,
+    alreadyOnEventFlowSkipped: result.alreadyOnEventFlowSkipped,
+  });
   return result;
 }
