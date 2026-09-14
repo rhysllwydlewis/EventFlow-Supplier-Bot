@@ -26,6 +26,7 @@ import { remainingDailyAllowance } from '../services/daily-limit.service.js';
 import { runDiscoveryCycle } from '../services/discovery.service.js';
 import { reconcileEventFlowPublicationQueue } from '../services/eventflow-publication-queue.service.js';
 import { processEventFlowPublication } from '../services/eventflow-publication.service.js';
+import { runLiveListingRemediation } from '../services/live-listing-remediation.service.js';
 import {
   completePhase3ValidationRun,
   reconcilePhase3Validation,
@@ -379,6 +380,12 @@ async function start(): Promise<void> {
   await ensureMongoIndexes();
   await connectRedis();
   await heartbeat('starting');
+  // Idempotent (self-guarded by a maintenance_migrations record) one-off
+  // correction for specific listings a manual QA pass found live and wrong
+  // on EventFlow. Best-effort: must never block the worker from starting.
+  await runLiveListingRemediation().catch(error => {
+    logger.error({ err: error }, 'Live listing remediation failed');
+  });
   await registerSchedulers();
   startWorkers();
   await heartbeat('ready');
