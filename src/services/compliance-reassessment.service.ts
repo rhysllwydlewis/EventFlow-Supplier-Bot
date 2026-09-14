@@ -39,6 +39,7 @@ export async function reassessPendingCompliance(limit = 100): Promise<number> {
         profile,
         evidence,
         minimumPublicationQuality,
+        campaignLocations: campaign?.locations,
       }));
       return true;
     });

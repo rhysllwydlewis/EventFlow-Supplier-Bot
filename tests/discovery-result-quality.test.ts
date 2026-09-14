@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   evaluateDiscoverySearchResult,
   isKnownNonSupplierDomain,
+  isVenueCategoryContentMismatch,
 } from '../src/services/discovery-result-quality.service.js';
 
 function result(url: string, title: string, snippet?: string) {
@@ -159,6 +160,22 @@ describe('supplier discovery quality gate', () => {
     for (const domain of ['examplecastle.co.uk', 'brynmeadows.co.uk']) {
       expect(isKnownNonSupplierDomain(domain)).toBe(false);
     }
+  });
+
+  it('exposes a content-based venue-category check reusable at compliance time on a full profile', () => {
+    // Real incident: a canal-boat cruise operator was published as category
+    // "Venues" (inherited from whichever campaign query surfaced it), never
+    // checked against what its own extracted description actually said.
+    expect(
+      isVenueCategoryContentMismatch(
+        'Venues',
+        'Offers 45-minute return skippered cruises along the canal, with onboard refreshments.',
+      ),
+    ).toBe(true);
+    expect(
+      isVenueCategoryContentMismatch('Venues', 'Hosts weddings and private events in a converted barn.'),
+    ).toBe(false);
+    expect(isVenueCategoryContentMismatch('Photography', 'Offers skippered canal cruises.')).toBe(false);
   });
 
   it('rejects malformed URLs without throwing', () => {

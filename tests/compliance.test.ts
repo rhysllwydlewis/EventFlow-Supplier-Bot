@@ -44,6 +44,11 @@ const deterministic: ShadowProfile = {
   services: ['Wedding venue hire'],
   packages: [],
   evidenceIds: ['evidence_1', 'evidence_2'],
+  profileImage: null,
+  profileImageEvidence: null,
+  coverImage: 'https://example.com/hero.jpg',
+  images: ['https://example.com/hero.jpg'],
+  mediaEvidence: [],
   dataConfidence: 90,
   publicationQuality: 90,
   generatedAt: '2026-08-26T00:00:00.000Z',
@@ -179,5 +184,108 @@ describe('Shadow compliance gate', () => {
     expect(assessment.publicationEligible).toBe(false);
     expect(assessment.seoIndexEligible).toBe(false);
     expect(assessment.reasons).toContain('unresolved_evidence_reference');
+  });
+
+  // Regression tests for four real production incidents: a batch of live
+  // publishes that passed every existing check but were each visibly wrong
+  // on the actual public site -- zero photos, a garbled price, a canal-boat
+  // operator and a wedding photographer both published as "Venues", and a
+  // Cumbria venue published under a Wales-only campaign.
+  it('blocks a profile with no real photos at all', () => {
+    const assessment = assessShadowProfileCompliance({
+      profile: { ...deterministic, images: [], coverImage: null },
+      evidence,
+      minimumPublicationQuality: 75,
+    });
+    expect(assessment.publicationEligible).toBe(false);
+    expect(assessment.reasons).toContain('missing_media');
+  });
+
+  it('blocks a price that was extracted but has no usable number in it', () => {
+    const assessment = assessShadowProfileCompliance({
+      profile: { ...deterministic, advertisedPrices: ['£'], packages: [] },
+      evidence,
+      minimumPublicationQuality: 75,
+    });
+    expect(assessment.publicationEligible).toBe(false);
+    expect(assessment.reasons).toContain('pricing_format_invalid');
+    // Distinct from the legitimate "no pricing published" case -- both
+    // reasons must never fire together for the same profile.
+    expect(assessment.reasons).not.toContain('pricing_not_publicly_available');
+  });
+
+  it('does not block a profile that genuinely has no pricing published', () => {
+    const assessment = assessShadowProfileCompliance({
+      profile: { ...deterministic, advertisedPrices: [], packages: [] },
+      evidence,
+      minimumPublicationQuality: 75,
+    });
+    expect(assessment.reasons).toContain('pricing_not_publicly_available');
+    expect(assessment.reasons).not.toContain('pricing_format_invalid');
+  });
+
+  it('blocks a "Venues" profile whose actual content is not about hosting or hiring a venue', () => {
+    // Real incident: a canal-boat cruise operator, category "Venues",
+    // description entirely about skippered boat trips.
+    const assessment = assessShadowProfileCompliance({
+      profile: {
+        ...deterministic,
+        category: 'Venues',
+        description: 'Offers 45-minute return skippered cruises along the canal, with onboard refreshments.',
+        services: ['Boat trips'],
+      },
+      evidence,
+      minimumPublicationQuality: 75,
+    });
+    expect(assessment.publicationEligible).toBe(false);
+    expect(assessment.reasons).toContain('category_mismatch_with_content');
+  });
+
+  it('does not block a genuine venue whose description never uses one of the specific building words', () => {
+    const assessment = assessShadowProfileCompliance({
+      profile: {
+        ...deterministic,
+        category: 'Venues',
+        description: 'Hosts weddings and private events for up to 120 guests in a converted function room.',
+      },
+      evidence,
+      minimumPublicationQuality: 75,
+    });
+    expect(assessment.reasons).not.toContain('category_mismatch_with_content');
+  });
+
+  it('blocks a profile whose location is clearly outside the campaign\'s target region', () => {
+    // Real incident: "Appleby Castle", a genuine venue in Cumbria (the Lake
+    // District), published under a North Wales campaign.
+    const assessment = assessShadowProfileCompliance({
+      profile: { ...deterministic, location: 'Appleby-in-Westmorland, Cumbria' },
+      evidence,
+      minimumPublicationQuality: 75,
+      campaignLocations: ['South Wales', 'North Wales', 'Cardiff', 'Swansea'],
+    });
+    expect(assessment.publicationEligible).toBe(false);
+    expect(assessment.reasons).toContain('location_outside_target_region');
+  });
+
+  it('does not block a real Welsh location that never says the word "Wales"', () => {
+    // Several genuinely correct production profiles give only a town/postcode
+    // (e.g. Llanfabon, Rhuddlan) with no region name at all -- a check that
+    // required the word "Wales" to appear would have blocked those too.
+    const assessment = assessShadowProfileCompliance({
+      profile: { ...deterministic, location: 'Llanfabon, near Pontypridd, Mid-Glamorgan, CF37 4HP' },
+      evidence,
+      minimumPublicationQuality: 75,
+      campaignLocations: ['South Wales', 'North Wales', 'Cardiff', 'Swansea'],
+    });
+    expect(assessment.reasons).not.toContain('location_outside_target_region');
+  });
+
+  it('does not apply the region check when the campaign has no declared locations', () => {
+    const assessment = assessShadowProfileCompliance({
+      profile: { ...deterministic, location: 'Appleby-in-Westmorland, Cumbria' },
+      evidence,
+      minimumPublicationQuality: 75,
+    });
+    expect(assessment.reasons).not.toContain('location_outside_target_region');
   });
 });
