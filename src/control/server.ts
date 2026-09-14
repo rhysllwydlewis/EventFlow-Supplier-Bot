@@ -19,7 +19,11 @@ import {
   getComplianceOverview,
   listComplianceAssessments,
 } from '../repositories/compliance-assessment.repository.js';
-import { listConflictedEventFlowIngestions } from '../repositories/eventflow-ingestion.repository.js';
+import {
+  listConflictedEventFlowIngestions,
+  listRecentFailedEventFlowIngestions,
+  listRetryableEventFlowCandidateIds,
+} from '../repositories/eventflow-ingestion.repository.js';
 import { heartbeatIsFresh, listHeartbeats, writeHeartbeat } from '../repositories/heartbeat.repository.js';
 import { listAuditEventsByAction } from '../repositories/audit.repository.js';
 import { listPublishedDomains, listRecentPublishedSuppliers } from '../repositories/published-supplier.repository.js';
@@ -551,6 +555,44 @@ app.get('/api/blocked-candidates', async (req, res, next) => {
           website: profile?.website ?? null,
           reason: ingestion.reason ?? null,
           blockedAt: ingestion.updatedAt,
+        };
+      }),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Surfaces why the publication queue's cumulative failed/completed counts
+// (visible in /api/status) look the way they do: those counts never
+// decrease, so a candidate that failed heavily weeks ago and one that
+// failed a minute ago are indistinguishable from the totals alone. This
+// gives an operator (or the AI supervisor, which otherwise only sees the
+// same undated totals) the per-candidate age and backoff needed to tell
+// "stale, already handled" from "actively still broken".
+app.get('/api/publication-diagnostics', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
+    const [recentFailures, retryableCandidateIds] = await Promise.all([
+      listRecentFailedEventFlowIngestions(limit),
+      listRetryableEventFlowCandidateIds(500),
+    ]);
+    const profiles = await getShadowProfilesForCandidateIds(recentFailures.map(item => item.candidateId));
+    const byCandidate = new Map(profiles.map(profile => [profile.candidateId, profile]));
+    res.json({
+      retryableCandidateCount: retryableCandidateIds.length,
+      recentFailures: recentFailures.map(item => {
+        const profile = byCandidate.get(item.candidateId);
+        return {
+          candidateId: item.candidateId,
+          businessName: profile?.businessName ?? null,
+          website: profile?.website ?? null,
+          status: item.status,
+          reason: item.reason ?? null,
+          attempts: item.attempts,
+          nextRetryAt: item.nextRetryAt ?? null,
+          retryDue: item.nextRetryAt ? item.nextRetryAt <= new Date().toISOString() : true,
+          lastAttemptAt: item.updatedAt,
         };
       }),
     });
