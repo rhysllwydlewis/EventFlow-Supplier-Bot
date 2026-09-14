@@ -93,6 +93,11 @@ export async function setCandidateStatus(id: string, status: Candidate['status']
   await store.updateOne({ id }, { $set: { status, updatedAt: new Date().toISOString() } });
 }
 
+export async function setCandidateCategoryHint(id: string, categoryHint: string): Promise<void> {
+  const store = await collection();
+  await store.updateOne({ id }, { $set: { categoryHint, updatedAt: new Date().toISOString() } });
+}
+
 export async function setCandidateDedupDecision(id: string, assessment: DedupAssessment): Promise<void> {
   const store = await collection();
   await store.updateOne(
