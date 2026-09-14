@@ -98,6 +98,24 @@ export async function setCandidateCategoryHint(id: string, categoryHint: string)
   await store.updateOne({ id }, { $set: { categoryHint, updatedAt: new Date().toISOString() } });
 }
 
+// Corrects the crawl entry point for a candidate whose canonicalUrl -- set
+// once at discovery time and never revisited -- turned out to point at the
+// wrong page of an otherwise real business's own site (e.g. a roundup blog
+// post that happened to mention them, or a deep subpage with a thin link
+// graph) rather than its homepage. crawlSupplierSite always starts from
+// candidate.canonicalUrl, so a forced recrawl through enqueueForcedCrawlCandidate
+// alone re-visits the same wrong starting page and its same limited link
+// neighbourhood -- confirmed live: a candidate's own real pricing/photo pages,
+// reachable in one click from its homepage's main navigation, were never
+// found because the entry point itself was never corrected. canonicalDomain
+// is left untouched -- only the specific starting page changes, not which
+// site this candidate is.
+export async function setCandidateCanonicalUrl(id: string, canonicalUrl: string): Promise<void> {
+  const url = canonicalizePublicHttpUrl(canonicalUrl);
+  const store = await collection();
+  await store.updateOne({ id }, { $set: { canonicalUrl: url.href, updatedAt: new Date().toISOString() } });
+}
+
 export async function setCandidateDedupDecision(id: string, assessment: DedupAssessment): Promise<void> {
   const store = await collection();
   await store.updateOne(

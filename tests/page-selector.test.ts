@@ -65,6 +65,39 @@ describe('anchor text as a scoring signal', () => {
   });
 });
 
+describe('media page discovery', () => {
+  it('scores a gallery/photo page above a page with no useful term at all', () => {
+    // Real production gap: the crawler had no scoring signal for finding a
+    // supplier's real photos specifically -- only pricing/service terms --
+    // so a page holding a venue's only non-placeholder photos, whose slug
+    // happened to read only e.g. "barn-north-wales-events-venue", competed
+    // for a crawl slot on nothing but a single incidental USEFUL_PATH_TERMS
+    // hit while pricing/menu pages (COMMERCIAL_PATH_TERMS, weighted higher)
+    // reliably filled the budget first.
+    const gallery = scoreUsefulPage(new URL('https://example.com/photo-gallery'), 'https://example.com');
+    const neutral = scoreUsefulPage(new URL('https://example.com/team'), 'https://example.com');
+    expect(gallery).toBeGreaterThan(neutral);
+  });
+
+  it('weights a media path term the same as a commercial one, both above a merely-useful one', () => {
+    const media = scoreUsefulPage(new URL('https://example.com/gallery'), 'https://example.com');
+    const commercial = scoreUsefulPage(new URL('https://example.com/pricing'), 'https://example.com');
+    const useful = scoreUsefulPage(new URL('https://example.com/about'), 'https://example.com');
+    expect(media).toBe(commercial);
+    expect(media).toBeGreaterThan(useful);
+  });
+
+  it('picks a rooms/facilities page over a same-tier generic one when the budget is tight', () => {
+    const fetched = new Set(['https://example.com/']);
+    const next = pickNextPage(
+      'https://example.com/',
+      ['/team', { href: '/our-rooms', text: 'Rooms' }],
+      fetched,
+    );
+    expect(next).toBe('https://example.com/our-rooms');
+  });
+});
+
 describe('incremental next-page selection', () => {
   it('skips pages already fetched and returns the next best-scoring candidate', () => {
     const fetched = new Set(['https://example.com/', 'https://example.com/about-us']);
