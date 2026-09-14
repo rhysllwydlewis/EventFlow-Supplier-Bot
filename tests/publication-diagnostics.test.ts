@@ -33,4 +33,18 @@ describe('Publication diagnostics: telling a stale failure from a live one', () 
     expect(handler).toContain('getShadowProfilesForCandidateIds(');
     expect(handler).toContain('businessName: profile?.businessName ?? null');
   });
+
+  it('also covers not-yet-published shadow-ready candidates that never reached a failed status', () => {
+    // recentFailures only ever covers eventflow_ingestions.status === 'failed'
+    // -- a candidate stuck on 'pending' or 'ineligible', or one with no
+    // eventflow_ingestions record at all (never attempted), is invisible to
+    // that list even though "why hasn't this one ever published?" is exactly
+    // the question an operator needs answered for it too.
+    const handlerStart = server.indexOf("app.get('/api/publication-diagnostics'");
+    const handlerEnd = server.indexOf('\n});', handlerStart);
+    const handler = server.slice(handlerStart, handlerEnd);
+    expect(handler).toContain('notYetPublished');
+    expect(handler).toContain('getEventFlowIngestionsForCandidates(');
+    expect(handler).toContain("ingestionStatus: ingestion?.status ?? 'never_attempted'");
+  });
 });
