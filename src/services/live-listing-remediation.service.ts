@@ -9,10 +9,113 @@ import {
 import { enqueueForcedCrawlCandidate } from './crawl-queue.service.js';
 import { unpublishFromEventFlow } from './eventflow-unpublish.service.js';
 
+type RemediationItem =
+  | { businessName: string; action: 'unpublish'; supplierId: string; reason: string }
+  | {
+      businessName: string;
+      action: 'recrawl';
+      canonicalDomain: string;
+      categoryHintOverride?: string;
+      reason: string;
+    };
+
+interface MigrationRecord {
+  id: string;
+  completedAt: string;
+}
+
+// Shared by every one-off batch below. Each batch is gated on its own
+// migration id (a maintenance_migrations record) rather than one shared id,
+// so a later batch's real, freshly-discovered issue is never held back by an
+// earlier batch's already-completed (or still-retrying) record.
+async function runRemediationBatch(migrationId: string, items: readonly RemediationItem[]): Promise<void> {
+  const db = await getDatabase();
+  const migrations = db.collection<MigrationRecord>('maintenance_migrations');
+  if (await migrations.findOne({ id: migrationId })) {
+    return;
+  }
+
+  // This bot repo's own PR can ship before the EventFlow endpoint an
+  // unpublish call depends on (rhysllwydlewis/EventFlow#1666) is guaranteed
+  // deployed -- two separate repos, two separate deploys, no ordering
+  // guarantee between them. If a call fails for a reason that could resolve
+  // itself (the endpoint not deployed yet, a transient network error), the
+  // batch must stay retryable on the next worker startup rather than being
+  // marked done after one attempt that silently never fixed anything.
+  let allTerminal = true;
+
+  for (const item of items) {
+    try {
+      if (item.action === 'unpublish') {
+        const result = await unpublishFromEventFlow({
+          candidateId: item.businessName,
+          supplierId: item.supplierId,
+          reason: item.reason,
+        });
+        logger.info({ businessName: item.businessName, result }, 'Live listing remediation: unpublish attempted');
+        // 'not_found' is deliberately NOT treated as terminal here: EventFlow
+        // returns the same 404 whether this specific supplier ID genuinely
+        // doesn't exist, or the /unpublish route itself doesn't exist yet on
+        // a not-fully-deployed instance -- confirmed live in the first batch
+        // this pattern ran for. A supplier ID hardcoded below that turns out
+        // to be permanently wrong would retry forever rather than fail
+        // loudly, but that is the safer failure mode for live public data.
+        if (result.status !== 'unpublished' && result.status !== 'not_bot_managed') {
+          allTerminal = false;
+        }
+        continue;
+      }
+
+      const candidate = await getCandidateByCanonicalDomain(item.canonicalDomain);
+      if (!candidate) {
+        logger.warn({ businessName: item.businessName, domain: item.canonicalDomain }, 'Live listing remediation: candidate not found, skipping');
+        await recordAuditEvent('live-listing-remediation', 'remediation.candidate_not_found', {
+          businessName: item.businessName,
+          canonicalDomain: item.canonicalDomain,
+        });
+        continue;
+      }
+
+      if (item.categoryHintOverride && candidate.categoryHint !== item.categoryHintOverride) {
+        await setCandidateCategoryHint(candidate.id, item.categoryHintOverride);
+      }
+      await setCandidateStatus(candidate.id, 'queued_for_crawl');
+      // Not enqueueCrawlCandidate: every one of these candidates was already
+      // crawled once (that's how it got published), so its dedup -- an
+      // existing job under the day-scoped or legacy jobId -- would silently
+      // refuse to queue a fresh crawl. Confirmed live in the first batch
+      // this pattern ran for.
+      await enqueueForcedCrawlCandidate(candidate.id, 'live_listing_remediation');
+      await recordAuditEvent('live-listing-remediation', 'remediation.recrawl_queued', {
+        businessName: item.businessName,
+        candidateId: candidate.id,
+        canonicalDomain: item.canonicalDomain,
+        categoryHintOverride: item.categoryHintOverride ?? null,
+        reason: item.reason,
+      });
+      logger.info({ businessName: item.businessName, candidateId: candidate.id }, 'Live listing remediation: recrawl queued');
+    } catch (error) {
+      logger.error({ err: error, businessName: item.businessName }, 'Live listing remediation: action failed');
+      allTerminal = false;
+    }
+  }
+
+  if (!allTerminal) {
+    logger.warn({ migrationId }, 'Live listing remediation: at least one action did not reach a terminal state, will retry on next worker startup');
+    return;
+  }
+
+  await migrations.updateOne(
+    { id: migrationId },
+    { $set: { id: migrationId, completedAt: new Date().toISOString() } },
+    { upsert: true },
+  );
+}
+
 // One-off, manually-reviewed corrections for specific listings a full manual
 // QA pass (2026-09-14) found live and wrong on EventFlow, run automatically
-// once on worker startup rather than through an HTTP admin endpoint --
-// see the PR this shipped in for why (no interactive admin session was
+// once on worker startup rather than through an HTTP admin endpoint -- see
+// the PR this shipped in for why (no interactive admin session was
 // available to trigger it by hand). Each entry is a real production
 // incident, not a hypothetical:
 //
@@ -34,16 +137,7 @@ import { unpublishFromEventFlow } from './eventflow-unpublish.service.js';
 //    shadow-profile-composer.service.ts takes it verbatim from the
 //    candidate's categoryHint -- so this is the one entry with a
 //    categoryHintOverride.
-const REMEDIATIONS: ReadonlyArray<
-  | { businessName: string; action: 'unpublish'; supplierId: string; reason: string }
-  | {
-      businessName: string;
-      action: 'recrawl';
-      canonicalDomain: string;
-      categoryHintOverride?: string;
-      reason: string;
-    }
-> = [
+const BATCH_1_ITEMS: readonly RemediationItem[] = [
   {
     businessName: 'Appleby Castle',
     action: 'unpublish',
@@ -62,6 +156,12 @@ const REMEDIATIONS: ReadonlyArray<
     canonicalDomain: 'faenolfawrhotel.co.uk',
     reason: 'Cover image was a plugin placeholder (dummy.png); too few gallery photos',
   },
+  // Manual review after this batch's recrawl found Events Made Simple isn't
+  // a venue or supplier at all (a corporate event-planning/comparison
+  // platform) -- BATCH_2_ITEMS below unpublishes it instead. Left as a
+  // recrawl here rather than edited retroactively: this batch already ran
+  // and completed in production with this exact item list, so the array
+  // stays the accurate historical record of what that run actually did.
   {
     businessName: 'Events Made Simple',
     action: 'recrawl',
@@ -89,93 +189,31 @@ const REMEDIATIONS: ReadonlyArray<
 //     scoped or legacy crawl jobId (organic activity earlier the same day),
 //     so enqueueCrawlCandidate's dedup -- meant to stop double-discovery,
 //     not to be overridden -- silently queued nothing for any of them.
-const MIGRATION_ID = 'live_listing_remediation_2026_09_14_v2';
+const BATCH_1_MIGRATION_ID = 'live_listing_remediation_2026_09_14_v2';
 
-interface MigrationRecord {
-  id: string;
-  completedAt: string;
-}
+// Batch 2, same day: after batch 1's recrawl, all three recrawl targets came
+// back compliance-blocked (confirmed live via the ineligible-reason logging
+// this same session added). Manually reviewing each source site against the
+// specific compliance rules found:
+//  - Events Made Simple is a corporate event-planning/venue-comparison
+//    platform, not a venue or supplier of its own -- operator-confirmed it
+//    should never have been published as a marketplace listing at all, same
+//    class of issue as Appleby Castle/Anglo Welsh in batch 1. Unpublished,
+//    not recrawled again.
+//  - Faenol Fawr and Babs Boardwell Photography are staying on the recrawl
+//    path pending a manually-found page with their real photos/pricing (see
+//    BATCH_3_ITEMS once that's available) -- not included here.
+const BATCH_2_ITEMS: readonly RemediationItem[] = [
+  {
+    businessName: 'Events Made Simple',
+    action: 'unpublish',
+    supplierId: 'sup_bot_190d1dbaf5d9a46b6779949f',
+    reason: 'A corporate event-planning/venue-comparison platform, not a venue or supplier itself',
+  },
+];
+const BATCH_2_MIGRATION_ID = 'live_listing_remediation_2026_09_14_v3';
 
 export async function runLiveListingRemediation(): Promise<void> {
-  const db = await getDatabase();
-  const migrations = db.collection<MigrationRecord>('maintenance_migrations');
-  if (await migrations.findOne({ id: MIGRATION_ID })) {
-    return;
-  }
-
-  // This bot repo's own PR ships before the EventFlow endpoint it calls is
-  // guaranteed to be deployed (rhysllwydlewis/EventFlow#1666) -- two separate
-  // repos, two separate deploys, no ordering guarantee between them. If an
-  // unpublish call fails for a reason that could resolve itself (the
-  // endpoint not deployed yet, a transient network error), the whole
-  // migration must stay retryable on the next worker restart rather than
-  // being marked done after one attempt that silently never fixed anything.
-  let allTerminal = true;
-
-  for (const item of REMEDIATIONS) {
-    try {
-      if (item.action === 'unpublish') {
-        const result = await unpublishFromEventFlow({
-          candidateId: item.businessName,
-          supplierId: item.supplierId,
-          reason: item.reason,
-        });
-        logger.info({ businessName: item.businessName, result }, 'Live listing remediation: unpublish attempted');
-        // 'not_found' is deliberately NOT treated as terminal here: EventFlow
-        // returns the same 404 whether this specific supplier ID genuinely
-        // doesn't exist, or the /unpublish route itself doesn't exist yet on
-        // a not-fully-deployed instance -- confirmed live (see MIGRATION_ID's
-        // v2 comment). A supplier ID hardcoded above that turns out to be
-        // permanently wrong would retry forever rather than fail loudly, but
-        // that is the safer failure mode for live public-listing data.
-        if (result.status !== 'unpublished' && result.status !== 'not_bot_managed') {
-          allTerminal = false;
-        }
-        continue;
-      }
-
-      const candidate = await getCandidateByCanonicalDomain(item.canonicalDomain);
-      if (!candidate) {
-        logger.warn({ businessName: item.businessName, domain: item.canonicalDomain }, 'Live listing remediation: candidate not found, skipping');
-        await recordAuditEvent('live-listing-remediation', 'remediation.candidate_not_found', {
-          businessName: item.businessName,
-          canonicalDomain: item.canonicalDomain,
-        });
-        continue;
-      }
-
-      if (item.categoryHintOverride && candidate.categoryHint !== item.categoryHintOverride) {
-        await setCandidateCategoryHint(candidate.id, item.categoryHintOverride);
-      }
-      await setCandidateStatus(candidate.id, 'queued_for_crawl');
-      // Not enqueueCrawlCandidate: every one of these candidates was already
-      // crawled once (that's how it got published), so its dedup -- an
-      // existing job under the day-scoped or legacy jobId -- would silently
-      // refuse to queue a fresh crawl. Confirmed live: all three recrawl
-      // targets hit exactly this in the v1 run.
-      await enqueueForcedCrawlCandidate(candidate.id, 'live_listing_remediation');
-      await recordAuditEvent('live-listing-remediation', 'remediation.recrawl_queued', {
-        businessName: item.businessName,
-        candidateId: candidate.id,
-        canonicalDomain: item.canonicalDomain,
-        categoryHintOverride: item.categoryHintOverride ?? null,
-        reason: item.reason,
-      });
-      logger.info({ businessName: item.businessName, candidateId: candidate.id }, 'Live listing remediation: recrawl queued');
-    } catch (error) {
-      logger.error({ err: error, businessName: item.businessName }, 'Live listing remediation: action failed');
-      allTerminal = false;
-    }
-  }
-
-  if (!allTerminal) {
-    logger.warn('Live listing remediation: at least one action did not reach a terminal state, will retry on next worker startup');
-    return;
-  }
-
-  await migrations.updateOne(
-    { id: MIGRATION_ID },
-    { $set: { id: MIGRATION_ID, completedAt: new Date().toISOString() } },
-    { upsert: true },
-  );
+  await runRemediationBatch(BATCH_1_MIGRATION_ID, BATCH_1_ITEMS);
+  await runRemediationBatch(BATCH_2_MIGRATION_ID, BATCH_2_ITEMS);
 }
