@@ -47,4 +47,24 @@ describe('extractServiceTagsFromJsonLd', () => {
     expect(extractServiceTagsFromJsonLd([])).toEqual([]);
     expect(extractServiceTagsFromJsonLd([{ '@type': 'LocalBusiness', name: 'Example Manor' }])).toEqual([]);
   });
+
+  it('handles makesOffer as a single object rather than an array', () => {
+    const tags = extractServiceTagsFromJsonLd([{
+      '@type': 'LocalBusiness',
+      name: 'Example Manor',
+      makesOffer: { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Christmas parties' } },
+    }]);
+    expect(tags).toEqual(['Christmas parties']);
+  });
+
+  it('finds the business object inside an @graph wrapper', () => {
+    const tags = extractServiceTagsFromJsonLd([{
+      '@context': 'https://schema.org',
+      '@graph': [
+        { '@type': 'WebSite', name: 'Example Manor site' },
+        { '@type': 'LocalBusiness', name: 'Example Manor', serviceType: 'Wedding venue' },
+      ],
+    }]);
+    expect(tags).toEqual(['Wedding venue']);
+  });
 });
