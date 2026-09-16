@@ -113,13 +113,15 @@ backlog for a human rather than guessing.
       [#64](https://github.com/rhysllwydlewis/EventFlow-Supplier-Bot/pull/64).
       **Not yet run against the live queue** — see 2026-09-16's session log
       entry for why, and pick this up first next session.
-- [ ] `missingTags`/`missingDescription`-adjacent: give the crawler/extraction
-      pipeline a real, deterministic way to extract a services/tags list
-      (e.g. JSON-LD `serviceType`/`makesOffer`, or a page's `<meta
-      name="keywords">`) so `audit-unclaimed-quality.ts` can stop
-      unconditionally skipping `missingTags` — right now `BasicExtraction`
-      carries no services/tags field at all, so there is nothing real to
-      offer for this gap yet. See "Discovered along the way" below.
+- [x] `missingTags`/`missingDescription`-adjacent: give the crawler/extraction
+      pipeline a real, deterministic way to extract a services/tags list.
+      Done via JSON-LD `serviceType`/`makesOffer` only (a page's `<meta
+      name="keywords">` was tried and deliberately dropped again — see
+      "Discovered along the way" below) in
+      [#65](https://github.com/rhysllwydlewis/EventFlow-Supplier-Bot/pull/65).
+      `audit-unclaimed-quality.ts` no longer unconditionally skips
+      `missingTags`. **Not yet exercised against the live queue** — same
+      credentials gap as the rest of this routine, see today's session log.
 - [ ] `packagesMissingPhotos`: the audit-queue reports specific packages with
       a placeholder image, but there is no reliable way yet to match one of
       a recrawl's generic extracted photos to one specific named package
@@ -150,6 +152,18 @@ backlog for a human rather than guessing.
   is an explicit, listed reason to skip). Whatever session next has real
   access to the deployed environment's secrets should run the script for the
   actual first time and replace this note with a real result.
+- A page's `<meta name="keywords">` looked like a reasonable second
+  deterministic source for `missingTags` (the Backlog entry named it as an
+  option) but was cut after an independent adversarial review of the first
+  draft: unlike JSON-LD's `serviceType`/`makesOffer` (read from the one
+  business object `extractStructuredBusinessFacts` already matches by
+  `@type`/`name`), meta keywords are free text pooled from *every* crawled
+  page with no tie to the actual business entity — a real vector for stale
+  or SEO-stuffed terms that aren't necessarily what the business currently
+  offers, on a write path with no human review before it reaches a live
+  listing. If a future session wants to bring it back, it needs a real way
+  to vet the terms (e.g. cross-referencing against the page's own visible
+  text) rather than trusting the tag wholesale.
 - `audit-unclaimed-quality.ts`'s run gate deliberately mirrors
   `eventflow-publication.service.ts`'s `publicationControlBlockReason`
   exactly (`runState === 'running'` and `mode === 'live'`, not just "not
@@ -202,3 +216,44 @@ backlog for a human rather than guessing.
   what the queue showed / what got fixed vs skipped and why. The two
   extraction-capability gaps above (tags/services, package-photo matching)
   are also still open and not this session's to solve speculatively.
+
+**2026-09-16 (later run, scheduled, unattended)** — Picked up the
+`missingTags` backlog item; live queue still blocked on credentials.
+
+- Read this file, checked `git log`/open PRs on both this repo and
+  EventFlow for the last ~24h of manual activity (none touching this area,
+  and no open PRs on either repo) before starting.
+- Re-checked this environment's credentials in case anything had changed
+  since the last entry above: still `MONGODB_URI` and
+  `EVENTFLOW_OPS_BOT_HMAC_SECRET` only, no `EVENTFLOW_INTERNAL_BASE_URL`
+  wired to the right secret and no `EVENTFLOW_BOT_HMAC_SECRET` — confirmed
+  by reading both this repo's `src/config/env.ts` (expects
+  `EVENTFLOW_BOT_HMAC_SECRET`) and EventFlow's
+  `middleware/supplierBotHmac.js` (reads that same name; `opsBotHmac.js` is
+  the separate ops-assistant credential this environment actually has).
+  Live re-crawl-and-refresh still cannot happen this session for the same
+  reason as before — stood down on that portion again rather than guess.
+- Rather than end the run with nothing done over a blocker already known
+  and unchanged, picked up the next Backlog item that doesn't need live
+  credentials: gave `missingTags` a real, deterministic fix path instead of
+  its unconditional skip, per the open Backlog entry.
+- Added `extractServiceTagsFromJsonLd` (`src/extraction/structured-data.ts`)
+  and a `serviceTags` field on `BasicExtraction`
+  (`src/extraction/basic-extractor.ts`), wired into
+  `audit-unclaimed-quality.ts`'s `missingTags` handling. Followed the Write
+  policy: implemented, tests green (417/417, 11 new/changed), independently
+  re-reviewed the whole diff adversarially via a separate agent pass, which
+  found two real risks in the first draft (mid-word truncation of an
+  overlong JSON-LD value being written to a live listing; `<meta
+  name="keywords">` as an unvetted, entity-unattributed fallback source —
+  see "Discovered along the way"). Fixed both (drop overlong candidates
+  instead of truncating; dropped meta-keywords as a source entirely), added
+  more edge-case coverage (`makesOffer` as a single object, `@graph`-wrapped
+  JSON-LD), tests green again, merged myself:
+  [#65](https://github.com/rhysllwydlewis/EventFlow-Supplier-Bot/pull/65).
+- `packagesMissingPhotos` is untouched — still needs real design, not a
+  guess, per the Backlog.
+- **Still open for next time**: same live-run credentials gap as every
+  prior entry — needs `EVENTFLOW_BOT_HMAC_SECRET` (not
+  `EVENTFLOW_OPS_BOT_HMAC_SECRET`) in whatever environment picks this up
+  next. `packagesMissingPhotos` still needs real design work.
