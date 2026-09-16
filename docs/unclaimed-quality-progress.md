@@ -106,19 +106,99 @@ backlog for a human rather than guessing.
 
 ## Backlog
 
-- [ ] First run: build the audit-queue service + `audit-unclaimed-quality.ts`
+- [x] First run: build the audit-queue service + `audit-unclaimed-quality.ts`
       script per the Mandate above, with real tests (mocked HTTP for the
       EventFlow endpoint calls, same pattern as the existing ingestion
-      service's tests). Then run it once against the live queue and log the
-      real results.
+      service's tests). Merged in
+      [#64](https://github.com/rhysllwydlewis/EventFlow-Supplier-Bot/pull/64).
+      **Not yet run against the live queue** — see 2026-09-16's session log
+      entry for why, and pick this up first next session.
+- [ ] `missingTags`/`missingDescription`-adjacent: give the crawler/extraction
+      pipeline a real, deterministic way to extract a services/tags list
+      (e.g. JSON-LD `serviceType`/`makesOffer`, or a page's `<meta
+      name="keywords">`) so `audit-unclaimed-quality.ts` can stop
+      unconditionally skipping `missingTags` — right now `BasicExtraction`
+      carries no services/tags field at all, so there is nothing real to
+      offer for this gap yet. See "Discovered along the way" below.
+- [ ] `packagesMissingPhotos`: the audit-queue reports specific packages with
+      a placeholder image, but there is no reliable way yet to match one of
+      a recrawl's generic extracted photos to one specific named package
+      (title text match against alt/nearby text? page-section proximity?).
+      Needs real design, not a guess — `audit-unclaimed-quality.ts`
+      unconditionally skips this gap today, logged as
+      `no_reliable_photo_to_package_matching_yet`.
+- [ ] Run `npm run audit:unclaimed-quality` for real once the deployed
+      environment's credentials are available in whatever session picks this
+      up, and log the actual results here.
 
 ## Discovered along the way
 
-(Empty — add anything found that isn't today's task, with enough detail for
-a future session to act on it without re-discovering it from scratch.)
+- EventFlow's `POST /internal/supplier-bot/suppliers/audit-queue` endpoint
+  (`routes/supplier-profile-safe.js` in the EventFlow repo) already existed
+  before this session started work — merged there as PR #1672, ahead of this
+  repo's own client/script. Worth checking the EventFlow-repo-side handoff
+  doc (if one exists there) for whether that was itself built by an earlier,
+  cold run of a similarly-named routine, since this file's own backlog still
+  read "First run: build..." for both halves.
+- This dev/build session's container only had `MONGODB_URI` and an
+  `EVENTFLOW_OPS_BOT_HMAC_SECRET` (a differently-named credential, almost
+  certainly for a separate ops/devops integration, not this bot's own
+  `EVENTFLOW_BOT_HMAC_SECRET`) available in its environment — no
+  `EVENTFLOW_INTERNAL_BASE_URL` and no `EVENTFLOW_BOT_HMAC_SECRET`. That
+  meant a live run genuinely could not happen this session (see Mandate:
+  "the work needs something this routine cannot do itself... credentials"
+  is an explicit, listed reason to skip). Whatever session next has real
+  access to the deployed environment's secrets should run the script for the
+  actual first time and replace this note with a real result.
+- `audit-unclaimed-quality.ts`'s run gate deliberately mirrors
+  `eventflow-publication.service.ts`'s `publicationControlBlockReason`
+  exactly (`runState === 'running'` and `mode === 'live'`, not just "not
+  emergency_stopped") rather than the looser check this PR's first draft
+  used — an adversarial re-review caught that the looser gate would have let
+  a paused bot, or one still in shadow mode, still push real writes to
+  production EventFlow. Keep this in mind if a future change to this
+  script's gating is proposed: match the *strictest* existing live-write
+  gate in this codebase, not just "not explicitly stopped".
 
 ## Session log
 
-(Empty — each run appends a dated entry: what the audit queue showed, what
-was re-crawled, what was actually fixed vs skipped and why, what's still
-open.)
+**2026-09-16** — First run of this routine (scheduled, unattended).
+
+- Read this file, checked `git log`/open PRs on both this repo and
+  EventFlow for the last ~24h of manual activity (none touching this area)
+  before starting.
+- Found EventFlow's `audit-queue` endpoint already live on EventFlow `main`
+  (PR #1672) — this repo's own client/script did not exist yet, so this was
+  genuinely the "first run: build the capability" case the Mandate
+  describes.
+- Built `src/services/eventflow-quality-audit.service.ts`
+  (`fetchAuditQueue`/`refreshEventFlowSupplierData`) and
+  `src/scripts/audit-unclaimed-quality.ts`, with full test coverage,
+  following the Write policy: implemented, tests green (406/406, 41 new),
+  independently re-reviewed the whole diff adversarially via a separate
+  agent pass, fixed everything that review found (the run-gate looseness,
+  stale media-evidence provenance when patching an image field, a missing
+  phone-length guard already applied on the same field elsewhere), tests
+  green again, merged myself:
+  [#64](https://github.com/rhysllwydlewis/EventFlow-Supplier-Bot/pull/64).
+- The script deliberately skips `missingTags` and `packagesMissingPhotos`
+  unconditionally this iteration — no reliable deterministic extraction
+  path exists for either yet (see Backlog/"Discovered along the way"). It
+  handles `missingCoverImage`, `missingGalleryImages`, `missingDescription`
+  and `missingPhone` for real, only writing back when the recrawl finds
+  something genuinely better than what's already there.
+- **Could not run it against the live queue this session**: this
+  container's environment has no `EVENTFLOW_INTERNAL_BASE_URL` or
+  `EVENTFLOW_BOT_HMAC_SECRET` configured (see "Discovered along the way"),
+  so there was no way to reach the real EventFlow instance or safely
+  confirm which database `MONGODB_URI` here actually points to before
+  writing bot-settings/crawl-budget counters to it. Per the Mandate's own
+  listed exception ("the work needs something this routine cannot do
+  itself... credentials"), stood down on the live-run portion rather than
+  guess. Nothing was re-crawled, nothing was written to any supplier
+  record, real or otherwise.
+- **Still open for next time**: run `npm run audit:unclaimed-quality` for
+  real in an environment with the actual production credentials, and log
+  what the queue showed / what got fixed vs skipped and why. The two
+  extraction-capability gaps above (tags/services, package-photo matching)
+  are also still open and not this session's to solve speculatively.
