@@ -16,12 +16,13 @@ const JSON_LD_RE = /<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>
 // details are preferred over an unattributed text match when one exists.
 const MAILTO_HREF_RE = /href\s*=\s*["']mailto:([^"'?]+)/gi;
 const TEL_HREF_RE = /href\s*=\s*["']tel:([^"']+)/gi;
-const META_TAG_RE = /<meta\b[^>]*>/gi;
 
 // ShadowProfile's `services` field (shadow-profile.ts) caps each entry at
-// 120 chars -- truncating here keeps a long real value usable instead of
-// letting shadowProfileSchema.parse() reject the whole profile over one
-// overlong tag.
+// 120 chars -- a candidate over that isn't a short tag/label the way the
+// schema.org fields it's drawn from are meant to be used, so it's dropped
+// rather than truncated: a chopped mid-word fragment (e.g. "...day-of
+// coordinatio") is not real data, it's this code inventing a new string
+// that happens to share a prefix with the real one.
 const MAX_SERVICE_TAG_LENGTH = 120;
 
 function stripTags(value: string): string {
@@ -78,23 +79,6 @@ function extractTelPhones(html: string): string[] {
   return values;
 }
 
-// A `<meta name="keywords">` tag is a page author's own explicit,
-// comma-separated list of what the business offers -- a real, deterministic
-// signal (unlike, say, guessing services from heading text), just a weaker
-// one than JSON-LD since it's free text with no schema behind it.
-function extractMetaKeywords(html: string): string[] {
-  const keywords: string[] = [];
-  for (const tag of html.match(META_TAG_RE) ?? []) {
-    const nameMatch = tag.match(/\bname\s*=\s*["']([^"']+)["']/i);
-    if (nameMatch?.[1]?.trim().toLowerCase() !== 'keywords') continue;
-    const contentMatch = tag.match(/\bcontent\s*=\s*["']([^"']*)["']/i);
-    const content = contentMatch?.[1];
-    if (content === undefined) continue;
-    keywords.push(...content.split(',').map(value => value.trim()).filter(Boolean));
-  }
-  return keywords;
-}
-
 function extractJsonLd(html: string): unknown[] {
   const values: unknown[] = [];
   let match: RegExpExecArray | null;
@@ -120,10 +104,14 @@ export interface BasicExtraction {
   pageText: Array<{ url: string; text: string }>;
   media: SupplierMediaEvidence[];
   profileImageCandidate?: SupplierMediaEvidence | null;
-  // Deterministic services/tags candidates: JSON-LD serviceType/makesOffer
-  // (preferred -- structured, schema-backed) plus <meta name="keywords">
-  // (free text, so ordered after). Not AI-derived, so this is safe for the
-  // unclaimed-quality audit's "only real data found on the site" rule.
+  // Deterministic services/tags candidates from JSON-LD serviceType/
+  // makesOffer -- a structured, schema-backed declaration tied to the
+  // specific matched business object, not free text pooled from anywhere on
+  // the site (a page's <meta name="keywords"> is exactly that: unvetted,
+  // frequently stale or SEO-stuffed, and not tied to any business entity --
+  // deliberately not used here as a source for this field). Not AI-derived,
+  // so this is safe for the unclaimed-quality audit's "only real data found
+  // on the site" rule.
   serviceTags: string[];
 }
 
@@ -133,7 +121,6 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
   const prices: string[] = [];
   const jsonLd: unknown[] = [];
   const pageText: Array<{ url: string; text: string }> = [];
-  const metaKeywords: string[] = [];
   const attributedEmails = new Set<string>();
   const attributedPhones = new Set<string>();
 
@@ -144,7 +131,6 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
     phones.push(...(text.match(UK_PHONE_RE) ?? []));
     prices.push(...(text.match(PRICE_RE) ?? []));
     jsonLd.push(...extractJsonLd(page.html));
-    metaKeywords.push(...extractMetaKeywords(page.html));
 
     // A tel: href in particular can carry a number that never appears in
     // the page's *visible* text at all (e.g. a "Call us" link), so these
@@ -160,7 +146,7 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
   }
 
   const serviceTags = unique(
-    [...extractServiceTagsFromJsonLd(jsonLd), ...metaKeywords].map(value => value.slice(0, MAX_SERVICE_TAG_LENGTH)),
+    extractServiceTagsFromJsonLd(jsonLd).filter(value => value.length <= MAX_SERVICE_TAG_LENGTH),
     30,
   );
 
