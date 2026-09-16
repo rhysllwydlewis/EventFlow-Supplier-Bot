@@ -166,16 +166,20 @@ export async function auditOneSupplier(
     }
   }
 
-  // Neither gap has a reliable deterministic fix path yet: BasicExtraction
-  // carries no services/tags list at all (only emails/phones/prices/media/
-  // jsonLd/pageText), and there is no way to reliably match one of this
-  // page's generic extracted images to one specific package by name. Real
-  // fixes for these need new extraction capability, not a guess -- see
-  // docs/unclaimed-quality-progress.md's "Discovered along the way" entry
-  // this run adds, rather than inventing a match here.
   if (item.gaps.missingTags) {
-    skipped.push({ field: 'tags', reason: 'no_deterministic_service_tag_extraction_yet' });
+    if (extraction.serviceTags.length > 0) {
+      patch.services = extraction.serviceTags;
+      fixed.push('services');
+    } else {
+      skipped.push({ field: 'tags', reason: 'no_deterministic_service_tags_found_on_recrawl' });
+    }
   }
+
+  // There is still no reliable way to match one of a recrawl's generic
+  // extracted images to one specific named package (title text match
+  // against alt/nearby text? page-section proximity?) -- that needs real
+  // design, not a guess, so this gap stays unconditionally skipped. See
+  // docs/unclaimed-quality-progress.md's Backlog.
   if (item.gaps.packagesMissingPhotos.length > 0) {
     skipped.push({ field: 'packagesMissingPhotos', reason: 'no_reliable_photo_to_package_matching_yet' });
   }

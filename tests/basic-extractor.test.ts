@@ -68,4 +68,49 @@ describe('basic website extraction', () => {
     });
     expect(extraction.phones[0]).toBe('02920123456');
   });
+
+  it('prefers JSON-LD serviceType/makesOffer over <meta name="keywords"> for service tags, and dedupes across pages', () => {
+    const extraction = extractBasicFacts({
+      rootUrl: 'https://venue.example',
+      finalRootUrl: 'https://venue.example/',
+      failures: [],
+      pages: [{
+        url: 'https://venue.example/',
+        contentType: 'text/html',
+        bytes: 400,
+        html: `<html><head><meta name="keywords" content="Weddings, Corporate events, Weddings"></head><body><script type="application/ld+json">{"@type":"LocalBusiness","name":"Example Manor","serviceType":"Wedding venue"}</script></body></html>`,
+      }],
+    });
+    expect(extraction.serviceTags).toEqual(['Wedding venue', 'Weddings', 'Corporate events']);
+  });
+
+  it('falls back to <meta name="keywords"> when the page has no usable JSON-LD service signal', () => {
+    const extraction = extractBasicFacts({
+      rootUrl: 'https://venue.example',
+      finalRootUrl: 'https://venue.example/',
+      failures: [],
+      pages: [{
+        url: 'https://venue.example/',
+        contentType: 'text/html',
+        bytes: 200,
+        html: `<html><head><meta name="keywords" content="Marquee hire, Outdoor ceremonies"></head><body></body></html>`,
+      }],
+    });
+    expect(extraction.serviceTags).toEqual(['Marquee hire', 'Outdoor ceremonies']);
+  });
+
+  it('returns no service tags when neither JSON-LD nor meta keywords offer one', () => {
+    const extraction = extractBasicFacts({
+      rootUrl: 'https://venue.example',
+      finalRootUrl: 'https://venue.example/',
+      failures: [],
+      pages: [{
+        url: 'https://venue.example/',
+        contentType: 'text/html',
+        bytes: 100,
+        html: `<html><body><p>No structured data here.</p></body></html>`,
+      }],
+    });
+    expect(extraction.serviceTags).toEqual([]);
+  });
 });

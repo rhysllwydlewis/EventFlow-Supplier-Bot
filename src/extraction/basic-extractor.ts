@@ -2,6 +2,7 @@ import type { SiteCrawlResult } from '../crawler/site-crawler.js';
 import type { SupplierMediaEvidence } from '../domain/supplier-media.js';
 import { extractSupplierMedia } from './image-extractor.js';
 import { extractSupplierProfileImage } from './profile-image-extractor.js';
+import { extractServiceTagsFromJsonLd } from './structured-data.js';
 
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const UK_PHONE_RE = /(?:\+44\s?\d{2,4}|0\d{2,4})[\s().-]*\d{3,4}[\s.-]*\d{3,4}\b/g;
@@ -15,6 +16,13 @@ const JSON_LD_RE = /<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>
 // details are preferred over an unattributed text match when one exists.
 const MAILTO_HREF_RE = /href\s*=\s*["']mailto:([^"'?]+)/gi;
 const TEL_HREF_RE = /href\s*=\s*["']tel:([^"']+)/gi;
+const META_TAG_RE = /<meta\b[^>]*>/gi;
+
+// ShadowProfile's `services` field (shadow-profile.ts) caps each entry at
+// 120 chars -- truncating here keeps a long real value usable instead of
+// letting shadowProfileSchema.parse() reject the whole profile over one
+// overlong tag.
+const MAX_SERVICE_TAG_LENGTH = 120;
 
 function stripTags(value: string): string {
   return value
@@ -70,6 +78,23 @@ function extractTelPhones(html: string): string[] {
   return values;
 }
 
+// A `<meta name="keywords">` tag is a page author's own explicit,
+// comma-separated list of what the business offers -- a real, deterministic
+// signal (unlike, say, guessing services from heading text), just a weaker
+// one than JSON-LD since it's free text with no schema behind it.
+function extractMetaKeywords(html: string): string[] {
+  const keywords: string[] = [];
+  for (const tag of html.match(META_TAG_RE) ?? []) {
+    const nameMatch = tag.match(/\bname\s*=\s*["']([^"']+)["']/i);
+    if (nameMatch?.[1]?.trim().toLowerCase() !== 'keywords') continue;
+    const contentMatch = tag.match(/\bcontent\s*=\s*["']([^"']*)["']/i);
+    const content = contentMatch?.[1];
+    if (content === undefined) continue;
+    keywords.push(...content.split(',').map(value => value.trim()).filter(Boolean));
+  }
+  return keywords;
+}
+
 function extractJsonLd(html: string): unknown[] {
   const values: unknown[] = [];
   let match: RegExpExecArray | null;
@@ -95,6 +120,11 @@ export interface BasicExtraction {
   pageText: Array<{ url: string; text: string }>;
   media: SupplierMediaEvidence[];
   profileImageCandidate?: SupplierMediaEvidence | null;
+  // Deterministic services/tags candidates: JSON-LD serviceType/makesOffer
+  // (preferred -- structured, schema-backed) plus <meta name="keywords">
+  // (free text, so ordered after). Not AI-derived, so this is safe for the
+  // unclaimed-quality audit's "only real data found on the site" rule.
+  serviceTags: string[];
 }
 
 export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
@@ -103,6 +133,7 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
   const prices: string[] = [];
   const jsonLd: unknown[] = [];
   const pageText: Array<{ url: string; text: string }> = [];
+  const metaKeywords: string[] = [];
   const attributedEmails = new Set<string>();
   const attributedPhones = new Set<string>();
 
@@ -113,6 +144,7 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
     phones.push(...(text.match(UK_PHONE_RE) ?? []));
     prices.push(...(text.match(PRICE_RE) ?? []));
     jsonLd.push(...extractJsonLd(page.html));
+    metaKeywords.push(...extractMetaKeywords(page.html));
 
     // A tel: href in particular can carry a number that never appears in
     // the page's *visible* text at all (e.g. a "Call us" link), so these
@@ -127,6 +159,11 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
     }
   }
 
+  const serviceTags = unique(
+    [...extractServiceTagsFromJsonLd(jsonLd), ...metaKeywords].map(value => value.slice(0, MAX_SERVICE_TAG_LENGTH)),
+    30,
+  );
+
   return {
     emails: preferAttributed(unique(emails.map(value => value.toLowerCase()), 20), attributedEmails),
     phones: preferAttributed(unique(phones, 20), attributedPhones),
@@ -135,5 +172,6 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
     pageText,
     media: extractSupplierMedia(crawl),
     profileImageCandidate: extractSupplierProfileImage(crawl),
+    serviceTags,
   };
 }
