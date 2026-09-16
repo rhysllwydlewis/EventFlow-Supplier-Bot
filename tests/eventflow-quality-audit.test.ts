@@ -188,6 +188,26 @@ describe('EventFlow quality-audit refresh', () => {
     );
   });
 
+  it('nulls out a publicPhone longer than EventFlow\'s field, the same guard eventflow-ingestion.service.ts applies', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        supplierId: 'sup_bot_1',
+        slug: 'example-venue',
+        status: 'active',
+        ownershipStatus: 'unclaimed',
+        created: false,
+        idempotent: true,
+        refreshed: true,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await refreshEventFlowSupplierData({ profile: baseProfile({ publicPhone: '029 2012 3456 ext. 123' }) });
+
+    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).publicPhone).toBeNull();
+  });
+
   it('reports conflict on a 409 without throwing', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(409, { error: 'A supplier with this website already exists' })));
 

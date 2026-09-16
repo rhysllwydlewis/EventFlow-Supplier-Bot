@@ -137,7 +137,10 @@ export async function refreshEventFlowSupplierData(input: {
     website: profile.website,
     description: profile.description,
     publicEmail: profile.publicEmail,
-    publicPhone: profile.publicPhone,
+    // Same <=20 guard eventflow-ingestion.service.ts applies to this same
+    // EventFlow field: publicPhone can legitimately be up to 60 chars per
+    // shadowProfileSchema, longer than the field EventFlow actually stores.
+    publicPhone: profile.publicPhone && profile.publicPhone.length <= 20 ? profile.publicPhone : null,
     services: profile.services,
     packages: profile.packages,
     advertisedPrices: profile.advertisedPrices,
@@ -148,6 +151,13 @@ export async function refreshEventFlowSupplierData(input: {
     dataConfidence: profile.dataConfidence,
     generatedAt: profile.generatedAt,
     generatorVersion: profile.generatorVersion,
+    // complianceStatus/compliancePolicyVersion are deliberately omitted: this
+    // audit-only refresh never re-runs compliance.service.ts's assessment
+    // (that machinery is for qualifying a brand-new candidate, not patching a
+    // gap on an already-published profile), so there is no real, current
+    // status to report here. EventFlow's own acquisitionFromPayload resets
+    // both to null when omitted -- an honest "not reassessed by this call"
+    // is preferable to resending a value this call didn't actually verify.
   };
   const body = JSON.stringify(payload);
   const timestamp = String(Date.now());

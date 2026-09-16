@@ -115,6 +115,22 @@ export async function auditOneSupplier(
       skipped.push({ field: 'images', reason: 'no_usable_image_found_on_recrawl' });
     }
   }
+  if (patch.coverImage !== undefined || patch.images !== undefined) {
+    // Keep provenance in sync with whichever image field(s) just changed --
+    // adding this run's evidence rather than replacing the existing array
+    // outright, so an untouched image (e.g. gallery preserved while only
+    // the cover image was fixed) never loses the evidence record that
+    // backs it.
+    const seenEvidenceUrls = new Set<string>();
+    const mergedEvidence: ShadowProfile['mediaEvidence'] = [];
+    for (const evidence of [...profile.mediaEvidence, ...extraction.media]) {
+      if (seenEvidenceUrls.has(evidence.url)) continue;
+      seenEvidenceUrls.add(evidence.url);
+      mergedEvidence.push(evidence);
+      if (mergedEvidence.length >= 20) break;
+    }
+    patch.mediaEvidence = mergedEvidence;
+  }
 
   if (item.gaps.missingDescription) {
     const priceInfo = extraction.advertisedPrices[0] ?? null;
@@ -134,11 +150,19 @@ export async function auditOneSupplier(
 
   if (item.gaps.missingPhone) {
     const phone = cleanPublicPhone(structured.telephone || extraction.phones[0] || null);
-    if (phone) {
+    // Same <=20 guard eventflow-ingestion.service.ts applies to this field:
+    // a longer value (e.g. a number with a spelled-out extension) is real,
+    // but EventFlow has nowhere to put it, so claiming this as a fix here
+    // would be reported as "refreshed" locally while never actually
+    // reaching EventFlow's phone field.
+    if (phone && phone.length <= 20) {
       patch.publicPhone = phone;
       fixed.push('publicPhone');
     } else {
-      skipped.push({ field: 'publicPhone', reason: 'no_phone_number_found_on_recrawl' });
+      skipped.push({
+        field: 'publicPhone',
+        reason: phone ? 'phone_number_too_long_for_eventflow_field' : 'no_phone_number_found_on_recrawl',
+      });
     }
   }
 
@@ -189,12 +213,30 @@ export async function auditOneSupplier(
   return base;
 }
 
+// Mirrors eventflow-publication.service.ts's publicationControlBlockReason
+// exactly -- this script performs the same class of action (a real write to
+// live EventFlow supplier data), so it must be gated by the same operator
+// controls, not the looser "not explicitly stopped" check a read-only or
+// bot-internal-only job could get away with. In particular: settings.mode
+// stays 'shadow' until an operator explicitly promotes to 'live', and
+// runState only ever reaches 'running' via an explicit playBot() -- a
+// paused/draining/stopped bot must never have this script push writes to
+// production just because it isn't emergency_stopped.
+export function auditControlBlockReason(settings: Awaited<ReturnType<typeof getSettings>>): string | null {
+  if (settings.runState !== 'running') {
+    return settings.runState === 'emergency_stopped' ? 'emergency_stopped' : `run_state_${settings.runState}`;
+  }
+  if (settings.mode !== 'live') return 'mode_not_live';
+  if (!settings.refreshEnabled) return 'refresh_disabled';
+  return null;
+}
+
 export async function main(): Promise<void> {
   const settings = await getSettings();
-  if (settings.runState === 'emergency_stopped' || settings.mode === 'off' || !settings.refreshEnabled) {
-    const reason = !settings.refreshEnabled ? 'refresh_disabled' : 'bot_stopped';
-    logger.warn({ reason }, 'Unclaimed quality audit: skipping run');
-    process.stdout.write(`${JSON.stringify({ skipped: true, reason }, null, 2)}\n`);
+  const blockReason = auditControlBlockReason(settings);
+  if (blockReason) {
+    logger.warn({ reason: blockReason }, 'Unclaimed quality audit: skipping run');
+    process.stdout.write(`${JSON.stringify({ skipped: true, reason: blockReason }, null, 2)}\n`);
     return;
   }
 
@@ -254,10 +296,11 @@ export async function main(): Promise<void> {
 }
 
 // Guards the auto-run so importing this module (e.g. from a test) never
-// executes main() against a real database/network -- only running the
-// compiled script directly (npm run scripts, same convention as
-// phase3-validation-report.ts) does. This project compiles to CommonJS
-// (tsconfig's "module": "NodeNext" with no "type": "module" in
+// executes main() against a real database/network -- unlike
+// phase3-validation-report.ts (which has no such guard and always runs
+// main() on import), this module exports auditOneSupplier/main themselves
+// for direct test coverage, so it needs one. This project compiles to
+// CommonJS (tsconfig's "module": "NodeNext" with no "type": "module" in
 // package.json), so require.main is the correct entry-point check here,
 // not import.meta.
 if (require.main === module) {
