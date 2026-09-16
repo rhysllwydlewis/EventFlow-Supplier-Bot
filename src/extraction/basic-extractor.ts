@@ -2,6 +2,7 @@ import type { SiteCrawlResult } from '../crawler/site-crawler.js';
 import type { SupplierMediaEvidence } from '../domain/supplier-media.js';
 import { extractSupplierMedia } from './image-extractor.js';
 import { extractSupplierProfileImage } from './profile-image-extractor.js';
+import { extractServiceTagsFromJsonLd } from './structured-data.js';
 
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const UK_PHONE_RE = /(?:\+44\s?\d{2,4}|0\d{2,4})[\s().-]*\d{3,4}[\s.-]*\d{3,4}\b/g;
@@ -15,6 +16,14 @@ const JSON_LD_RE = /<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>
 // details are preferred over an unattributed text match when one exists.
 const MAILTO_HREF_RE = /href\s*=\s*["']mailto:([^"'?]+)/gi;
 const TEL_HREF_RE = /href\s*=\s*["']tel:([^"']+)/gi;
+
+// ShadowProfile's `services` field (shadow-profile.ts) caps each entry at
+// 120 chars -- a candidate over that isn't a short tag/label the way the
+// schema.org fields it's drawn from are meant to be used, so it's dropped
+// rather than truncated: a chopped mid-word fragment (e.g. "...day-of
+// coordinatio") is not real data, it's this code inventing a new string
+// that happens to share a prefix with the real one.
+const MAX_SERVICE_TAG_LENGTH = 120;
 
 function stripTags(value: string): string {
   return value
@@ -95,6 +104,15 @@ export interface BasicExtraction {
   pageText: Array<{ url: string; text: string }>;
   media: SupplierMediaEvidence[];
   profileImageCandidate?: SupplierMediaEvidence | null;
+  // Deterministic services/tags candidates from JSON-LD serviceType/
+  // makesOffer -- a structured, schema-backed declaration tied to the
+  // specific matched business object, not free text pooled from anywhere on
+  // the site (a page's <meta name="keywords"> is exactly that: unvetted,
+  // frequently stale or SEO-stuffed, and not tied to any business entity --
+  // deliberately not used here as a source for this field). Not AI-derived,
+  // so this is safe for the unclaimed-quality audit's "only real data found
+  // on the site" rule.
+  serviceTags: string[];
 }
 
 export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
@@ -127,6 +145,11 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
     }
   }
 
+  const serviceTags = unique(
+    extractServiceTagsFromJsonLd(jsonLd).filter(value => value.length <= MAX_SERVICE_TAG_LENGTH),
+    30,
+  );
+
   return {
     emails: preferAttributed(unique(emails.map(value => value.toLowerCase()), 20), attributedEmails),
     phones: preferAttributed(unique(phones, 20), attributedPhones),
@@ -135,5 +158,6 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
     pageText,
     media: extractSupplierMedia(crawl),
     profileImageCandidate: extractSupplierProfileImage(crawl),
+    serviceTags,
   };
 }

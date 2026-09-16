@@ -223,7 +223,7 @@ describe('auditOneSupplier', () => {
     expect(refreshEventFlowSupplierData).not.toHaveBeenCalled();
   });
 
-  it('always skips tags and package-photo gaps: no reliable deterministic source exists yet', async () => {
+  it('always skips the package-photo gap: no reliable deterministic photo-to-package match exists yet', async () => {
     getShadowProfile.mockResolvedValue(shadowProfileFixture());
     tryClaimDailyCrawlSlot.mockResolvedValue(true);
     crawlSupplierSite.mockResolvedValue(crawlResultWithMedia());
@@ -234,15 +234,55 @@ describe('auditOneSupplier', () => {
         missingGalleryImages: false,
         missingDescription: false,
         missingPhone: false,
-        missingTags: true,
+        missingTags: false,
         packagesMissingPhotos: [{ id: 'pkg_1', title: 'Day package' }],
       },
     });
     const result = await auditOneSupplier(item, settingsFixture());
 
     expect(result.outcome).toBe('no_real_fix_found');
-    expect(result.skipped).toContainEqual({ field: 'tags', reason: 'no_deterministic_service_tag_extraction_yet' });
     expect(result.skipped).toContainEqual({ field: 'packagesMissingPhotos', reason: 'no_reliable_photo_to_package_matching_yet' });
+  });
+
+  it('skips the tags gap when the recrawl finds no deterministic service-tag signal', async () => {
+    getShadowProfile.mockResolvedValue(shadowProfileFixture());
+    tryClaimDailyCrawlSlot.mockResolvedValue(true);
+    crawlSupplierSite.mockResolvedValue(crawlResultWithMedia());
+
+    const item = queueItem({ gaps: { ...queueItem().gaps, missingTags: true } });
+    const result = await auditOneSupplier(item, settingsFixture());
+
+    expect(result.outcome).toBe('no_real_fix_found');
+    expect(result.skipped).toContainEqual({ field: 'tags', reason: 'no_deterministic_service_tags_found_on_recrawl' });
+    expect(refreshEventFlowSupplierData).not.toHaveBeenCalled();
+  });
+
+  it('fixes a real tags gap from JSON-LD serviceType found on the recrawl', async () => {
+    const profile = shadowProfileFixture();
+    getShadowProfile.mockResolvedValue(profile);
+    tryClaimDailyCrawlSlot.mockResolvedValue(true);
+    crawlSupplierSite.mockResolvedValue({
+      rootUrl: 'https://example-venue.test/',
+      finalRootUrl: 'https://example-venue.test/',
+      pages: [
+        {
+          url: 'https://example-venue.test/',
+          contentType: 'text/html',
+          html: '<html><body><script type="application/ld+json">{"@type":"LocalBusiness","name":"Example Venue","serviceType":["Wedding venue","Corporate events"]}</script></body></html>',
+          bytes: 200,
+        },
+      ],
+      failures: [],
+    });
+    refreshEventFlowSupplierData.mockResolvedValue({ status: 'refreshed', supplierId: 'sup_bot_1', slug: 'example-venue' });
+
+    const item = queueItem({ gaps: { ...queueItem().gaps, missingTags: true } });
+    const result = await auditOneSupplier(item, settingsFixture());
+
+    expect(result.outcome).toBe('refreshed');
+    expect(result.fixed).toEqual(['services']);
+    const sentProfile = refreshEventFlowSupplierData.mock.calls[0][0].profile as ShadowProfile;
+    expect(sentProfile.services).toEqual(['Wedding venue', 'Corporate events']);
   });
 
   it('fixes a real cover-image gap from the recrawl and refreshes EventFlow with a full, merged payload', async () => {

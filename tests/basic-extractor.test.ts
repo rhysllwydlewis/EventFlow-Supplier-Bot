@@ -68,4 +68,74 @@ describe('basic website extraction', () => {
     });
     expect(extraction.phones[0]).toBe('02920123456');
   });
+
+  it('reads service tags from JSON-LD serviceType/makesOffer and dedupes across pages', () => {
+    const extraction = extractBasicFacts({
+      rootUrl: 'https://venue.example',
+      finalRootUrl: 'https://venue.example/',
+      failures: [],
+      pages: [
+        {
+          url: 'https://venue.example/',
+          contentType: 'text/html',
+          bytes: 400,
+          html: `<html><body><script type="application/ld+json">{"@type":"LocalBusiness","name":"Example Manor","serviceType":["Wedding venue","Corporate events"]}</script></body></html>`,
+        },
+        {
+          url: 'https://venue.example/weddings',
+          contentType: 'text/html',
+          bytes: 400,
+          html: `<html><body><script type="application/ld+json">{"@type":"LocalBusiness","name":"Example Manor","serviceType":"Wedding venue"}</script></body></html>`,
+        },
+      ],
+    });
+    expect(extraction.serviceTags).toEqual(['Wedding venue', 'Corporate events']);
+  });
+
+  it('ignores <meta name="keywords">: unvetted free text pooled from anywhere on the site is not this field\'s deterministic source', () => {
+    const extraction = extractBasicFacts({
+      rootUrl: 'https://venue.example',
+      finalRootUrl: 'https://venue.example/',
+      failures: [],
+      pages: [{
+        url: 'https://venue.example/',
+        contentType: 'text/html',
+        bytes: 200,
+        html: `<html><head><meta name="keywords" content="Marquee hire, Outdoor ceremonies"></head><body></body></html>`,
+      }],
+    });
+    expect(extraction.serviceTags).toEqual([]);
+  });
+
+  it('drops a service tag candidate longer than the 120-char field limit rather than truncating it into a mangled fragment', () => {
+    const overlong = `Full wedding planning package including catering, floristry, venue styling, and day-of coordination for up to 200 wedding guests`;
+    expect(overlong.length).toBeGreaterThan(120);
+    const extraction = extractBasicFacts({
+      rootUrl: 'https://venue.example',
+      finalRootUrl: 'https://venue.example/',
+      failures: [],
+      pages: [{
+        url: 'https://venue.example/',
+        contentType: 'text/html',
+        bytes: 400,
+        html: `<html><body><script type="application/ld+json">{"@type":"LocalBusiness","name":"Example Manor","makesOffer":[{"itemOffered":{"name":"${overlong}"}},{"name":"Bar hire"}]}</script></body></html>`,
+      }],
+    });
+    expect(extraction.serviceTags).toEqual(['Bar hire']);
+  });
+
+  it('returns no service tags when JSON-LD offers no service signal', () => {
+    const extraction = extractBasicFacts({
+      rootUrl: 'https://venue.example',
+      finalRootUrl: 'https://venue.example/',
+      failures: [],
+      pages: [{
+        url: 'https://venue.example/',
+        contentType: 'text/html',
+        bytes: 100,
+        html: `<html><body><p>No structured data here.</p></body></html>`,
+      }],
+    });
+    expect(extraction.serviceTags).toEqual([]);
+  });
 });
