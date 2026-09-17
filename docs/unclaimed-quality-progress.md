@@ -122,13 +122,16 @@ backlog for a human rather than guessing.
       `audit-unclaimed-quality.ts` no longer unconditionally skips
       `missingTags`. **Not yet exercised against the live queue** — same
       credentials gap as the rest of this routine, see today's session log.
-- [ ] `packagesMissingPhotos`: the audit-queue reports specific packages with
-      a placeholder image, but there is no reliable way yet to match one of
-      a recrawl's generic extracted photos to one specific named package
-      (title text match against alt/nearby text? page-section proximity?).
-      Needs real design, not a guess — `audit-unclaimed-quality.ts`
-      unconditionally skips this gap today, logged as
-      `no_reliable_photo_to_package_matching_yet`.
+- [x] `packagesMissingPhotos`: gave it a real, conservative deterministic
+      matcher (`src/services/package-photo-matcher.ts`,
+      `matchPackagePhotos`) instead of the unconditional skip — a recrawled
+      photo is only ever attached to a named package when it was found on
+      that exact package's own `sourceUrl` AND its alt text names every
+      significant word of the package's title. Also added the `image`
+      field `ShadowProfile.packages` never had. Merged in
+      [#68](https://github.com/rhysllwydlewis/EventFlow-Supplier-Bot/pull/68).
+      **Not yet exercised against the live queue** — same credentials gap
+      as the rest of this routine, see today's session log.
 - [ ] Run `npm run audit:unclaimed-quality` for real once the deployed
       environment's credentials are available in whatever session picks this
       up, and log the actual results here.
@@ -257,3 +260,65 @@ backlog for a human rather than guessing.
   prior entry — needs `EVENTFLOW_BOT_HMAC_SECRET` (not
   `EVENTFLOW_OPS_BOT_HMAC_SECRET`) in whatever environment picks this up
   next. `packagesMissingPhotos` still needs real design work.
+
+**2026-09-17** — Picked up the `packagesMissingPhotos` backlog item; live
+queue still blocked on credentials.
+
+- Read this file, checked `git log`/open PRs on both this repo and
+  EventFlow for the last ~24h of manual activity before starting. Found one
+  open PR on EventFlow (#1678, "Fix duplicate page-init scripts causing
+  double contact-form submission", from the separate dev-ops routine,
+  untouched by this change) and none on this repo — nothing mid-iteration
+  in this routine's own area.
+- Re-checked this environment's credentials: this session actually has
+  `EVENTFLOW_INTERNAL_BASE_URL` now (new since the last two entries), but
+  still only `EVENTFLOW_OPS_BOT_HMAC_SECRET`, not `EVENTFLOW_BOT_HMAC_SECRET`
+  — confirmed against `src/config/env.ts`'s schema. Live re-crawl-and-refresh
+  still cannot happen this session for the same reason as every prior entry
+  — stood down on that portion again rather than guess against the wrong
+  credential.
+- Rather than end the run with nothing done over a blocker already known
+  and unchanged, picked up the last open extraction-capability gap:
+  `packagesMissingPhotos`. Traced how a package photo actually reaches a
+  live EventFlow listing (`services/supplierBotMarketplaceParity.service.js`
+  in the EventFlow repo) and found the real root cause this gap was never
+  fixable before: `ShadowProfile.packages` had no `image` field at all, so
+  every package this bot ever sent had `item.image` undefined, and EventFlow
+  always fell back to round-robining a package's photo across the
+  supplier's generic images rather than a photo of that specific package.
+- Added the `image` field to the packages schema, and
+  `src/services/package-photo-matcher.ts` (`matchPackagePhotos`): a
+  recrawled photo is only attached to a named package when it was found on
+  that exact package's own `sourceUrl` AND its alt text names every
+  significant word of the package's title — both signals required, per the
+  design questions this Backlog entry originally posed. Wired into
+  `audit-unclaimed-quality.ts`'s `packagesMissingPhotos` handling.
+- Followed the Write policy: implemented, tests green (428/428, 11
+  new/changed), typecheck and lint clean, independently re-reviewed the
+  whole diff adversarially via a separate agent pass. That review found one
+  real bug: the first draft keyed matched photos by package *name* and
+  applied them back by name too, so two packages sharing a name (e.g. two
+  different "Silver Package" offerings on different pages) would have had
+  their photos swapped or collapsed onto a single winner. Fixed by keying
+  matches on each package's array position instead, added a regression test
+  covering the same-name/different-page case directly, tests green again
+  (428/428), merged myself:
+  [#68](https://github.com/rhysllwydlewis/EventFlow-Supplier-Bot/pull/68).
+- The review's other note (single-significant-word titles like "Silver
+  Package"/"Gold Package" are the norm for this domain, not the edge case,
+  so page-locality is doing most of the real work once title tokens reduce
+  to one word) is a design limitation, not a bug — accepted as a
+  documented residual risk in the matcher's own comments, consistent with
+  how single-signal alternatives were already rejected elsewhere in this
+  file. A future session could strengthen it further (e.g. requiring
+  candidate-photo uniqueness on the page, or a higher score floor) if it
+  turns out to matter once this runs against real data.
+- **Still open for next time**: same live-run credentials gap as every
+  prior entry — needs `EVENTFLOW_BOT_HMAC_SECRET` specifically (not
+  `EVENTFLOW_OPS_BOT_HMAC_SECRET`, and now that
+  `EVENTFLOW_INTERNAL_BASE_URL` is present, the bot secret is the only
+  missing piece) in whatever environment picks this up next. All four
+  extraction-capability gaps this routine originally opened with are now
+  closed (`missingTags`, `missingDescription`/cover/gallery, `missingPhone`,
+  `packagesMissingPhotos`) — the only remaining backlog item is running the
+  script for real once credentials allow it.
