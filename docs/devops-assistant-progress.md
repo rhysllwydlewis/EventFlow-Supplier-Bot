@@ -64,17 +64,91 @@ whole point of Shadow-first design is caution before real supplier contact.
 
 ## Backlog
 
-- [ ] General sweep: verify actual current phase/state against real code and
+- [x] General sweep: verify actual current phase/state against real code and
       recent PRs (not the possibly-stale planning docs), then find genuine
       bugs, gaps, or quality issues — verify each is real before fixing.
+      Done 2026-09-17: fixed the dead provider_usage ledger (PR #70, see
+      session log). Re-open this as a recurring item each cycle nothing
+      more specific is pending — there's always another sweep to do.
 
 ## Discovered along the way
 
-(Empty — add anything found that isn't today's task, with enough detail for
-a future session to act on it without re-discovering it from scratch.)
+- Zero behavioral test coverage for five daily safety-ceiling claim
+  functions: `acquisition-budget.service.ts`, `crawl-budget.service.ts`,
+  `browser-crawl-budget.service.ts`, `ai-circuit.service.ts`,
+  `ai-usage.service.ts`. All five implement the same atomic
+  `findOneAndUpdate`-with-`$lt`/`$inc` "claim under a daily ceiling"
+  pattern as `ai-budget.service.ts` (which enforces
+  `ABSOLUTE_MAX_AI_SPEND_GBP_PER_DAY` and *does* have thorough behavioral
+  tests in `tests/ai-budget.test.ts`, using a fake in-memory Mongo
+  collection). The other five only get indirect, source-string-matching
+  assertions in a couple of other test files — nothing exercises their
+  claim/release atomicity directly. Risk: a future refactor of the shared
+  pattern could silently break the atomicity guarantee that stops
+  concurrent discovery/crawl cycles from jointly exceeding a daily hard
+  cap, and the existing suite wouldn't catch it. Flagging rather than
+  fixing directly since this is safety-ceiling code (this routine's merge
+  policy asks for human eyes before touching anything in that category,
+  and porting the `ai-budget.test.ts` fake-Mongo pattern to five more
+  files is a bigger, more deliberate chunk than a "just add tests"
+  drive-by). Recommend a session picks this up as its whole cycle: port
+  the same fake-collection test pattern to all five, one PR, human-
+  reviewed before merge.
+- Minor, not worth its own PR: `src/crawler/safe-fetch.ts` around line
+  145-147 derives `contentType` via `.split(';')[0]`, so it can never
+  contain a `;` — the subsequent
+  `contentType.startsWith(\`${type};\`)` branch is therefore dead code
+  (unreachable). Not an active bug (the equality check on the same line
+  already covers every case it was presumably meant to catch), just a
+  correctness smell worth folding into whatever PR next legitimately
+  touches that function.
 
 ## Session log
 
-(Empty — each run appends a dated entry: what changed, what's green, what's
-still open, anything needing a decision, and what you deliberately stayed
-away from because it looked like active manual work.)
+### 2026-09-17
+
+Repo already checked out locally; no `add_repo`/`register_repo_root` tools
+exist in this environment (not a failure — git access here is
+proxy-configured instead, confirmed the checkout and remote worked fine).
+
+Checked for collisions first: `claude/supplier-bot-unclaimed-quality` (a
+different automated routine — "Unclaimed Profile Quality Assistant") had
+commits as recent as ~1 hour before this run, and PR #68 touching
+`src/scripts/audit-unclaimed-quality.ts`, `src/services/package-photo-matcher.ts`,
+`src/domain/shadow-profile.ts` (packages/image field) and the photo-matching
+parts of `src/services/ai-enrichment.service.ts` had merged to main only
+~2 hours before this run started. Stayed away from all of it and from
+`docs/unclaimed-quality-progress.md`'s whole scope this cycle — clearly
+live, not mine to touch.
+
+No open PRs and no unresolved review comments on this branch to work
+first. Backlog only had the generic "general sweep" item, so did that:
+delegated a broad bug-hunt across crawler/extraction/evidence/providers/
+queues/repositories/services/worker/control/config/domain (excluding the
+areas above) to a subagent, with AUTONOMY.md/SHADOW_MODE.md/
+CRAWLER_POLICY.md read first and instructed to flag rather than fix
+anything touching safety ceilings. It came back with 3 candidates; verified
+the top one myself against the actual call sites before acting (the other
+two are in "Discovered along the way" above, not fixed this cycle).
+
+**Fixed and opened PR #70**: `recordProviderUsage`/`getTodayProviderUsage`
+in `src/services/provider-usage.service.ts` were fully implemented but
+never called from anywhere — `resultsSeen` was computed every discovery
+cycle but only ever lived in-memory on that cycle's audit event, no running
+daily total anywhere. Wired `recordProviderUsage` into `runDiscoveryCycle`
+after each `provider.search()`, surfaced the daily totals plus the
+previously-unsurfaced `providerSearchesPerDay` safety-ceiling value on
+`/api/status`. Deliberately left `estimatedCostGbp` at its zero default —
+no provider adapter here has a configured per-search price, and I'm not
+inventing one. Added real behavioral test coverage (fake-Mongo pattern,
+not just source-string assertions) plus a wiring test. `npm run check`
+green locally (369 tests, was 365). This is read-only instrumentation, does
+not touch any safety-limit enforcement logic itself, so didn't route it to
+human review.
+
+PR #70 pushed and opened; CI was still pending as of this entry (see PR for
+current status). Per this routine's merge policy, will merge myself once
+CI confirms green and no new review feedback needs addressing — if a
+future session picks this up instead, check PR #70's state first.
+
+Nothing else was pending after this one item, so the cycle ends here today.
