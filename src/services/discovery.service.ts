@@ -12,6 +12,7 @@ import { isSuppressed } from '../repositories/suppression.repository.js';
 import { currentUtcDay, releaseDailyAcquisitionSlot, tryClaimDailyAcquisitionSlot } from './acquisition-budget.service.js';
 import { evaluateDiscoverySearchResult } from './discovery-result-quality.service.js';
 import { eventFlowAlreadyHasSupplierForDomain } from './eventflow-supplier-lookup.service.js';
+import { recordProviderUsage } from './provider-usage.service.js';
 import { tryClaimProviderSearch } from './provider-usage.service.js';
 import { buildDiscoveryQueries } from './query-builder.service.js';
 
@@ -82,6 +83,10 @@ export async function runDiscoveryCycle(
     });
     result.queriesRun += 1;
     result.resultsSeen += items.length;
+    // Recorded on the same per-day ledger tryClaimProviderSearch writes
+    // searches to, so an operator can see result volume alongside search
+    // count instead of only the search count the budget claim tracks.
+    await recordProviderUsage({ provider: providerName, resultsSeen: items.length });
 
     for (const item of items) {
       if (result.candidatesCreated >= candidateLimit) {
