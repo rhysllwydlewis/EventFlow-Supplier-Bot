@@ -35,6 +35,11 @@ export const shadowProfileSchema = z.object({
     sourceContentHash: z.string().max(128).nullable().default(null),
     extractionConfidence: z.number().min(0).max(100).default(0),
     priceDetails: packagePriceDetailsSchema.default(null),
+    // Deliberately absent from the original AI-enrichment package schema --
+    // AI enrichment never had a reliable source for a per-package photo.
+    // Only the unclaimed-quality audit's deterministic photo-to-package
+    // matcher (src/services/package-photo-matcher.ts) sets this today.
+    image: z.string().url().max(2_048).nullable().default(null),
   })).max(20),
   evidenceIds: z.array(z.string()).max(100),
   // Phase 3 stores supplier-site-declared media references and provenance only.
