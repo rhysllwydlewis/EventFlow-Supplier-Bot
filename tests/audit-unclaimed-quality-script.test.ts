@@ -223,7 +223,7 @@ describe('auditOneSupplier', () => {
     expect(refreshEventFlowSupplierData).not.toHaveBeenCalled();
   });
 
-  it('always skips the package-photo gap: no reliable deterministic photo-to-package match exists yet', async () => {
+  it('skips the package-photo gap when the recrawl has no page-local, title-matching photo for it', async () => {
     getShadowProfile.mockResolvedValue(shadowProfileFixture());
     tryClaimDailyCrawlSlot.mockResolvedValue(true);
     crawlSupplierSite.mockResolvedValue(crawlResultWithMedia());
@@ -242,6 +242,58 @@ describe('auditOneSupplier', () => {
 
     expect(result.outcome).toBe('no_real_fix_found');
     expect(result.skipped).toContainEqual({ field: 'packagesMissingPhotos', reason: 'no_reliable_photo_to_package_matching_yet' });
+    expect(refreshEventFlowSupplierData).not.toHaveBeenCalled();
+  });
+
+  it('fixes a real package-photo gap when the recrawl finds a page-local photo whose alt text names the package', async () => {
+    const profile = shadowProfileFixture({
+      packages: [
+        {
+          name: 'Silver Package',
+          price: '£500',
+          priceDisplay: '£500',
+          kind: 'advertised_package',
+          features: [],
+          evidenceIds: [],
+          sourceUrl: 'https://example-venue.test/weddings/silver',
+          sourceObservedAt: null,
+          sourceContentHash: null,
+          extractionConfidence: 80,
+          priceDetails: null,
+          image: null,
+        },
+      ],
+    });
+    getShadowProfile.mockResolvedValue(profile);
+    tryClaimDailyCrawlSlot.mockResolvedValue(true);
+    crawlSupplierSite.mockResolvedValue({
+      rootUrl: 'https://example-venue.test/',
+      finalRootUrl: 'https://example-venue.test/',
+      pages: [
+        {
+          url: 'https://example-venue.test/weddings/silver',
+          contentType: 'text/html',
+          html:
+            '<html><body><img src="https://example-venue.test/photos/silver-table.jpg" alt="Silver package table setting" width="1200" height="800"></body></html>',
+          bytes: 200,
+        },
+      ],
+      failures: [],
+    });
+    refreshEventFlowSupplierData.mockResolvedValue({ status: 'refreshed', supplierId: 'sup_bot_1', slug: 'example-venue' });
+
+    const item = queueItem({
+      gaps: { ...queueItem().gaps, packagesMissingPhotos: [{ id: 'pkg_1', title: 'Silver Package' }] },
+    });
+    const result = await auditOneSupplier(item, settingsFixture());
+
+    expect(result.outcome).toBe('refreshed');
+    expect(result.fixed).toEqual(['packages']);
+    expect(result.skipped).toEqual([]);
+    const sentProfile = refreshEventFlowSupplierData.mock.calls[0][0].profile as ShadowProfile;
+    expect(sentProfile.packages).toEqual([
+      expect.objectContaining({ name: 'Silver Package', image: 'https://example-venue.test/photos/silver-table.jpg' }),
+    ]);
   });
 
   it('skips the tags gap when the recrawl finds no deterministic service-tag signal', async () => {

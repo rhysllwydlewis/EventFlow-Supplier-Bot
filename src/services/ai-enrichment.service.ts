@@ -411,6 +411,10 @@ export function mergeAiEnrichment(
       sourceContentHash: source?.contentHash ?? null,
       extractionConfidence,
       priceDetails: parsePriceDetails(item.priceDisplay),
+      // AI enrichment has no reliable source for a per-package photo -- only
+      // the unclaimed-quality audit's deterministic photo-to-package matcher
+      // (src/services/package-photo-matcher.ts) ever sets this field.
+      image: null,
     };
   });
 

@@ -14,6 +14,7 @@ import {
   refreshEventFlowSupplierData,
   type AuditQueueItem,
 } from '../services/eventflow-quality-audit.service.js';
+import { matchPackagePhotos } from '../services/package-photo-matcher.js';
 import { scoreShadowProfile } from '../services/quality.service.js';
 import { cleanPublicPhone, composeDeterministicDescription } from '../services/shadow-profile-composer.service.js';
 
@@ -115,23 +116,6 @@ export async function auditOneSupplier(
       skipped.push({ field: 'images', reason: 'no_usable_image_found_on_recrawl' });
     }
   }
-  if (patch.coverImage !== undefined || patch.images !== undefined) {
-    // Keep provenance in sync with whichever image field(s) just changed --
-    // adding this run's evidence rather than replacing the existing array
-    // outright, so an untouched image (e.g. gallery preserved while only
-    // the cover image was fixed) never loses the evidence record that
-    // backs it.
-    const seenEvidenceUrls = new Set<string>();
-    const mergedEvidence: ShadowProfile['mediaEvidence'] = [];
-    for (const evidence of [...profile.mediaEvidence, ...extraction.media]) {
-      if (seenEvidenceUrls.has(evidence.url)) continue;
-      seenEvidenceUrls.add(evidence.url);
-      mergedEvidence.push(evidence);
-      if (mergedEvidence.length >= 20) break;
-    }
-    patch.mediaEvidence = mergedEvidence;
-  }
-
   if (item.gaps.missingDescription) {
     const priceInfo = extraction.advertisedPrices[0] ?? null;
     const description = composeDeterministicDescription({
@@ -175,13 +159,42 @@ export async function auditOneSupplier(
     }
   }
 
-  // There is still no reliable way to match one of a recrawl's generic
-  // extracted images to one specific named package (title text match
-  // against alt/nearby text? page-section proximity?) -- that needs real
-  // design, not a guess, so this gap stays unconditionally skipped. See
-  // docs/unclaimed-quality-progress.md's Backlog.
   if (item.gaps.packagesMissingPhotos.length > 0) {
-    skipped.push({ field: 'packagesMissingPhotos', reason: 'no_reliable_photo_to_package_matching_yet' });
+    const matches = matchPackagePhotos(item.gaps.packagesMissingPhotos, profile.packages, extraction.media);
+    if (matches.length > 0) {
+      // Keyed by array position, not package name -- two packages can
+      // legitimately share a name, and each match was independently
+      // verified against its own package's sourceUrl, so applying by name
+      // could otherwise cross-attach one package's photo to its
+      // same-named sibling.
+      const imageByIndex = new Map(matches.map(match => [match.packageIndex, match.imageUrl]));
+      patch.packages = profile.packages.map((pkg, index) => {
+        const matchedImage = imageByIndex.get(index);
+        return matchedImage ? { ...pkg, image: matchedImage } : pkg;
+      });
+      fixed.push('packages');
+    }
+    const unmatchedCount = item.gaps.packagesMissingPhotos.length - matches.length;
+    if (unmatchedCount > 0) {
+      skipped.push({ field: 'packagesMissingPhotos', reason: 'no_reliable_photo_to_package_matching_yet' });
+    }
+  }
+
+  if (patch.coverImage !== undefined || patch.images !== undefined || patch.packages !== undefined) {
+    // Keep provenance in sync with whichever image-bearing field(s) just
+    // changed -- adding this run's evidence rather than replacing the
+    // existing array outright, so an untouched image (e.g. gallery
+    // preserved while only the cover image or a package photo was fixed)
+    // never loses the evidence record that backs it.
+    const seenEvidenceUrls = new Set<string>();
+    const mergedEvidence: ShadowProfile['mediaEvidence'] = [];
+    for (const evidence of [...profile.mediaEvidence, ...extraction.media]) {
+      if (seenEvidenceUrls.has(evidence.url)) continue;
+      seenEvidenceUrls.add(evidence.url);
+      mergedEvidence.push(evidence);
+      if (mergedEvidence.length >= 20) break;
+    }
+    patch.mediaEvidence = mergedEvidence;
   }
 
   if (Object.keys(patch).length === 0) {
