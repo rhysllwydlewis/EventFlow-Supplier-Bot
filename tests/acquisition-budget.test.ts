@@ -25,15 +25,24 @@ function incPath(obj: Doc, path: string, amount: number): void {
   setPath(obj, path, current + amount);
 }
 
+// Unrecognized operators fail the match (closed) rather than being ignored
+// (open) -- a filter shape this fake doesn't understand must never be
+// silently treated as "no constraint", or a test could pass vacuously
+// against a source mutation that changes the operator.
 function matchesFilter(doc: Doc, filter: Record<string, unknown>): boolean {
   for (const [key, value] of Object.entries(filter)) {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const actual = getPath(doc, key);
       for (const [op, opVal] of Object.entries(value as Record<string, unknown>)) {
-        if (op === '$lt' && !((actual as number) < (opVal as number))) return false;
-        if (op === '$exists') {
+        if (op === '$lt') {
+          if (!((actual as number) < (opVal as number))) return false;
+        } else if (op === '$gt') {
+          if (!((actual as number) > (opVal as number))) return false;
+        } else if (op === '$exists') {
           const exists = actual !== undefined;
           if (exists !== opVal) return false;
+        } else {
+          return false;
         }
       }
     } else if (getPath(doc, key) !== value) {
@@ -149,5 +158,42 @@ describe('daily acquisition-slot claim', () => {
     expect(doc?.globalCount).toBe(0);
 
     expect(await tryClaimDailyAcquisitionSlot('campaign-a', 1, 1, day)).toBe(true);
+  });
+
+  it('a double release (a retried call, or a caller bug) never pushes a counter negative or bypasses the ceiling', async () => {
+    // Without a floor, releasing the same slot twice would let globalCount
+    // (and the campaign's own count) go negative -- widening how many
+    // claims the $lt ceiling check then allows through, defeating the
+    // ceiling it exists to enforce.
+    const day = '2026-09-18';
+    expect(await tryClaimDailyAcquisitionSlot('campaign-a', 1, 1, day)).toBe(true);
+
+    await releaseDailyAcquisitionSlot('campaign-a', day);
+    await releaseDailyAcquisitionSlot('campaign-a', day);
+
+    const doc = await readCounter(day);
+    expect(doc?.globalCount).toBe(0);
+    const campaignCounts = Object.values(doc?.campaignCounts ?? {}) as number[];
+    expect(campaignCounts.every(count => count === 0)).toBe(true);
+
+    // The ceiling still holds: only the one legitimately-freed slot is
+    // claimable, not two.
+    expect(await tryClaimDailyAcquisitionSlot('campaign-a', 1, 1, day)).toBe(true);
+    expect(await tryClaimDailyAcquisitionSlot('campaign-a', 1, 1, day)).toBe(false);
+  });
+
+  it('releases against the day the slot was actually claimed on, not "today" recomputed later', async () => {
+    // Same reasoning as ai-budget.test.ts's equivalent test: a slot claimed
+    // just before UTC midnight and released just after must decrement the
+    // *same* day's document, not a different (likely nonexistent, so
+    // silently no-op) day's counter.
+    const claimDay = '2026-08-27';
+    const laterDay = '2026-08-28';
+    expect(await tryClaimDailyAcquisitionSlot('campaign-a', 1, 1, claimDay)).toBe(true);
+
+    await releaseDailyAcquisitionSlot('campaign-a', claimDay);
+
+    expect((await readCounter(claimDay))?.globalCount).toBe(0);
+    expect(await readCounter(laterDay)).toBeNull();
   });
 });
