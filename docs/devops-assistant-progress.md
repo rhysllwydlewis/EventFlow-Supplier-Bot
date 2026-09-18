@@ -70,30 +70,15 @@ whole point of Shadow-first design is caution before real supplier contact.
       Done 2026-09-17: fixed the dead provider_usage ledger (PR #70, see
       session log). Re-open this as a recurring item each cycle nothing
       more specific is pending — there's always another sweep to do.
+- [x] Port the `ai-budget.test.ts` fake-Mongo test pattern to the other five
+      safety-ceiling/usage services (see "Discovered along the way" below).
+      Done 2026-09-18: PR #73, see session log. **Left open, not merged** —
+      it includes a production logic fix to safety-ceiling code
+      (acquisition-slot release), which this routine's merge policy routes
+      to human review. Check PR #73's state first if picking this up.
 
 ## Discovered along the way
 
-- Zero behavioral test coverage for five daily safety-ceiling claim
-  functions: `acquisition-budget.service.ts`, `crawl-budget.service.ts`,
-  `browser-crawl-budget.service.ts`, `ai-circuit.service.ts`,
-  `ai-usage.service.ts`. All five implement the same atomic
-  `findOneAndUpdate`-with-`$lt`/`$inc` "claim under a daily ceiling"
-  pattern as `ai-budget.service.ts` (which enforces
-  `ABSOLUTE_MAX_AI_SPEND_GBP_PER_DAY` and *does* have thorough behavioral
-  tests in `tests/ai-budget.test.ts`, using a fake in-memory Mongo
-  collection). The other five only get indirect, source-string-matching
-  assertions in a couple of other test files — nothing exercises their
-  claim/release atomicity directly. Risk: a future refactor of the shared
-  pattern could silently break the atomicity guarantee that stops
-  concurrent discovery/crawl cycles from jointly exceeding a daily hard
-  cap, and the existing suite wouldn't catch it. Flagging rather than
-  fixing directly since this is safety-ceiling code (this routine's merge
-  policy asks for human eyes before touching anything in that category,
-  and porting the `ai-budget.test.ts` fake-Mongo pattern to five more
-  files is a bigger, more deliberate chunk than a "just add tests"
-  drive-by). Recommend a session picks this up as its whole cycle: port
-  the same fake-collection test pattern to all five, one PR, human-
-  reviewed before merge.
 - Minor, not worth its own PR: `src/crawler/safe-fetch.ts` around line
   145-147 derives `contentType` via `.split(';')[0]`, so it can never
   contain a `;` — the subsequent
@@ -104,6 +89,57 @@ whole point of Shadow-first design is caution before real supplier contact.
   touches that function.
 
 ## Session log
+
+### 2026-09-18
+
+Branch's last PR (#70) had merged, so restarted `claude/supplier-bot-devops`
+from latest `main` per the routine's own instructions. `add_repo`/
+`register_repo_root` still don't exist in this environment; repo was
+already checked out (same as 2026-09-17), git access worked fine.
+
+Checked for collisions: no open PRs on the repo at all. Checked every
+`claude/*` and other working branch's last-commit timestamp —
+`claude/supplier-bot-unclaimed-quality`'s last commit was ~27h old (its
+PR #68 already merged on 2026-09-17), everything else was older still.
+Nothing looked mid-iteration, field was clear.
+
+No open PRs, no unresolved review comments, so went to the backlog's next
+item: last cycle's "Discovered along the way" note recommended a session
+pick up, as its whole cycle, porting `tests/ai-budget.test.ts`'s
+fake-Mongo-collection pattern to the five other daily safety-ceiling/usage
+services that had zero direct behavioral tests (`acquisition-budget`,
+`crawl-budget`, `browser-crawl-budget`, `ai-circuit`, `ai-usage`). Did
+that: added `tests/{acquisition-budget,crawl-budget,browser-crawl-budget,
+ai-circuit,ai-usage}.test.ts`.
+
+Per merge policy step 3, sent the diff to a subagent for an independent
+adversarial re-review before considering it done — instructed to actually
+mutate each service's core guarantee and confirm the corresponding test
+catches it (not just read the diff), then revert. It came back clean on
+four of the five, but found a **real bug**: `acquisition-budget.service.ts`'s
+`releaseDailyAcquisitionSlot` did a bare unclamped `$inc: -1`, so a double
+release (retried call, or any caller bug) pushes a counter negative and
+bypasses the acquisition daily cap — verified live (claim 1/1,
+double-release, 2 more claims then succeed instead of 1). Also flagged
+`acquisition-budget.test.ts` was missing the cross-day release test
+`ai-budget.test.ts` has for the identical risk.
+
+Fixed the release path (floor each counter at zero via the same
+`findOneAndUpdate`-gated pattern the claim side uses, decremented
+independently per counter) and added both missing tests, confirming the
+new double-release test actually fails against the pre-fix source before
+restoring the fix. `npm run check`: 455 tests (up from 453), lint/
+typecheck/build all green throughout.
+
+**Opened PR #73, left it open rather than merging.** The four pure-test
+files would ordinarily be auto-mergeable (no production logic touched),
+but they're bundled with the acquisition-budget release fix, which *does*
+touch safety-ceiling enforcement logic (the acquisition cap) — per this
+routine's own merge policy, that category gets a human's eyes first. If a
+future session picks this up, check PR #73's state before doing anything
+else with `acquisition-budget.service.ts` or its tests.
+
+Nothing else was pending after this one item, so the cycle ends here today.
 
 ### 2026-09-17
 
