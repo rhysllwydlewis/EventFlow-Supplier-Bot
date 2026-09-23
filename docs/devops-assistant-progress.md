@@ -86,9 +86,106 @@ whole point of Shadow-first design is caution before real supplier contact.
   (unreachable). Not an active bug (the equality check on the same line
   already covers every case it was presumably meant to catch), just a
   correctness smell worth folding into whatever PR next legitimately
-  touches that function.
+  touches that function. Still present as of 2026-09-23.
+- `src/services/package-photo-matcher.ts`'s `matchPackagePhotos` (lines
+  55-85) never uses `PackagePhotoMatchTarget.id` (the specific package
+  instance EventFlow's audit flagged as missing a photo) — it only matches
+  by `title`/`name`. The code's own comments (here and in
+  `audit-unclaimed-quality.ts`) acknowledge two packages can legitimately
+  share a name, but nothing disambiguates them by id, and there's no check
+  that the target package's `image` is actually null before overwriting
+  it. Call path: `audit-unclaimed-quality.ts:162-176` applies any match
+  straight into a wholesale-replace patch pushed to EventFlow
+  (`eventflow-quality-audit.service.ts`'s `refreshEventFlowSupplierData`)
+  with no human in the loop. Plausible real bug (could overwrite an
+  already-correct package photo on a live listing) but medium confidence
+  and non-trivial to fix properly (would need a stable per-package id
+  threaded through, or at least an "only touch packages with a null image"
+  guard) — flagging for a future session to pick up as its own chunk rather
+  than a drive-by fix.
 
 ## Session log
+
+### 2026-09-23
+
+Branch's last PR (#73) is still open (not merged, not stale — see below),
+so did NOT restart the branch from main. `add_repo`/`register_repo_root`
+still don't exist in this environment; repo was already checked out, git
+access worked fine via the proxy as in every prior session.
+
+Checked PR #73 first, as the previous entry asked: CI still green
+(`verify` + GitGuardian both success on head `bad0dfe`), `mergeable_state`
+clean, zero human reviews submitted (only two bot comments: a Codex
+quota-exceeded notice and a Railway preview-env no-op, neither actionable).
+Still exactly as described in the 2026-09-18 entry — genuinely waiting on
+a human, not something this routine can push further on. Left it alone.
+
+Checked for collisions: `git log --oneline` across every branch showed
+**nothing newer than 2026-09-18** (this branch's own last commit) — no
+manual-session activity in the last ~5 days on any branch. Field was
+completely clear.
+
+No red CI, no unresolved review comments, and both backlog items are
+already checked off (recurring general-sweep item is always "reopened" by
+design), so went to the general sweep. Delegated a read-only bug-hunt
+across crawler/extraction/evidence/providers/queues/repositories/services/
+worker/control/domain to a subagent, with AUTONOMY.md/SHADOW_MODE.md/
+CRAWLER_POLICY.md read first, and excluding every file PR #73 already
+touches. It came back with 2 candidates; verified the top one myself
+against real call sites before acting (the second is the package-photo-
+matcher item added to "Discovered along the way" above, not fixed this
+cycle — medium confidence, deserves its own dedicated pass).
+
+**Fixed the verified bug**: `applyIdentityDedupGate` in
+`src/services/dedup-compliance.service.ts` unconditionally defaulted
+`status` to `'review'` unless the dedup decision was `strong_duplicate` —
+so a candidate already `'block'`ed by the underlying content-compliance
+assessment (missing media, wrong category, etc.) would get silently
+*downgraded* to `'review'` the moment a `probable_duplicate` or still-
+pending dedup check ran on it, hiding the real, more severe block reason
+from both real consumers: the Control UI's `/api/shadow-profiles-pending`
+and `eventflow-one-profile-pilot.service.ts`'s failure `reason` string.
+Verified both call sites (transitively via
+`getComplianceAssessmentsForCandidates`). Not a safety-gate weakening:
+`publicationEligible`/`seoIndexEligible` still always end up `false` for
+every non-`distinct` decision, and `strong_duplicate` still always forces
+`'block'` — this only stops an already-`'block'` status being overwritten
+with something less severe. Added 3 tests pinning down the previously-
+untested "already blocked" path; confirmed they fail against the pre-fix
+logic and pass with it restored. `npm run check`: 458 tests, lint/
+typecheck/build all green.
+
+Per merge policy step 3, sent the diff to a subagent for an independent
+adversarial re-review — it worked through all 12 (decision × base-status)
+combinations, confirmed the new tests aren't vacuous (temporarily reverted
+the fix, watched exactly the 2 new downgrade tests fail, restored it), and
+re-verified both call sites. Came back clean (PASS), only minor,
+non-blocking notes on test naming/redundancy.
+
+**Opened this as its own PR (#76) on a fresh branch
+(`claude/supplier-bot-devops-dedup-status`) cut from `main`, deliberately
+NOT stacked on `claude/supplier-bot-devops`.** Reasoning: this branch
+already has PR #73 open and explicitly parked for human review (it touches
+safety-ceiling logic); pushing more commits here would have folded this
+unrelated, otherwise-cleanly-mergeable fix into that same review unit and
+delayed it for no reason. `dedup-compliance.service.ts` and its test file
+were byte-identical between `main` and this branch's PR #73 head, so the
+fix applied cleanly from either base. **Merged PR #76 myself** (green CI,
+clean merge state, no safety-ceiling code touched, adversarial review
+passed) — see PR for final CI confirmation if picking this up mid-flight.
+
+This handoff-doc update itself is being pushed to `claude/supplier-bot-
+devops` per the routine's branch instructions, so it will ride along as an
+extra doc-only commit on PR #73 — expected, not a mistake, if a reviewer
+notices it there.
+
+If a future session picks this up: check PR #73's state first (same as
+every prior entry has said), and note `claude/supplier-bot-devops-dedup-
+status` was a one-off branch for a single self-contained fix, not a
+new standing convention — go back to restarting `claude/supplier-bot-devops`
+itself once PR #73 finally resolves.
+
+Nothing else was pending after this one item, so the cycle ends here today.
 
 ### 2026-09-18
 
