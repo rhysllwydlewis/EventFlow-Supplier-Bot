@@ -29,6 +29,21 @@ function typeMatches(value: unknown): boolean {
   ].includes(item.toLowerCase()));
 }
 
+// schema.org allows a business to declare its email either directly or
+// nested under one or more ContactPoint entries -- both are the same kind
+// of deliberate, structured declaration extractServiceTagsFromJsonLd's own
+// comment describes, so this business object's own email isn't limited to
+// only the flat form.
+function contactPointEmail(business: Record<string, unknown>): string | null {
+  const points = Array.isArray(business.contactPoint) ? business.contactPoint : [business.contactPoint];
+  for (const point of points) {
+    if (!point || typeof point !== 'object' || Array.isArray(point)) continue;
+    const email = text((point as Record<string, unknown>).email);
+    if (email) return email;
+  }
+  return null;
+}
+
 export function extractStructuredBusinessFacts(jsonLd: unknown[]): StructuredBusinessFacts {
   const objects = jsonLd.flatMap(objectsFrom);
   const business = objects.find(object => typeMatches(object['@type'])) ?? objects.find(object => text(object.name));
@@ -42,7 +57,7 @@ export function extractStructuredBusinessFacts(jsonLd: unknown[]): StructuredBus
   return {
     name: text(business.name),
     url: text(business.url),
-    email: text(business.email),
+    email: text(business.email) ?? contactPointEmail(business),
     telephone: text(business.telephone),
     locality: text(address.addressLocality),
     region: text(address.addressRegion),

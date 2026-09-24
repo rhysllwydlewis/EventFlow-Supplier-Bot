@@ -25,10 +25,23 @@ const TEL_HREF_RE = /href\s*=\s*["']tel:([^"']+)/gi;
 // that happens to share a prefix with the real one.
 const MAX_SERVICE_TAG_LENGTH = 120;
 
-function stripTags(value: string): string {
+// Removes only <script>/<style> *content*, leaving every other tag and
+// attribute intact. Used for the email scan so a tracking-widget config or
+// analytics literal can't leak in (the bug this pair of functions exists to
+// fix), without also losing an email that only exists inside markup
+// stripTags below would remove: a mailto: href (quoted or not), a
+// schema.org microdata attribute (<meta itemprop="email" content="...">),
+// or a non-HTML text/plain crawl response where stripTags's own
+// tag-stripping regex would misparse a plain-text "<user@domain>" mailbox
+// notation as an HTML tag and delete it.
+function stripScriptAndStyle(value: string): string {
   return value
     .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ');
+}
+
+function stripTags(value: string): string {
+  return stripScriptAndStyle(value)
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
@@ -127,7 +140,12 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
   for (const page of crawl.pages) {
     const text = stripTags(page.html).slice(0, 100_000);
     pageText.push({ url: page.url, text });
-    emails.push(...(page.html.match(EMAIL_RE) ?? []));
+    // Not `text` (the fully tag-stripped, 100k-char-capped copy used below
+    // for phones/prices): that would drop an email trapped inside markup
+    // stripTags removes (a mailto: href, a microdata attribute) or beyond
+    // the truncation limit, none of which are the analytics/tracking-script
+    // problem this scan exists to avoid.
+    emails.push(...(stripScriptAndStyle(page.html).match(EMAIL_RE) ?? []));
     phones.push(...(text.match(UK_PHONE_RE) ?? []));
     prices.push(...(text.match(PRICE_RE) ?? []));
     jsonLd.push(...extractJsonLd(page.html));
