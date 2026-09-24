@@ -69,6 +69,27 @@ describe('basic website extraction', () => {
     expect(extraction.phones[0]).toBe('02920123456');
   });
 
+  it('does not pick up an email address that only appears inside a <script> block', () => {
+    // Phones and prices are matched against the tag-stripped page text
+    // (below); emails must be too, or an analytics/tracking-widget config
+    // literal (a demo address, a vendor's own support inbox) ends up
+    // treated as this business's public contact -- the same "no ownership
+    // signal" problem the mailto:-preference comment above already flags,
+    // just via script content instead of a stray free-text mention.
+    const extraction = extractBasicFacts({
+      rootUrl: 'https://venue.example',
+      finalRootUrl: 'https://venue.example/',
+      failures: [],
+      pages: [{
+        url: 'https://venue.example/',
+        contentType: 'text/html',
+        bytes: 400,
+        html: `<html><head><script>window.chatWidgetConfig = { fallbackInbox: "support@chat-widget-vendor.example" };</script></head><body><p>Call us to book your day, we'd love to help.</p></body></html>`,
+      }],
+    });
+    expect(extraction.emails).not.toContain('support@chat-widget-vendor.example');
+  });
+
   it('reads service tags from JSON-LD serviceType/makesOffer and dedupes across pages', () => {
     const extraction = extractBasicFacts({
       rootUrl: 'https://venue.example',

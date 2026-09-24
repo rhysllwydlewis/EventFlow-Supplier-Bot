@@ -127,7 +127,7 @@ export function extractBasicFacts(crawl: SiteCrawlResult): BasicExtraction {
   for (const page of crawl.pages) {
     const text = stripTags(page.html).slice(0, 100_000);
     pageText.push({ url: page.url, text });
-    emails.push(...(page.html.match(EMAIL_RE) ?? []));
+    emails.push(...(text.match(EMAIL_RE) ?? []));
     phones.push(...(text.match(UK_PHONE_RE) ?? []));
     prices.push(...(text.match(PRICE_RE) ?? []));
     jsonLd.push(...extractJsonLd(page.html));
