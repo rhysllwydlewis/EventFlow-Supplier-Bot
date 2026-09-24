@@ -198,6 +198,55 @@ from inside a PR. **If a future session picks this up: check whether #78's
 `verify` check is passing yet before assuming it still needs the same
 investigation — it may just need re-running once Actions capacity is back.**
 
+Confirmed the same Actions issue is account/repo-wide, not specific to
+#78: pushed this handoff-doc update to `claude/supplier-bot-devops` (this
+branch, PR #73) as a doc-only commit, and its `verify` check failed
+identically (~3s, no logs) despite no code changing and the branch having
+been green before. Commented on #73 explaining the redness isn't a real
+regression, for the same reason as #78.
+
+**Update, same session**: an automated Codex review posted on #78 while
+this was in flight, correctly finding 5 real regressions the fix above
+introduced — full tag-stripping (`stripTags`) is far more aggressive than
+just excluding `<script>`/`<style>`, so it also dropped: emails beyond the
+page-text's 100k-char truncation cap, emails published only via HTML
+microdata (`<meta itemprop="email" content="...">`), emails on accepted
+`text/plain` crawl responses (stripTags's tag-removal regex misparses a
+plain-text `<user@domain>` mailbox notation as an HTML tag), unquoted
+`mailto:` hrefs, and JSON-LD `contactPoint.email` (nested under a
+ContactPoint rather than top-level `email`).
+
+Fixed properly rather than reverting: added `stripScriptAndStyle` (removes
+only `<script>`/`<style>` *content*, keeps every other tag/attribute and
+the full untruncated body) and used that for the email scan instead of the
+fully-stripped, truncated `text` — fixes the first four. Extended
+`structured-data.ts`'s `extractStructuredBusinessFacts` with a
+`contactPointEmail` fallback (handles object or array `contactPoint`,
+top-level `email` still wins) to recover the fifth through the structured
+path instead of the free-text scan. Added regression tests for all 5;
+confirmed each fails against the prior (too-broad) fix and passes with
+this one. `npm run check`: 443 tests (up from 436 on this branch's `main`
+base — it doesn't carry #73's 5 budget-service test files), lint/
+typecheck/build all green. Replied to Codex's 5 comments on #78
+summarizing the fix. Sent the revised diff to a second independent
+adversarial review (fresh subagent, no memory of the first) — it traced
+each of the 5 fixes by hand, re-confirmed non-vacuousness via its own
+stash/revert, flagged one pre-existing (not new) ambiguity
+(`contactPointEmail` takes the first ContactPoint with an email, no
+department/contactType filtering — same indiscriminateness the old
+raw-HTML scan already had) as worth noting but not blocking, and came back
+**PASS**.
+
+Pushed the revised commit (`2817af9`) to #78. Its `verify` check failed
+again, same instant/no-logs signature — consistent with the still-ongoing
+Actions infra issue, not a new problem; no second comment needed (already
+covered by the existing one). **#78 is now fully validated (local checks
+green, two independent adversarial reviews passed, all Codex findings
+fixed) and ready to merge the moment `verify` can actually run** — a
+future session (or this one, if Actions recovers before the session ends)
+should just re-check its CI status and merge if green, not redo the
+investigation.
+
 Nothing else was pending after this one item, so the cycle ends here today.
 
 ### 2026-09-23
