@@ -79,6 +79,18 @@ whole point of Shadow-first design is caution before real supplier contact.
 
 ## Discovered along the way
 
+- `src/extraction/image-extractor.ts:133` — `if (!same && input.kind !== 'open_graph') return null;`
+  rejects every image candidate not on the same eTLD+1 as the crawled page
+  unless it came from an `og:image`/`twitter:image` meta tag. A supplier
+  serving real photos from a separate CDN host (Wix/Squarespace media
+  domain, Cloudinary, a WP CDN subdomain) would have every `<img>`/
+  background-image candidate silently dropped, leaving only whatever a
+  single OG tag provides — could feed the already-tracked `missing_media`
+  compliance failures. Medium-low confidence: could be deliberate
+  conservatism (avoid mis-attributing a third-party image) rather than a
+  bug, and there's no confirmed production incident behind it the way the
+  `dummy.png`/gallery fixes nearby have. Flagging for a maintainer's
+  judgment call, not fixed this cycle.
 - Minor, not worth its own PR: `src/crawler/safe-fetch.ts` around line
   145-147 derives `contentType` via `.split(';')[0]`, so it can never
   contain a `;` — the subsequent
@@ -105,6 +117,88 @@ whole point of Shadow-first design is caution before real supplier contact.
   than a drive-by fix.
 
 ## Session log
+
+### 2026-09-24
+
+Branch's last PR (#73) still open, so did NOT restart `claude/supplier-bot-devops`
+from main (it's now one commit behind main — missing PR #76's dedup-status
+fix — because #76 was deliberately opened from a separate branch cut from
+main rather than stacked here; this is expected per the 2026-09-23 entry's
+own note, not a bug to fix. `claude/supplier-bot-devops` itself gets no new
+commits while #73 is parked, same as last cycle).
+
+Checked PR #73 first: still exactly as described in every prior entry —
+CI green (`verify` + GitGuardian both success on head `887cf76`),
+`mergeable_state` clean, zero human reviews, only the same two
+non-actionable bot comments. Genuinely waiting on a human. Left it alone.
+
+Checked for collisions: only one open PR repo-wide (#73, this routine's
+own). `git log`/branch-tip timestamps showed nothing newer than
+2026-09-23's PR #76 merge to `main` on any branch — no manual-session
+activity in the last 24h. Field was clear, so went to the general sweep
+(recurring backlog item).
+
+Delegated a read-only bug-hunt to a subagent across crawler/extraction/
+evidence/providers/queues/repositories/services/worker/control/domain,
+excluding PR #73's five budget/circuit files and `dedup-compliance.service.ts`
+(already fixed via #76), with AUTONOMY.md/SHADOW_MODE.md/CRAWLER_POLICY.md
+read first. It also (correctly) flagged that `claude/supplier-bot-devops`'s
+checked-out HEAD still has the pre-#76 `dedup-compliance.service.ts` — a
+false alarm against its own briefing, not a new bug: that fix lives on
+`main`/#76, deliberately not on this parked branch. Noted here in case a
+future session's sweep agent flags the same non-issue again.
+
+It came back with two real candidates (both verified myself against call
+sites before acting): the `image-extractor.ts` OG-only cross-origin image
+gap (medium-low confidence, added to "Discovered along the way" above,
+not fixed this cycle), and a **real, confirmed bug**: `extractBasicFacts`
+in `src/extraction/basic-extractor.ts` matched phones and prices against
+`stripTags()`'d page text (script/style content removed) but matched
+emails against raw, unstripped `page.html` — so an email literal sitting
+inside a `<script>` block (analytics config, chat-widget fallback inbox)
+could leak into the extracted `emails` list and become
+`ShadowProfile.publicEmail` via `shadow-profile-composer.service.ts`'s
+`structured.email || input.extraction.emails[0]` fallback, on a page with
+no real contact email. Confirmed `structured.email` independently parses
+JSON-LD email fields (`structured-data.ts`), so nothing legitimate is lost
+by scoping the fallback regex to stripped text like phones/prices already
+are.
+
+Fixed with a one-line change (`page.html.match` → `text.match`), added a
+regression test proving it (a page with only a script-embedded email, no
+visible-text email); confirmed it fails against the pre-fix source and
+passes with the fix. `npm run check`: 456 tests (up from 455), lint/
+typecheck/build all green.
+
+Per merge policy step 3, sent the diff to a subagent for an independent
+adversarial re-review: confirmed non-vacuous (reverted the fix, watched the
+new test fail, restored it), confirmed the two existing email tests are
+unaffected (their expected emails are in plain visible text, never
+script/style), and confirmed the `structured.email` claim by reading
+`structured-data.ts` directly rather than trusting it. Came back **PASS**.
+
+**Opened PR #78** on a fresh branch (`claude/supplier-bot-devops-email-script-leak`)
+cut from `main`, same convention as #76 — this branch already has #73
+parked, and this fix is unrelated and otherwise cleanly mergeable, so
+bundling it here would only delay it for no reason.
+
+**Could not merge #78**: its `verify` CI check failed twice (initial run
+plus the one re-run this routine's policy allows) in ~2-3 seconds each
+time with an empty output and an empty downloaded log archive — the
+signature of the job never actually starting (runner/quota issue on the
+GitHub Actions side), not a real lint/typecheck/test/build failure. For
+comparison, every successful `verify` run on this repo takes 27-40s
+(matching real `npm run check` work). `GitGuardian Security Checks` (a
+separate, non-Actions check) passed cleanly both times, consistent with
+this being specific to the `CI` Actions workflow rather than a broader
+webhook/network issue. Posted one comment on #78 laying this out and left
+it open rather than merging — this needs a human to check the account's
+GitHub Actions runner health/usage quota, which isn't visible or fixable
+from inside a PR. **If a future session picks this up: check whether #78's
+`verify` check is passing yet before assuming it still needs the same
+investigation — it may just need re-running once Actions capacity is back.**
+
+Nothing else was pending after this one item, so the cycle ends here today.
 
 ### 2026-09-23
 
