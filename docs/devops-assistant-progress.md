@@ -70,30 +70,27 @@ whole point of Shadow-first design is caution before real supplier contact.
       Done 2026-09-17: fixed the dead provider_usage ledger (PR #70, see
       session log). Re-open this as a recurring item each cycle nothing
       more specific is pending — there's always another sweep to do.
+- [x] Port the `ai-budget.test.ts` fake-Mongo test pattern to the other five
+      safety-ceiling/usage services (see "Discovered along the way" below).
+      Done 2026-09-18: PR #73, see session log. **Left open, not merged** —
+      it includes a production logic fix to safety-ceiling code
+      (acquisition-slot release), which this routine's merge policy routes
+      to human review. Check PR #73's state first if picking this up.
 
 ## Discovered along the way
 
-- Zero behavioral test coverage for five daily safety-ceiling claim
-  functions: `acquisition-budget.service.ts`, `crawl-budget.service.ts`,
-  `browser-crawl-budget.service.ts`, `ai-circuit.service.ts`,
-  `ai-usage.service.ts`. All five implement the same atomic
-  `findOneAndUpdate`-with-`$lt`/`$inc` "claim under a daily ceiling"
-  pattern as `ai-budget.service.ts` (which enforces
-  `ABSOLUTE_MAX_AI_SPEND_GBP_PER_DAY` and *does* have thorough behavioral
-  tests in `tests/ai-budget.test.ts`, using a fake in-memory Mongo
-  collection). The other five only get indirect, source-string-matching
-  assertions in a couple of other test files — nothing exercises their
-  claim/release atomicity directly. Risk: a future refactor of the shared
-  pattern could silently break the atomicity guarantee that stops
-  concurrent discovery/crawl cycles from jointly exceeding a daily hard
-  cap, and the existing suite wouldn't catch it. Flagging rather than
-  fixing directly since this is safety-ceiling code (this routine's merge
-  policy asks for human eyes before touching anything in that category,
-  and porting the `ai-budget.test.ts` fake-Mongo pattern to five more
-  files is a bigger, more deliberate chunk than a "just add tests"
-  drive-by). Recommend a session picks this up as its whole cycle: port
-  the same fake-collection test pattern to all five, one PR, human-
-  reviewed before merge.
+- `src/extraction/image-extractor.ts:133` — `if (!same && input.kind !== 'open_graph') return null;`
+  rejects every image candidate not on the same eTLD+1 as the crawled page
+  unless it came from an `og:image`/`twitter:image` meta tag. A supplier
+  serving real photos from a separate CDN host (Wix/Squarespace media
+  domain, Cloudinary, a WP CDN subdomain) would have every `<img>`/
+  background-image candidate silently dropped, leaving only whatever a
+  single OG tag provides — could feed the already-tracked `missing_media`
+  compliance failures. Medium-low confidence: could be deliberate
+  conservatism (avoid mis-attributing a third-party image) rather than a
+  bug, and there's no confirmed production incident behind it the way the
+  `dummy.png`/gallery fixes nearby have. Flagging for a maintainer's
+  judgment call, not fixed this cycle.
 - Minor, not worth its own PR: `src/crawler/safe-fetch.ts` around line
   145-147 derives `contentType` via `.split(';')[0]`, so it can never
   contain a `;` — the subsequent
@@ -101,9 +98,288 @@ whole point of Shadow-first design is caution before real supplier contact.
   (unreachable). Not an active bug (the equality check on the same line
   already covers every case it was presumably meant to catch), just a
   correctness smell worth folding into whatever PR next legitimately
-  touches that function.
+  touches that function. Still present as of 2026-09-23.
+- `src/services/package-photo-matcher.ts`'s `matchPackagePhotos` (lines
+  55-85) never uses `PackagePhotoMatchTarget.id` (the specific package
+  instance EventFlow's audit flagged as missing a photo) — it only matches
+  by `title`/`name`. The code's own comments (here and in
+  `audit-unclaimed-quality.ts`) acknowledge two packages can legitimately
+  share a name, but nothing disambiguates them by id, and there's no check
+  that the target package's `image` is actually null before overwriting
+  it. Call path: `audit-unclaimed-quality.ts:162-176` applies any match
+  straight into a wholesale-replace patch pushed to EventFlow
+  (`eventflow-quality-audit.service.ts`'s `refreshEventFlowSupplierData`)
+  with no human in the loop. Plausible real bug (could overwrite an
+  already-correct package photo on a live listing) but medium confidence
+  and non-trivial to fix properly (would need a stable per-package id
+  threaded through, or at least an "only touch packages with a null image"
+  guard) — flagging for a future session to pick up as its own chunk rather
+  than a drive-by fix.
 
 ## Session log
+
+### 2026-09-24
+
+Branch's last PR (#73) still open, so did NOT restart `claude/supplier-bot-devops`
+from main (it's now one commit behind main — missing PR #76's dedup-status
+fix — because #76 was deliberately opened from a separate branch cut from
+main rather than stacked here; this is expected per the 2026-09-23 entry's
+own note, not a bug to fix. `claude/supplier-bot-devops` itself gets no new
+commits while #73 is parked, same as last cycle).
+
+Checked PR #73 first: still exactly as described in every prior entry —
+CI green (`verify` + GitGuardian both success on head `887cf76`),
+`mergeable_state` clean, zero human reviews, only the same two
+non-actionable bot comments. Genuinely waiting on a human. Left it alone.
+
+Checked for collisions: only one open PR repo-wide (#73, this routine's
+own). `git log`/branch-tip timestamps showed nothing newer than
+2026-09-23's PR #76 merge to `main` on any branch — no manual-session
+activity in the last 24h. Field was clear, so went to the general sweep
+(recurring backlog item).
+
+Delegated a read-only bug-hunt to a subagent across crawler/extraction/
+evidence/providers/queues/repositories/services/worker/control/domain,
+excluding PR #73's five budget/circuit files and `dedup-compliance.service.ts`
+(already fixed via #76), with AUTONOMY.md/SHADOW_MODE.md/CRAWLER_POLICY.md
+read first. It also (correctly) flagged that `claude/supplier-bot-devops`'s
+checked-out HEAD still has the pre-#76 `dedup-compliance.service.ts` — a
+false alarm against its own briefing, not a new bug: that fix lives on
+`main`/#76, deliberately not on this parked branch. Noted here in case a
+future session's sweep agent flags the same non-issue again.
+
+It came back with two real candidates (both verified myself against call
+sites before acting): the `image-extractor.ts` OG-only cross-origin image
+gap (medium-low confidence, added to "Discovered along the way" above,
+not fixed this cycle), and a **real, confirmed bug**: `extractBasicFacts`
+in `src/extraction/basic-extractor.ts` matched phones and prices against
+`stripTags()`'d page text (script/style content removed) but matched
+emails against raw, unstripped `page.html` — so an email literal sitting
+inside a `<script>` block (analytics config, chat-widget fallback inbox)
+could leak into the extracted `emails` list and become
+`ShadowProfile.publicEmail` via `shadow-profile-composer.service.ts`'s
+`structured.email || input.extraction.emails[0]` fallback, on a page with
+no real contact email. Confirmed `structured.email` independently parses
+JSON-LD email fields (`structured-data.ts`), so nothing legitimate is lost
+by scoping the fallback regex to stripped text like phones/prices already
+are.
+
+Fixed with a one-line change (`page.html.match` → `text.match`), added a
+regression test proving it (a page with only a script-embedded email, no
+visible-text email); confirmed it fails against the pre-fix source and
+passes with the fix. `npm run check`: 456 tests (up from 455), lint/
+typecheck/build all green.
+
+Per merge policy step 3, sent the diff to a subagent for an independent
+adversarial re-review: confirmed non-vacuous (reverted the fix, watched the
+new test fail, restored it), confirmed the two existing email tests are
+unaffected (their expected emails are in plain visible text, never
+script/style), and confirmed the `structured.email` claim by reading
+`structured-data.ts` directly rather than trusting it. Came back **PASS**.
+
+**Opened PR #78** on a fresh branch (`claude/supplier-bot-devops-email-script-leak`)
+cut from `main`, same convention as #76 — this branch already has #73
+parked, and this fix is unrelated and otherwise cleanly mergeable, so
+bundling it here would only delay it for no reason.
+
+**Could not merge #78**: its `verify` CI check failed twice (initial run
+plus the one re-run this routine's policy allows) in ~2-3 seconds each
+time with an empty output and an empty downloaded log archive — the
+signature of the job never actually starting (runner/quota issue on the
+GitHub Actions side), not a real lint/typecheck/test/build failure. For
+comparison, every successful `verify` run on this repo takes 27-40s
+(matching real `npm run check` work). `GitGuardian Security Checks` (a
+separate, non-Actions check) passed cleanly both times, consistent with
+this being specific to the `CI` Actions workflow rather than a broader
+webhook/network issue. Posted one comment on #78 laying this out and left
+it open rather than merging — this needs a human to check the account's
+GitHub Actions runner health/usage quota, which isn't visible or fixable
+from inside a PR. **If a future session picks this up: check whether #78's
+`verify` check is passing yet before assuming it still needs the same
+investigation — it may just need re-running once Actions capacity is back.**
+
+Confirmed the same Actions issue is account/repo-wide, not specific to
+#78: pushed this handoff-doc update to `claude/supplier-bot-devops` (this
+branch, PR #73) as a doc-only commit, and its `verify` check failed
+identically (~3s, no logs) despite no code changing and the branch having
+been green before. Commented on #73 explaining the redness isn't a real
+regression, for the same reason as #78.
+
+**Update, same session**: an automated Codex review posted on #78 while
+this was in flight, correctly finding 5 real regressions the fix above
+introduced — full tag-stripping (`stripTags`) is far more aggressive than
+just excluding `<script>`/`<style>`, so it also dropped: emails beyond the
+page-text's 100k-char truncation cap, emails published only via HTML
+microdata (`<meta itemprop="email" content="...">`), emails on accepted
+`text/plain` crawl responses (stripTags's tag-removal regex misparses a
+plain-text `<user@domain>` mailbox notation as an HTML tag), unquoted
+`mailto:` hrefs, and JSON-LD `contactPoint.email` (nested under a
+ContactPoint rather than top-level `email`).
+
+Fixed properly rather than reverting: added `stripScriptAndStyle` (removes
+only `<script>`/`<style>` *content*, keeps every other tag/attribute and
+the full untruncated body) and used that for the email scan instead of the
+fully-stripped, truncated `text` — fixes the first four. Extended
+`structured-data.ts`'s `extractStructuredBusinessFacts` with a
+`contactPointEmail` fallback (handles object or array `contactPoint`,
+top-level `email` still wins) to recover the fifth through the structured
+path instead of the free-text scan. Added regression tests for all 5;
+confirmed each fails against the prior (too-broad) fix and passes with
+this one. `npm run check`: 443 tests (up from 436 on this branch's `main`
+base — it doesn't carry #73's 5 budget-service test files), lint/
+typecheck/build all green. Replied to Codex's 5 comments on #78
+summarizing the fix. Sent the revised diff to a second independent
+adversarial review (fresh subagent, no memory of the first) — it traced
+each of the 5 fixes by hand, re-confirmed non-vacuousness via its own
+stash/revert, flagged one pre-existing (not new) ambiguity
+(`contactPointEmail` takes the first ContactPoint with an email, no
+department/contactType filtering — same indiscriminateness the old
+raw-HTML scan already had) as worth noting but not blocking, and came back
+**PASS**.
+
+Pushed the revised commit (`2817af9`) to #78. Its `verify` check failed
+again, same instant/no-logs signature — consistent with the still-ongoing
+Actions infra issue, not a new problem; no second comment needed (already
+covered by the existing one). **#78 is now fully validated (local checks
+green, two independent adversarial reviews passed, all Codex findings
+fixed) and ready to merge the moment `verify` can actually run** — a
+future session (or this one, if Actions recovers before the session ends)
+should just re-check its CI status and merge if green, not redo the
+investigation.
+
+Nothing else was pending after this one item, so the cycle ends here today.
+
+### 2026-09-23
+
+Branch's last PR (#73) is still open (not merged, not stale — see below),
+so did NOT restart the branch from main. `add_repo`/`register_repo_root`
+still don't exist in this environment; repo was already checked out, git
+access worked fine via the proxy as in every prior session.
+
+Checked PR #73 first, as the previous entry asked: CI still green
+(`verify` + GitGuardian both success on head `bad0dfe`), `mergeable_state`
+clean, zero human reviews submitted (only two bot comments: a Codex
+quota-exceeded notice and a Railway preview-env no-op, neither actionable).
+Still exactly as described in the 2026-09-18 entry — genuinely waiting on
+a human, not something this routine can push further on. Left it alone.
+
+Checked for collisions: `git log --oneline` across every branch showed
+**nothing newer than 2026-09-18** (this branch's own last commit) — no
+manual-session activity in the last ~5 days on any branch. Field was
+completely clear.
+
+No red CI, no unresolved review comments, and both backlog items are
+already checked off (recurring general-sweep item is always "reopened" by
+design), so went to the general sweep. Delegated a read-only bug-hunt
+across crawler/extraction/evidence/providers/queues/repositories/services/
+worker/control/domain to a subagent, with AUTONOMY.md/SHADOW_MODE.md/
+CRAWLER_POLICY.md read first, and excluding every file PR #73 already
+touches. It came back with 2 candidates; verified the top one myself
+against real call sites before acting (the second is the package-photo-
+matcher item added to "Discovered along the way" above, not fixed this
+cycle — medium confidence, deserves its own dedicated pass).
+
+**Fixed the verified bug**: `applyIdentityDedupGate` in
+`src/services/dedup-compliance.service.ts` unconditionally defaulted
+`status` to `'review'` unless the dedup decision was `strong_duplicate` —
+so a candidate already `'block'`ed by the underlying content-compliance
+assessment (missing media, wrong category, etc.) would get silently
+*downgraded* to `'review'` the moment a `probable_duplicate` or still-
+pending dedup check ran on it, hiding the real, more severe block reason
+from both real consumers: the Control UI's `/api/shadow-profiles-pending`
+and `eventflow-one-profile-pilot.service.ts`'s failure `reason` string.
+Verified both call sites (transitively via
+`getComplianceAssessmentsForCandidates`). Not a safety-gate weakening:
+`publicationEligible`/`seoIndexEligible` still always end up `false` for
+every non-`distinct` decision, and `strong_duplicate` still always forces
+`'block'` — this only stops an already-`'block'` status being overwritten
+with something less severe. Added 3 tests pinning down the previously-
+untested "already blocked" path; confirmed they fail against the pre-fix
+logic and pass with it restored. `npm run check`: 458 tests, lint/
+typecheck/build all green.
+
+Per merge policy step 3, sent the diff to a subagent for an independent
+adversarial re-review — it worked through all 12 (decision × base-status)
+combinations, confirmed the new tests aren't vacuous (temporarily reverted
+the fix, watched exactly the 2 new downgrade tests fail, restored it), and
+re-verified both call sites. Came back clean (PASS), only minor,
+non-blocking notes on test naming/redundancy.
+
+**Opened this as its own PR (#76) on a fresh branch
+(`claude/supplier-bot-devops-dedup-status`) cut from `main`, deliberately
+NOT stacked on `claude/supplier-bot-devops`.** Reasoning: this branch
+already has PR #73 open and explicitly parked for human review (it touches
+safety-ceiling logic); pushing more commits here would have folded this
+unrelated, otherwise-cleanly-mergeable fix into that same review unit and
+delayed it for no reason. `dedup-compliance.service.ts` and its test file
+were byte-identical between `main` and this branch's PR #73 head, so the
+fix applied cleanly from either base. **Merged PR #76 myself** (green CI,
+clean merge state, no safety-ceiling code touched, adversarial review
+passed) — see PR for final CI confirmation if picking this up mid-flight.
+
+This handoff-doc update itself is being pushed to `claude/supplier-bot-
+devops` per the routine's branch instructions, so it will ride along as an
+extra doc-only commit on PR #73 — expected, not a mistake, if a reviewer
+notices it there.
+
+If a future session picks this up: check PR #73's state first (same as
+every prior entry has said), and note `claude/supplier-bot-devops-dedup-
+status` was a one-off branch for a single self-contained fix, not a
+new standing convention — go back to restarting `claude/supplier-bot-devops`
+itself once PR #73 finally resolves.
+
+Nothing else was pending after this one item, so the cycle ends here today.
+
+### 2026-09-18
+
+Branch's last PR (#70) had merged, so restarted `claude/supplier-bot-devops`
+from latest `main` per the routine's own instructions. `add_repo`/
+`register_repo_root` still don't exist in this environment; repo was
+already checked out (same as 2026-09-17), git access worked fine.
+
+Checked for collisions: no open PRs on the repo at all. Checked every
+`claude/*` and other working branch's last-commit timestamp —
+`claude/supplier-bot-unclaimed-quality`'s last commit was ~27h old (its
+PR #68 already merged on 2026-09-17), everything else was older still.
+Nothing looked mid-iteration, field was clear.
+
+No open PRs, no unresolved review comments, so went to the backlog's next
+item: last cycle's "Discovered along the way" note recommended a session
+pick up, as its whole cycle, porting `tests/ai-budget.test.ts`'s
+fake-Mongo-collection pattern to the five other daily safety-ceiling/usage
+services that had zero direct behavioral tests (`acquisition-budget`,
+`crawl-budget`, `browser-crawl-budget`, `ai-circuit`, `ai-usage`). Did
+that: added `tests/{acquisition-budget,crawl-budget,browser-crawl-budget,
+ai-circuit,ai-usage}.test.ts`.
+
+Per merge policy step 3, sent the diff to a subagent for an independent
+adversarial re-review before considering it done — instructed to actually
+mutate each service's core guarantee and confirm the corresponding test
+catches it (not just read the diff), then revert. It came back clean on
+four of the five, but found a **real bug**: `acquisition-budget.service.ts`'s
+`releaseDailyAcquisitionSlot` did a bare unclamped `$inc: -1`, so a double
+release (retried call, or any caller bug) pushes a counter negative and
+bypasses the acquisition daily cap — verified live (claim 1/1,
+double-release, 2 more claims then succeed instead of 1). Also flagged
+`acquisition-budget.test.ts` was missing the cross-day release test
+`ai-budget.test.ts` has for the identical risk.
+
+Fixed the release path (floor each counter at zero via the same
+`findOneAndUpdate`-gated pattern the claim side uses, decremented
+independently per counter) and added both missing tests, confirming the
+new double-release test actually fails against the pre-fix source before
+restoring the fix. `npm run check`: 455 tests (up from 453), lint/
+typecheck/build all green throughout.
+
+**Opened PR #73, left it open rather than merging.** The four pure-test
+files would ordinarily be auto-mergeable (no production logic touched),
+but they're bundled with the acquisition-budget release fix, which *does*
+touch safety-ceiling enforcement logic (the acquisition cap) — per this
+routine's own merge policy, that category gets a human's eyes first. If a
+future session picks this up, check PR #73's state before doing anything
+else with `acquisition-budget.service.ts` or its tests.
+
+Nothing else was pending after this one item, so the cycle ends here today.
 
 ### 2026-09-17
 
