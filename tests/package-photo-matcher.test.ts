@@ -167,4 +167,32 @@ describe('matchPackagePhotos', () => {
     );
     expect(results).toHaveLength(2);
   });
+
+  it('never reconsiders a package that already has a photo, even when a same-named sibling is genuinely missing one', () => {
+    // EventFlow's audit-queue gap names the missing package by title (the
+    // caller has no stable id linking its gap entries to this profile's
+    // local packages array), so two same-named packages both become
+    // candidates once either is flagged. The one that already has a photo
+    // must never be reconsidered just because its same-named sibling is
+    // the one actually missing a photo.
+    const packages = [
+      packageFixture({ image: 'https://example-venue.test/photos/already-set.jpg' }),
+      packageFixture({ sourceUrl: 'https://example-venue.test/weddings/silver-2', image: null }),
+    ];
+    const media = [
+      // Would satisfy the already-imaged package's own page+alt match too,
+      // proving the guard -- not just an absent candidate -- is what stops it.
+      mediaFixture(),
+      mediaFixture({
+        url: 'https://example-venue.test/photos/silver-2-table.jpg',
+        sourcePageUrl: 'https://example-venue.test/weddings/silver-2',
+      }),
+    ];
+
+    const results = matchPackagePhotos([{ id: 'pkg_1', title: 'Silver Package' }], packages, media);
+
+    expect(results).toEqual([
+      { packageIndex: 1, imageUrl: 'https://example-venue.test/photos/silver-2-table.jpg' },
+    ]);
+  });
 });
