@@ -247,6 +247,20 @@ future session (or this one, if Actions recovers before the session ends)
 should just re-check its CI status and merge if green, not redo the
 investigation.
 
+**Update, 2026-09-28 (same watched session, ~4 days later via a queued PR
+webhook)**: re-ran #78's `verify` once more after seeing PR #73's `verify`
+finally go green on an unrelated doc-only push (36s real run, not the
+2-3s instant-fail) — confirmed the account-wide Actions issue had
+cleared. #78's re-run also came back green (29s, real). Resolved the 5
+now-outdated Codex threads (code had since changed) and **merged #78**
+(`f7af96d`) — pure extraction-quality fix, no safety-ceiling/compliance
+code touched, tests green, two adversarial reviews passed, no open
+threads left. PR #73 is unaffected by this (still its own separate
+branch/PR, still waiting on a human for the safety-ceiling change) but
+worth noting for a future session: whatever caused the multi-hour Actions
+outage on 2026-09-24 appears to have resolved on its own by 2026-09-28 --
+no further action needed there unless it recurs.
+
 Nothing else was pending after this one item, so the cycle ends here today.
 
 ### 2026-09-23
