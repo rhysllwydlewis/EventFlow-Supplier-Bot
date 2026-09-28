@@ -64,6 +64,13 @@ export function matchPackagePhotos(
 
   const results: PackagePhotoMatchResult[] = [];
   packages.forEach((pkg, packageIndex) => {
+    // Never overwrite a package that already has a photo. Matching is by
+    // name, not by the target's own id (nothing here threads a stable
+    // per-package id through from EventFlow's audit-queue gap to this
+    // profile's local `packages` array), so a same-named sibling that
+    // already has a correct image must not be reconsidered just because
+    // some other, genuinely-missing package shares its title.
+    if (pkg.image) return;
     if (!targetTitles.has(pkg.name.trim().toLowerCase())) return;
     if (!pkg.sourceUrl) return;
 
