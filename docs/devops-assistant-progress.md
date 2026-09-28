@@ -99,24 +99,101 @@ whole point of Shadow-first design is caution before real supplier contact.
   already covers every case it was presumably meant to catch), just a
   correctness smell worth folding into whatever PR next legitimately
   touches that function. Still present as of 2026-09-23.
-- `src/services/package-photo-matcher.ts`'s `matchPackagePhotos` (lines
-  55-85) never uses `PackagePhotoMatchTarget.id` (the specific package
-  instance EventFlow's audit flagged as missing a photo) — it only matches
-  by `title`/`name`. The code's own comments (here and in
-  `audit-unclaimed-quality.ts`) acknowledge two packages can legitimately
-  share a name, but nothing disambiguates them by id, and there's no check
-  that the target package's `image` is actually null before overwriting
-  it. Call path: `audit-unclaimed-quality.ts:162-176` applies any match
-  straight into a wholesale-replace patch pushed to EventFlow
-  (`eventflow-quality-audit.service.ts`'s `refreshEventFlowSupplierData`)
-  with no human in the loop. Plausible real bug (could overwrite an
-  already-correct package photo on a live listing) but medium confidence
-  and non-trivial to fix properly (would need a stable per-package id
-  threaded through, or at least an "only touch packages with a null image"
-  guard) — flagging for a future session to pick up as its own chunk rather
-  than a drive-by fix.
+- ~~`src/services/package-photo-matcher.ts`'s `matchPackagePhotos` never
+  checked that the target package's `image` was null before overwriting
+  it~~ — **Fixed 2026-09-28, PR #79** (merged), see session log. The
+  underlying id-threading gap (matching is still by title only,
+  `PackagePhotoMatchTarget.id` is still unused) is NOT fixed — this was a
+  narrow guard, not the fuller fix. Left as a residual, lower-priority
+  item: a future gap type that legitimately wants to *replace* an existing
+  package photo would be silently blocked by this guard too. Not urgent —
+  `packagesMissingPhotos` today only ever means "no photo at all".
 
 ## Session log
+
+### 2026-09-28
+
+`add_repo`/`register_repo_root` still don't exist in this environment; both
+repos were already checked out locally (`/home/user/EventFlow-Supplier-Bot`),
+git access worked fine via the proxy, same as every prior session.
+
+Branch's last PR (#73) still open, so did NOT restart `claude/supplier-bot-devops`
+from main.
+
+Checked PR #73 first, as every prior entry has asked: still zero human
+reviews, only the same non-actionable bot comments, `mergeable_state`
+clean. Its `verify` check had been red since 2026-09-24 with the
+2-3-second instant-fail signature previously diagnosed as an account-wide
+GitHub Actions outage (see the 2026-09-24 entry below). Re-ran it
+(`run 35981681843`, this commit's only untried attempt) to check whether
+4 days had let the outage clear — it came back green in a normal ~40s.
+Ran `npm run check` locally on this branch's head to independently
+confirm: 455 tests, lint/typecheck/build all green, matching CI. **PR #73
+is now fully green but still correctly left open** — it touches
+safety-ceiling logic (acquisition-slot release), which this routine's
+merge policy routes to human review regardless of CI status. No new
+action needed here beyond confirming this.
+
+While re-checking #73, found that PR #78 (parked since 2026-09-24 for the
+same Actions-outage reason) had, in the same few minutes, already been
+independently re-checked and merged by another running session — its own
+handoff entry is the "Update, 2026-09-28" paragraph appended to the
+2026-09-24 section below (`Claude-Session` there is the same session that
+originally opened #78, apparently woken by a queued PR webhook once CI
+went green). No conflict: that session touched only #78/the handoff doc,
+nothing this session was also working on. Re-fetching the branch after
+that session's push (`135f3f6`) picked up its commit cleanly (fast-
+forward, no conflicts) before this session added its own commit here.
+
+Checked for collisions beyond that: no other open PRs, and `git log`
+across every branch showed nothing newer than PR #76's 2026-09-23 merge
+aside from the two sessions' own activity above — no manual-session
+activity in the last 24h. Field was otherwise clear, so went to the
+general sweep (recurring backlog item), picking up the "Discovered along
+the way" `package-photo-matcher.ts` item flagged 2026-09-23/24 as
+"deserves its own dedicated pass".
+
+**Verified and fixed the flagged bug**: `matchPackagePhotos` matched
+EventFlow's `packagesMissingPhotos` gap entries against this profile's
+local `packages` purely by title, with no check that a matched package's
+`image` was already null. Since two packages can legitimately share a
+name, a package that already had a correct photo could be silently
+overwritten just because a same-named sibling was the one EventFlow
+actually flagged as missing one. Added a guard skipping any package whose
+`image` is already set, before any matching logic runs — read
+`audit-unclaimed-quality.ts`'s call site first to confirm nothing else in
+that path writes `image`, and confirmed `packagesMissingPhotos` gap
+entries only ever mean "no photo at all" today (not "refresh this one"),
+so the guard doesn't block any real intended use.
+
+Added a regression test with a candidate photo that would have matched
+the already-imaged package too (not just an absent-candidate case),
+confirmed it fails against the pre-fix source (temporarily removed the
+guard, watched it fail exactly as predicted, restored it) and passes with
+the fix. `npm run check` on `main`: 444 tests (up from 443), lint/
+typecheck/build all green.
+
+Per merge policy step 3, sent the diff to a subagent for an independent
+adversarial re-review before opening a PR: it independently confirmed the
+guard is the first statement in the loop body ahead of every other check,
+confirmed no other write path could reach a guarded package's `image`,
+and reproduced the fail-then-pass sequence itself rather than trusting
+this entry. Came back **PASS**, with two informational-only notes (the
+id-threading gap is still there — see "Discovered along the way" above —
+and a pre-existing, unrelated dangling doc reference in this file's own
+comments to a `docs/unclaimed-quality-progress.md` that doesn't exist on
+`main`). Neither blocked merging.
+
+**Opened PR #79** on a fresh branch (`claude/supplier-bot-devops-photo-
+overwrite-guard`) cut from `main`, same convention as #76/#78 — this
+branch already has #73 parked for human review, and this fix is
+unrelated and cleanly mergeable on its own. CI (`verify` + GitGuardian)
+came back green in ~30s (Actions outage confirmed fully cleared). No
+review comments beyond the standard non-actionable Railway bot note.
+**Merged PR #79 myself.**
+
+Nothing else was pending after this one item, so the cycle ends here
+today.
 
 ### 2026-09-24
 
