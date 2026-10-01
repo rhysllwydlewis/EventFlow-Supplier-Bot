@@ -111,6 +111,17 @@ whole point of Shadow-first design is caution before real supplier contact.
 
 ## Session log
 
+### 2026-10-01
+
+Quiet cycle. `add_repo` still doesn't exist; used the pre-provisioned clone.
+PR #73 still the only open PR (green, zero human reviews, still correctly
+human-gated for the acquisition-slot safety-ceiling fix). `main` has had no
+commits since PR #79's merge on 2026-09-28, and no other open PRs/branches
+showed live manual activity. No code changes made: the only candidate was the
+dead `startsWith(`${type};`)` branch in `src/crawler/safe-fetch.ts` (behavior-
+identical cleanup in crawler code, judged not worth a PR on its own; left in
+"Discovered along the way"). Nothing merged.
+
 ### 2026-09-28
 
 `add_repo`/`register_repo_root` still don't exist in this environment; both
