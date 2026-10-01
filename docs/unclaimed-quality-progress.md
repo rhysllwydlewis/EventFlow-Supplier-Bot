@@ -322,3 +322,19 @@ queue still blocked on credentials.
   closed (`missingTags`, `missingDescription`/cover/gallery, `missingPhone`,
   `packagesMissingPhotos`) — the only remaining backlog item is running the
   script for real once credentials allow it.
+
+**2026-10-01** — Scheduled, unattended run; live queue still blocked on credentials.
+
+- Checked `git log origin/main` (nothing in the last 24h) and open PRs
+  (only #73, the dev-ops routine's safety-ceiling tests + acquisition-slot
+  release fix, left open for human review; not in this routine's area).
+- Re-checked this environment's credentials: `MONGODB_URI`,
+  `EVENTFLOW_INTERNAL_BASE_URL` and `EVENTFLOW_OPS_BOT_HMAC_SECRET` are
+  present; `EVENTFLOW_BOT_HMAC_SECRET` (what `src/config/env.ts` requires)
+  is still absent. Did not substitute the ops secret — it is a different
+  credential for a different integration. Nothing was fetched, re-crawled
+  or written; no crawl budget was spent.
+- Code backlog is empty; nothing to build speculatively.
+- **Still open**: the only remaining backlog item — run
+  `npm run audit:unclaimed-quality` once `EVENTFLOW_BOT_HMAC_SECRET` is
+  provided to this routine's environment.
