@@ -358,3 +358,13 @@ queue still blocked on credentials.
   fetched, re-crawled or written; no crawl budget spent.
 - **Still open**: provide `EVENTFLOW_BOT_HMAC_SECRET` to this routine's
   environment, then run `npm run audit:unclaimed-quality`.
+
+**2026-10-04** — Scheduled, unattended run; live queue still blocked on credentials.
+
+- `git log --all` shows only a dev-ops handoff update (2026-10-03 09:05) in the last ~30h; nothing mid-iteration in this area.
+- Credentials re-checked: `MONGODB_URI`, `EVENTFLOW_INTERNAL_BASE_URL` and
+  `EVENTFLOW_OPS_BOT_HMAC_SECRET` present; `EVENTFLOW_BOT_HMAC_SECRET` still
+  absent (5th consecutive run). Did not substitute the ops secret. Nothing
+  fetched, re-crawled or written; no crawl budget spent.
+- **Still open**: provide `EVENTFLOW_BOT_HMAC_SECRET` to this routine's
+  environment, then run `npm run audit:unclaimed-quality`.
