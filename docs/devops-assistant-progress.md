@@ -561,3 +561,14 @@ Main still at 4f22952 (2026-09-28); no new commits. Only open PR is #73
 (this branch), no review threads, still human-gated (acquisition daily-cap
 release fix) — has now waited ~17 days for a human look. No unchecked backlog
 items; no sweep started. Stayed away from nothing.
+
+## 2026-10-06 — quiet cycle
+
+PR #73 was merged on 2026-10-05 (human merge of the acquisition-slot
+release fix), so this branch was restarted from main (0421d08). No open
+PRs, no other active branches of note. Main passes the full suite (63 files,
+467 tests). No unchecked backlog items; no sweep started — only recent main
+change was the already-reviewed #73. The `safe-fetch.ts` dead-branch smell
+and the `image-extractor.ts` cross-host question in "Discovered" remain
+open and were left alone (crawler safety code; wants a human call).
+Stayed away from nothing.
