@@ -72,10 +72,8 @@ whole point of Shadow-first design is caution before real supplier contact.
       more specific is pending — there's always another sweep to do.
 - [x] Port the `ai-budget.test.ts` fake-Mongo test pattern to the other five
       safety-ceiling/usage services (see "Discovered along the way" below).
-      Done 2026-09-18: PR #73, see session log. **Left open, not merged** —
-      it includes a production logic fix to safety-ceiling code
-      (acquisition-slot release), which this routine's merge policy routes
-      to human review. Check PR #73's state first if picking this up.
+      Done 2026-09-18: PR #73, see session log. Held for human review (it
+      touched safety-ceiling code); **merged by a human 2026-10-05**.
 
 ## Discovered along the way
 
@@ -562,13 +560,16 @@ Main still at 4f22952 (2026-09-28); no new commits. Only open PR is #73
 release fix) — has now waited ~17 days for a human look. No unchecked backlog
 items; no sweep started. Stayed away from nothing.
 
-## 2026-10-06 — quiet cycle
+## 2026-10-06
 
 PR #73 was merged on 2026-10-05 (human merge of the acquisition-slot
-release fix), so this branch was restarted from main (0421d08). No open
-PRs, no other active branches of note. Main passes the full suite (63 files,
-467 tests). No unchecked backlog items; no sweep started — only recent main
-change was the already-reviewed #73. The `safe-fetch.ts` dead-branch smell
-and the `image-extractor.ts` cross-host question in "Discovered" remain
-open and were left alone (crawler safety code; wants a human call).
-Stayed away from nothing.
+release fix), so this branch was restarted from main (0421d08). No other
+open PRs or active branches. Sweep done: lint, typecheck, build and the full
+suite (63 files, 467 tests) are clean; `npm audit --omit=dev` reported 3
+real prod-dependency advisories (compression high, proxy-addr critical, qs
+moderate), all fixed by a lockfile-only `npm audit fix` (PR #85). Remaining
+`npm audit` findings (2 critical, 1 moderate) are dev-only and need
+`--force` (breaking) upgrades — not touched. The `safe-fetch.ts`
+dead-branch smell and the `image-extractor.ts` cross-host question in
+"Discovered" remain open and were left alone (crawler safety code; wants a
+human call). Stayed away from nothing.
