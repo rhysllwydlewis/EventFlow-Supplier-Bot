@@ -109,6 +109,17 @@ whole point of Shadow-first design is caution before real supplier contact.
 
 ## Session log
 
+### 2026-10-07
+
+Quiet cycle. Used the pre-provisioned clone; PR #85 (previous branch PR) had
+merged, so restarted the branch from `origin/main`. No open PRs, no commits on
+main since 2026-10-06, so no live manual work to collide with. Clean `npm ci`
+then `npm run check` (lint/typecheck/467 tests/build) green; `npm audit
+--omit=dev` reports 0 vulnerabilities. No code changes: the only candidate is
+still the dead `startsWith(`${type};`)` branch in `src/crawler/safe-fetch.ts`
+(crawler code, behavior-identical, not worth a PR alone). Nothing merged apart
+from this handoff note.
+
 ### 2026-10-01
 
 Quiet cycle. `add_repo` still doesn't exist; used the pre-provisioned clone.
