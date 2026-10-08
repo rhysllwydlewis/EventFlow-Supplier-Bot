@@ -584,3 +584,11 @@ moderate), all fixed by a lockfile-only `npm audit fix` (PR #85). Remaining
 dead-branch smell and the `image-extractor.ts` cross-host question in
 "Discovered" remain open and were left alone (crawler safety code; wants a
 human call). Stayed away from nothing.
+
+## 2026-10-08 — quiet cycle
+
+Main at a97ef13 (PR #86, 2026-10-07); no open PRs, no new commits since.
+Lint, typecheck and full suite (63 files, 467 tests) clean. No unchecked
+backlog items; no new sweep target found. Still-open smells in "Discovered"
+(`safe-fetch.ts`, `image-extractor.ts` cross-host) left alone — crawler
+safety code wanting a human call. Stayed away from nothing.
