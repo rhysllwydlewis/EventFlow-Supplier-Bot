@@ -5,6 +5,7 @@ export type DiscoveryResultRejectionReason =
   | 'government_domain'
   | 'editorial_result'
   | 'category_mismatch'
+  | 'non_uk'
   | 'invalid_url';
 
 export interface DiscoveryResultQualityDecision {
@@ -79,6 +80,29 @@ export function isKnownNonSupplierDomain(domain: string): boolean {
     BLOCKED_DISCOVERY_DOMAINS.some(blocked => domainMatches(normalized, blocked))
     || isGovernmentDomain(normalized)
   );
+}
+
+// EventFlow is a UK marketplace. These are *clear* non-UK signals only -- a
+// country-code TLD that is not the UK's, an international dialling prefix
+// other than +44, or an explicit foreign country/state name. Deliberately
+// not an allowlist (many genuine UK suppliers use .com/.co and mention no
+// country at all) and deliberately excludes ambiguous words that are also
+// UK place names (Canada Water, Victoria, Ireland/Northern Ireland...).
+const NON_UK_TLDS = ['au', 'nz', 'us', 'za', 'ae', 'sg', 'in'] as const;
+const NON_UK_TEXT =
+  /\b(australia|new south wales|nsw|queensland|new zealand|united states|usa|south africa|dubai|united arab emirates|singapore)\b/i;
+const NON_UK_DIAL_PREFIX = /^\s*(?:\+|00)\s*(?!44\b)\d{1,3}\b/;
+
+export function isClearlyNonUk(input: { domain?: string | null; text?: string | null; phone?: string | null }): boolean {
+  const domain = input.domain?.toLowerCase().replace(/^www\./, '') ?? '';
+  if (domain) {
+    const labels = domain.split('.');
+    const tld = labels[labels.length - 1];
+    if (tld && (NON_UK_TLDS as readonly string[]).includes(tld)) return true;
+  }
+  if (input.text && NON_UK_TEXT.test(input.text)) return true;
+  if (input.phone && NON_UK_DIAL_PREFIX.test(input.phone)) return true;
+  return false;
 }
 
 const EDITORIAL_PATH_SEGMENTS = new Set([
@@ -199,6 +223,10 @@ export function evaluateDiscoverySearchResult(
 
   if (isGovernmentDomain(domain)) {
     return { eligible: false, domain, reason: 'government_domain' };
+  }
+
+  if (isClearlyNonUk({ domain, text: `${item.title} ${item.snippet ?? ''}` })) {
+    return { eligible: false, domain, reason: 'non_uk' };
   }
 
   if (hasEditorialPath(url) || isEditorialTitle(item.title)) {
