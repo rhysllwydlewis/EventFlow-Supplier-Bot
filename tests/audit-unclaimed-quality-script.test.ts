@@ -25,7 +25,7 @@ const recordAuditEvent = vi.fn().mockResolvedValue(undefined);
 vi.mock('../src/repositories/audit.repository.js', () => ({ recordAuditEvent }));
 
 const tryClaimProviderSearch = vi.fn();
-vi.mock('../src/services/provider-usage.service.js', () => ({ tryClaimProviderSearch }));
+vi.mock('../src/services/provider-usage.service.js', () => ({ tryClaimProviderSearch, recordProviderUsage: vi.fn().mockResolvedValue(undefined) }));
 
 const braveSearch = vi.fn();
 vi.mock('../src/providers/discovery/index.js', () => ({ getDiscoveryProvider: () => ({ search: braveSearch }) }));
@@ -285,7 +285,7 @@ describe('auditOneSupplier', () => {
       );
       const result = await auditOneSupplier(phoneItem(), settingsFixture());
       expect(result.outcome).toBe('skipped');
-      expect(result.reason).toBe('resolved_source_page_does_not_name_the_business');
+      expect(result.reason).toBe('resolved_source_has_no_page_naming_the_business_and_its_location');
       expect(refreshEventFlowSupplierData).not.toHaveBeenCalled();
     });
 
@@ -298,24 +298,109 @@ describe('auditOneSupplier', () => {
         ownSiteCrawl('<html><body><h1>Cardiff Catering Company</h1><a href="tel:02920111222">Call</a></body></html>'),
       );
       const result = await auditOneSupplier(phoneItem(), settingsFixture());
-      expect(result.reason).toBe('resolved_source_page_does_not_mention_the_location');
+      expect(result.reason).toBe('resolved_source_has_no_page_naming_the_business_and_its_location');
       expect(refreshEventFlowSupplierData).not.toHaveBeenCalled();
     });
 
-    it('does not reuse photos from a directory profile page', async () => {
-      getShadowProfile.mockResolvedValue(directoryProfile());
+    const jsonLd = (name: string, tel: string) =>
+      `<script type="application/ld+json">${JSON.stringify({ '@type': 'LocalBusiness', name, telephone: tel })}</script>`;
+
+    it('from a directory profile page: no photos, no pooled tel: footer numbers, only a JSON-LD phone typed for this business', async () => {
       braveSearch.mockResolvedValue([
         { url: 'https://poptop.uk.com/cardiff/suppliers/cardiff-catering-company', title: 'Cardiff Catering Company - PopTop', rank: 1 },
       ]);
-      crawlSupplierSite.mockResolvedValue(
-        ownSiteCrawl(
-          '<html><body><h1>Cardiff Catering Company</h1><img src="https://poptop.uk.com/img/a.jpg"><a href="tel:02920111222">Call</a></body></html>',
-        ),
-      );
+      crawlSupplierSite.mockResolvedValue({
+        rootUrl: 'https://poptop.uk.com/x',
+        finalRootUrl: 'https://poptop.uk.com/x',
+        pages: [
+          {
+            url: 'https://poptop.uk.com/x',
+            contentType: 'text/html',
+            html: `<html><body><h1>Cardiff Catering Company, Cardiff</h1><img src="https://poptop.uk.com/img/a.jpg">${jsonLd('Cardiff Catering Company', '02920111222')}</body></html>`,
+            bytes: 100,
+          },
+        ],
+        failures: [],
+      });
       const item = queueItem({ website: directoryUrl, gaps: { ...queueItem().gaps, missingCoverImage: true, missingPhone: true } });
       const result = await auditOneSupplier(item, settingsFixture());
       expect(result.fixed).toEqual(['publicPhone']);
       expect(result.skipped).toContainEqual({ field: 'coverImage', reason: 'no_usable_image_found_on_recrawl' });
+      expect(result.resolvedSource?.kind).toBe('directory_profile');
+    });
+
+    it('ignores a directory\'s footer tel: link and a parent company\'s JSON-LD phone', async () => {
+      braveSearch.mockResolvedValue([
+        { url: 'https://poptop.uk.com/cardiff/suppliers/cardiff-catering-company', title: 'Cardiff Catering Company - PopTop', rank: 1 },
+      ]);
+      crawlSupplierSite.mockResolvedValue({
+        rootUrl: 'https://poptop.uk.com/x',
+        finalRootUrl: 'https://poptop.uk.com/x',
+        pages: [
+          {
+            url: 'https://poptop.uk.com/x',
+            contentType: 'text/html',
+            html: `<html><body><h1>Cardiff Catering Company, Cardiff</h1><a href="tel:08001234567">Support</a>${jsonLd('PopTop Ltd', '08009999999')}</body></html>`,
+            bytes: 100,
+          },
+        ],
+        failures: [],
+      });
+      const result = await auditOneSupplier(phoneItem(), settingsFixture());
+      expect(result.outcome).toBe('no_real_fix_found');
+      expect(refreshEventFlowSupplierData).not.toHaveBeenCalled();
+    });
+
+    it('does not take facts from a sibling page that does not itself name the business', async () => {
+      braveSearch.mockResolvedValue([
+        { url: 'https://cardiffcateringcompany.co.uk/', title: 'Cardiff Catering Company', rank: 1 },
+      ]);
+      crawlSupplierSite.mockResolvedValue({
+        rootUrl: 'https://cardiffcateringcompany.co.uk/',
+        finalRootUrl: 'https://cardiffcateringcompany.co.uk/',
+        pages: [
+          { url: 'https://cardiffcateringcompany.co.uk/', contentType: 'text/html', html: '<html><body>Cardiff Catering Company, Cardiff</body></html>', bytes: 10 },
+          { url: 'https://cardiffcateringcompany.co.uk/partners', contentType: 'text/html', html: '<html><body>Partner brand <a href="tel:07000000000">call</a></body></html>', bytes: 10 },
+        ],
+        failures: [],
+      });
+      const result = await auditOneSupplier(phoneItem(), settingsFixture());
+      expect(result.outcome).toBe('no_real_fix_found');
+    });
+
+    it('treats a resolved own-site result that redirects to another host as an untrusted third-party source', async () => {
+      braveSearch.mockResolvedValue([
+        { url: 'https://cardiffcateringcompany.co.uk/', title: 'Cardiff Catering Company', rank: 1 },
+      ]);
+      crawlSupplierSite.mockResolvedValue({
+        rootUrl: 'https://cardiffcateringcompany.co.uk/',
+        finalRootUrl: 'https://parked.example/',
+        pages: [
+          { url: 'https://parked.example/', contentType: 'text/html', html: '<html><body>Cardiff Catering Company, Cardiff <a href="tel:07000000000">call</a></body></html>', bytes: 10 },
+        ],
+        failures: [],
+      });
+      const result = await auditOneSupplier(phoneItem(), settingsFixture());
+      expect(result.resolvedSource?.kind).toBe('directory_profile');
+      expect(result.outcome).toBe('no_real_fix_found');
+    });
+
+    it('cannot verify a resolved source for a profile with no location', async () => {
+      getShadowProfile.mockResolvedValue({ ...directoryProfile(), location: null });
+      braveSearch.mockResolvedValue([
+        { url: 'https://cardiffcateringcompany.co.uk/', title: 'Cardiff Catering Company', rank: 1 },
+      ]);
+      crawlSupplierSite.mockResolvedValue(ownSiteCrawl('<html><body>Cardiff Catering Company</body></html>'));
+      const result = await auditOneSupplier(phoneItem(), settingsFixture());
+      expect(result.reason).toBe('resolved_source_cannot_be_verified_without_a_profile_location');
+    });
+
+    it('burns no crawl slot when no source is found or the search budget is gone', async () => {
+      braveSearch.mockResolvedValue([]);
+      await auditOneSupplier(phoneItem(), settingsFixture());
+      tryClaimProviderSearch.mockResolvedValue(false);
+      await auditOneSupplier(phoneItem(), settingsFixture());
+      expect(tryClaimDailyCrawlSlot).not.toHaveBeenCalled();
     });
 
     it('skips cleanly when the daily provider search budget is exhausted', async () => {

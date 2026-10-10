@@ -42,6 +42,40 @@ function hostMatches(host: string, domain: string): boolean {
   return host === domain || host.endsWith(`.${domain}`);
 }
 
+function normalisedParts(url: string): { host: string; path: string } | null {
+  try {
+    const parsed = new URL(url);
+    return {
+      host: parsed.hostname.toLowerCase().replace(/^www\./, ''),
+      path: parsed.pathname.replace(/\/+$/, '').toLowerCase(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// True when `candidate` is the recorded page itself or anything beneath it
+// on the same host (scheme, www., trailing slash, query and fragment are all
+// ignored) -- a listing's own pagination/filter variants are still the
+// listing.
+export function isRecordedPageOrChild(recordedUrl: string, candidate: string): boolean {
+  const recorded = normalisedParts(recordedUrl);
+  const other = normalisedParts(candidate);
+  if (!recorded || !other || recorded.host !== other.host) return false;
+  return recorded.path === other.path || (recorded.path !== '' && other.path.startsWith(`${recorded.path}/`));
+}
+
+// A page is only treated as the business's OWN site when its hostname
+// itself contains the business's name; anything else (an unlisted
+// directory, a shortener, a parent-company domain) is treated as a
+// third-party source with the stricter data rules.
+export function hostLooksLikeBusiness(host: string, businessName: string): boolean {
+  const label = host.replace(/^www\./, '').split('.')[0]?.replace(/[^a-z0-9]/g, '') ?? '';
+  const tokens = significantNameTokens(businessName);
+  if (!label || tokens.length === 0) return false;
+  return label.includes(tokens.join('')) || tokens.some(token => token.length >= 4 && label.includes(token));
+}
+
 export function isDirectorySourceUrl(url: string): boolean {
   const host = hostOf(url);
   if (!host) return false;
@@ -94,11 +128,13 @@ export function pickSourceCandidate(
 
   const qualified: ResolvedSourceCandidate[] = [];
   for (const result of results) {
-    if (result.url === recordedUrl) continue;
+    if (isRecordedPageOrChild(recordedUrl, result.url)) continue;
     if (!evaluateDiscoverySearchResult(result, category).eligible) continue;
     if (!coversAllTokens(result.title, tokens)) continue;
-    if (!hostOf(result.url)) continue;
-    qualified.push({ url: result.url, kind: isDirectorySourceUrl(result.url) ? 'directory_profile' : 'own_site' });
+    const host = hostOf(result.url);
+    if (!host) continue;
+    const own = !isDirectorySourceUrl(result.url) && hostLooksLikeBusiness(host, businessName);
+    qualified.push({ url: result.url, kind: own ? 'own_site' : 'directory_profile' });
   }
   return qualified.find(item => item.kind === 'own_site') ?? qualified[0] ?? null;
 }
@@ -113,18 +149,24 @@ export function crawlNamesBusiness(
   return pageText.some(page => coversAllTokens(page.text, tokens));
 }
 
-// Guards against a same-named business in another town: the crawled pages
-// must also mention the profile's own place (its first comma-separated part,
-// e.g. "Cardiff" from "Cardiff, Wales"). A profile with no recorded location
-// has nothing to check against.
-export function crawlMentionsLocation(
+// Keeps only the individual crawled pages that, on their own, name the
+// business AND mention its place -- so a directory's other suppliers, its
+// footer/support pages, or a sibling brand's page can never contribute
+// facts. Returns null when no page qualifies.
+export function pagesAboutBusiness<T extends { url: string }>(
+  businessName: string,
   location: string | null,
-  pageText: Array<{ url: string; text: string }>,
-): boolean {
-  const place = location?.split(',')[0]?.trim();
-  if (!place) return true;
-  const tokens = significantNameTokens(place);
-  return pageText.some(page => coversAllTokens(page.text, tokens));
+  pages: T[],
+  textOf: (page: T) => string,
+): T[] {
+  const nameTokens = significantNameTokens(businessName);
+  const place = location?.split(',')[0]?.trim() ?? '';
+  const placeTokens = significantNameTokens(place);
+  if (placeTokens.length === 0) return [];
+  return pages.filter(page => {
+    const text = textOf(page);
+    return coversAllTokens(text, nameTokens) && coversAllTokens(text, placeTokens);
+  });
 }
 
 export function sourceSearchQuery(businessName: string, location: string | null): string {
