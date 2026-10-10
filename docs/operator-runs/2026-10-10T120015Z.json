@@ -1,0 +1,835 @@
+{
+  "schemaVersion": 1,
+  "runId": "2026-10-10T120015Z",
+  "startedAt": "2026-10-10T12:00:15.860Z",
+  "applied": true,
+  "controlHost": "supplier-bot-control-production.up.railway.app",
+  "railway": {
+    "checkedAt": "2026-10-10T11:59:58Z",
+    "services": [
+      {
+        "name": "supplier-bot-control",
+        "status": "SUCCESS",
+        "commit": "336bdd27",
+        "deployedAt": "2026-10-10T11:55:27.346Z"
+      },
+      {
+        "name": "supplier-bot-worker",
+        "status": "SUCCESS",
+        "commit": "336bdd27",
+        "deployedAt": "2026-10-10T11:55:27.346Z"
+      }
+    ],
+    "recentErrors": {
+      "count": 0,
+      "windowHours": 24,
+      "samples": []
+    },
+    "notes": [
+      "120 stderr lines (60/service) were npm SIGTERM/update-notice noise from the 10:56Z previous-deployment shutdown; excluded as routine. Logs capped at 500 lines so worker window covers only from 2026-10-10T09:50Z; control from 2026-10-09T02:33Z."
+    ]
+  },
+  "finishedAt": "2026-10-10T12:00:18.942Z",
+  "botVersion": "0.8.0",
+  "settings": {
+    "id": "global",
+    "mode": "live",
+    "runState": "running",
+    "discoveryEnabled": true,
+    "publishingEnabled": true,
+    "refreshEnabled": true,
+    "claimNoticesEnabled": true,
+    "marketingEnabled": false,
+    "seoIndexingEnabled": true,
+    "dailyTarget": 10,
+    "dailyHardLimit": 30,
+    "maxCrawlsPerDay": 100,
+    "minimumPublicationQuality": 75,
+    "softAiSpendGbpPerDay": 5,
+    "hardAiSpendGbpPerDay": 10,
+    "activeCampaignId": "campaign_south_wales_venues_pilot",
+    "updatedAt": "2026-10-05T17:23:31.709Z",
+    "updatedBy": "ai-supervisor"
+  },
+  "supervisor": {
+    "lastCycleAt": "2026-10-10T11:23:34.081Z",
+    "lastKind": "ai_cycle",
+    "lastSkippedReason": null
+  },
+  "queues": {
+    "orchestration": {
+      "waiting": 0,
+      "failed": 1
+    },
+    "discovery": {
+      "waiting": 0,
+      "failed": 20
+    },
+    "crawl": {
+      "waiting": 0,
+      "failed": 9
+    },
+    "browserCrawl": {
+      "waiting": 0,
+      "failed": 2
+    },
+    "extraction": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "enrichment": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "compliance": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "composition": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "quality": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "publication": {
+      "waiting": 0,
+      "failed": 150
+    },
+    "refresh": {
+      "waiting": 0,
+      "failed": 0
+    }
+  },
+  "metrics": {
+    "candidatesToday": 1,
+    "crawlsToday": 10,
+    "aiReservedGbp": 0.30000000000000004,
+    "aiCallsToday": 3,
+    "aiInputTokensToday": 8410,
+    "aiOutputTokensToday": 1608,
+    "aiEstimatedCostGbpToday": 0.08014399999999999,
+    "braveSearchesToday": 56,
+    "braveResultsSeenToday": 1116
+  },
+  "compliance": {
+    "totalProfiles": 296,
+    "assessed": 296,
+    "pending": 0,
+    "publicationEligible": 159,
+    "review": 20,
+    "blocked": 128,
+    "seoReady": 148
+  },
+  "findings": [],
+  "recommendations": [
+    {
+      "id": "agentaction_31f40a2c-8bf4-4c53-b80c-3c97f01a4b66",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-10T11:23:34.071Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Florists",
+          "Event Equipment Rental",
+          "Event Planning"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "Newport",
+          "Wrexham",
+          "Bridgend"
+        ],
+        "reason": "The latest cycle was plateaued with 558 results and zero new candidates; adjacent event-supplier categories and Welsh locations should provide fresh discovery scope."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Florists, +Event Equipment Rental, +Event Planning; locations +Newport, +Wrexham, +Bridgend",
+      "fingerprint": "1b39afe064f1ac62",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "escalate",
+      "rule": "owner_decision",
+      "reason": "loosening change outside the operator allowlist",
+      "outcome": {
+        "applied": false,
+        "httpStatus": null,
+        "detail": "left pending"
+      }
+    },
+    {
+      "id": "agentaction_b7c468a2-f290-49dc-aa60-8477b47b15e2",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-09T11:23:33.584Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Florists",
+          "Event Planners"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "Newport",
+          "West Wales"
+        ],
+        "reason": "The latest cycle found 557 results but created no candidates and is marked plateaued; add adjacent Welsh locations and related event-supplier categories."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Florists, +Event Planners; locations +Newport, +West Wales",
+      "fingerprint": "8662deb268b586b9",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_118fff71-9c7a-42ed-9ffd-22b19f7ecbbf",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-08T23:23:32.658Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Event Hire",
+          "Florists",
+          "Transport"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "Bristol"
+        ],
+        "reason": "The latest cycle was plateaued after 557 results and zero new candidates; Bristol and adjacent event-supplier types expand beyond the exhausted current scope."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Event Hire, +Florists, +Transport; locations +Bristol",
+      "fingerprint": "fc3ae1bc0ede95db",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_54741e55-0594-4507-ba1e-b4058bef5317",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-08T17:23:34.557Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Florists",
+          "Wedding Planners"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "Bristol",
+          "West Midlands"
+        ],
+        "reason": "The latest cycle was plateaued despite 558 results and zero candidates created; adjacent English markets and complementary event-supplier categories provide new discovery surface."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Florists, +Wedding Planners; locations +Bristol, +West Midlands",
+      "fingerprint": "861b28b637d0edbb",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_54951063-d758-4d8f-832d-3950bc088264",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-08T05:23:32.171Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Event Hire",
+          "Florists",
+          "Wedding Planning"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "Bristol",
+          "Gloucestershire",
+          "Herefordshire"
+        ],
+        "reason": "The latest cycle plateaued after 557 results and created zero candidates; add adjacent supplier types and nearby regions to move beyond the exhausted scope."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Event Hire, +Florists, +Wedding Planning; locations +Bristol, +Gloucestershire, +Herefordshire",
+      "fingerprint": "3e79d9ab849add73",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_6d5528c6-32db-4bc5-b529-d8c1919576b5",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-07T11:23:34.068Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Florists",
+          "Wedding Planners"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "Newport",
+          "Pembrokeshire"
+        ],
+        "reason": "The latest cycle was plateaued with 558 results and zero candidates created; adjacent supplier types and nearby Welsh locations should provide new discovery inventory."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Florists, +Wedding Planners; locations +Newport, +Pembrokeshire",
+      "fingerprint": "5c70625e78c111c7",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_8904ea2b-14a4-4946-b70c-2140abdf138d",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-07T05:23:32.012Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Florists",
+          "Event Decor",
+          "Equipment Hire"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "West Wales",
+          "Bristol",
+          "Gloucestershire"
+        ],
+        "reason": "The latest cycle was plateaued despite 558 results and created no candidates; adjacent regions and related event-supplier categories provide fresh discovery scope."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Florists, +Event Decor, +Equipment Hire; locations +West Wales, +Bristol, +Gloucestershire",
+      "fingerprint": "6ed13e44ab319f80",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_fda400e9-d9e5-459e-952e-7e03ff10d791",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-06T11:23:33.950Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "Newport",
+          "Wrexham",
+          "Mid Wales",
+          "West Wales"
+        ],
+        "reason": "The latest cycle found 558 results but created zero candidates and is explicitly plateaued; adjacent Welsh regions should provide new discovery coverage."
+      },
+      "summary": "South Wales Venue Pilot scope: categories no change; locations +Newport, +Wrexham, +Mid Wales, +West Wales",
+      "fingerprint": "8e5ba64856366e94",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_5011317f-b8bc-4159-9361-113d13815822",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-05T23:23:31.606Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Event Hire",
+          "Florists"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "West Wales"
+        ],
+        "reason": "The latest cycle plateaued with 558 results and zero new candidates; add adjacent supplier types and the uncovered West Wales region to restore discovery headroom."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Event Hire, +Florists; locations +West Wales",
+      "fingerprint": "e8b72a6fc3bd1201",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_515114de-73f0-4f17-8325-e759619cd8bd",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-05T05:23:31.751Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "Newport",
+          "Wrexham",
+          "Pembrokeshire"
+        ],
+        "reason": "The latest cycle plateaued with 558 results and zero new candidates; add nearby Welsh locations to restore discovery coverage."
+      },
+      "summary": "South Wales Venue Pilot scope: categories no change; locations +Newport, +Wrexham, +Pembrokeshire",
+      "fingerprint": "ea17adc3eddca4f9",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_4787b607-5952-4dbd-819a-fe2e1947c658",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-04T11:23:33.737Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Florists",
+          "Event Equipment Hire"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "Newport",
+          "West Wales"
+        ],
+        "reason": "The latest cycle was plateaued with 558 results and zero new candidates; expand into adjacent event-supplier categories and nearby Welsh locations."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Florists, +Event Equipment Hire; locations +Newport, +West Wales",
+      "fingerprint": "593ed15f3c4f1bfd",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_bac77c52-7fe0-4c7b-9029-e1be983cb598",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-03T11:23:38.662Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Event Planning",
+          "Marquee Hire"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "West Wales"
+        ],
+        "reason": "The latest cycle was plateaued despite 558 search results and zero new candidates; expanding into adjacent event-supplier types and West Wales should restore discovery headroom."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Event Planning, +Marquee Hire; locations +West Wales",
+      "fingerprint": "0b3e89cc468e2037",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_7f3ab104-504c-483d-b9e1-eb3b31868ab2",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-02T11:23:35.854Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Event Planning",
+          "Florists"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "West Wales"
+        ],
+        "reason": "The latest discovery cycle was plateaued despite 558 results, so expand beyond exhausted categories and locations into related event suppliers and adjacent West Wales."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Event Planning, +Florists; locations +West Wales",
+      "fingerprint": "dd101d398495e480",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_c92144d8-024e-4e81-a06f-2667cec232c6",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-10-01T11:23:32.201Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Event Planning",
+          "Florists"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "West Wales"
+        ],
+        "reason": "The latest discovery cycle was plateaued: 557 results produced zero candidates because the current scope was exhausted. Add adjacent event-supplier categories and West Wales."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Event Planning, +Florists; locations +West Wales",
+      "fingerprint": "dd101d398495e480",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_4d43648f-19e4-4706-83e0-962844b7e4a6",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-09-25T17:23:40.858Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "West Wales",
+          "Newport"
+        ],
+        "reason": "The latest cycle plateaued with 556 results and zero new candidates, indicating the current geographic scope is exhausted; add adjacent Welsh locations."
+      },
+      "summary": "South Wales Venue Pilot scope: categories no change; locations +West Wales, +Newport",
+      "fingerprint": "c7b2d857e1cde61b",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_71a48702-d9e9-4f66-b6b3-436356a03f16",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-09-25T05:23:33.929Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "West Wales",
+          "Bristol"
+        ],
+        "reason": "The latest discovery cycle was plateaued with 556 results and zero new candidates, indicating the current Wales-focused scope is exhausted; West Wales and Bristol are adjacent expansion areas."
+      },
+      "summary": "South Wales Venue Pilot scope: categories no change; locations +West Wales, +Bristol",
+      "fingerprint": "fd22da63bec97c78",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_74d63114-a9ab-42ff-b126-674a4878f4f7",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-09-24T23:23:33.423Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment",
+          "Event Planning",
+          "Florists",
+          "Wedding Services"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "West Wales",
+          "Bristol"
+        ],
+        "reason": "The latest cycle plateaued after 556 results and created no candidates; adjacent event-supplier categories and nearby regions provide fresh discovery scope."
+      },
+      "summary": "South Wales Venue Pilot scope: categories +Event Planning, +Florists, +Wedding Services; locations +West Wales, +Bristol",
+      "fingerprint": "cbe51977679f5a20",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_c3aa0a72-bf29-47a5-9cd3-daea3a1a5f67",
+      "kind": "adjust_campaign_scope",
+      "createdAt": "2026-09-24T11:23:33.625Z",
+      "action": {
+        "kind": "adjust_campaign_scope",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "categories": [
+          "Venues",
+          "Catering",
+          "Photography",
+          "Entertainment"
+        ],
+        "locations": [
+          "South Wales",
+          "North Wales",
+          "Cardiff",
+          "Swansea",
+          "West Wales",
+          "Bristol"
+        ],
+        "reason": "The latest cycle was plateaued after 556 results and zero new candidates; adding adjacent geographic markets should restore discovery yield."
+      },
+      "summary": "South Wales Venue Pilot scope: categories no change; locations +West Wales, +Bristol",
+      "fingerprint": "fd22da63bec97c78",
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "superseded",
+      "reason": "a newer pending recommendation of the same kind exists for the same target",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    },
+    {
+      "id": "agentaction_7eccbf40-49e4-4fce-afc1-e6c9e9376dbe",
+      "kind": "adjust_campaign_daily_limits",
+      "createdAt": "2026-09-20T11:23:31.196Z",
+      "action": {
+        "kind": "adjust_campaign_daily_limits",
+        "campaignId": "campaign_south_wales_venues_pilot",
+        "dailyTarget": 40,
+        "dailyHardLimit": 40,
+        "reason": "The running campaign created 30 candidates in its latest cycle and candidatesToday is 30, exhausting its current 30-candidate daily target and hard limit while remaining non-plateaued."
+      },
+      "summary": "South Wales Venue Pilot daily target/hard limit 30/30 -> 40/40",
+      "fingerprint": "df92c864a90df5ad",
+      "topic": "adjust_campaign_daily_limits:campaign_south_wales_venues_pilot",
+      "decision": "dismiss",
+      "rule": "stale",
+      "reason": "pending for more than 168h; the supervisor re-proposes if still relevant",
+      "outcome": {
+        "applied": true,
+        "httpStatus": 204,
+        "detail": "dismissed"
+      }
+    }
+  ],
+  "counts": {
+    "pending": 19,
+    "approved": 0,
+    "dismissed": 18,
+    "escalated": 1
+  },
+  "ownerQueue": [
+    {
+      "topic": "adjust_campaign_scope:campaign_south_wales_venues_pilot",
+      "fingerprint": "1b39afe064f1ac62",
+      "summary": "South Wales Venue Pilot scope: categories +Florists, +Event Equipment Rental, +Event Planning; locations +Newport, +Wrexham, +Bridgend",
+      "rule": "owner_decision",
+      "firstSeenAt": "2026-10-10T12:00:15.860Z"
+    }
+  ],
+  "notifyOwner": {
+    "needed": true,
+    "reasons": [
+      "NEW decision for you: South Wales Venue Pilot scope: categories +Florists, +Event Equipment Rental, +Event Planning; locations +Newport, +Wrexham, +Bridgend"
+    ]
+  },
+  "lastOwnerNotifiedAt": "2026-10-10T12:00:15.860Z"
+}
