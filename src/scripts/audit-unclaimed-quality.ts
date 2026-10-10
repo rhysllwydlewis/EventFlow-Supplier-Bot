@@ -15,6 +15,16 @@ import {
   type AuditQueueItem,
 } from '../services/eventflow-quality-audit.service.js';
 import { matchPackagePhotos } from '../services/package-photo-matcher.js';
+import { tryClaimProviderSearch } from '../services/provider-usage.service.js';
+import {
+  crawlMentionsLocation,
+  crawlNamesBusiness,
+  isDirectorySourceUrl,
+  pickSourceCandidate,
+  sourceSearchQuery,
+  type SourceKind,
+} from '../services/source-resolver.service.js';
+import { getDiscoveryProvider } from '../providers/discovery/index.js';
 import { scoreShadowProfile } from '../services/quality.service.js';
 import { cleanPublicPhone, composeDeterministicDescription } from '../services/shadow-profile-composer.service.js';
 
@@ -32,6 +42,9 @@ interface SupplierAuditResult {
   skipped: Array<{ field: string; reason: string }>;
   outcome: 'refreshed' | 'no_real_fix_found' | 'skipped';
   reason?: string;
+  // Set when the recorded website was a third-party directory page and a
+  // better single-business source was resolved and verified instead.
+  resolvedSource?: { url: string; kind: SourceKind };
 }
 
 export function activeGapNames(gaps: AuditQueueItem['gaps']): string[] {
@@ -45,6 +58,27 @@ export function activeGapNames(gaps: AuditQueueItem['gaps']): string[] {
     names.push(`packagesMissingPhotos(${gaps.packagesMissingPhotos.length})`);
   }
   return names;
+}
+
+async function resolveBetterSource(
+  profile: ShadowProfile,
+): Promise<{ url: string; kind: SourceKind } | { reason: string }> {
+  const searchClaimed = await tryClaimProviderSearch('brave', env.ABSOLUTE_MAX_PROVIDER_SEARCHES_PER_DAY);
+  if (!searchClaimed) return { reason: 'daily_provider_search_budget_exhausted' };
+  let results;
+  try {
+    results = await getDiscoveryProvider('brave').search({
+      query: sourceSearchQuery(profile.businessName, profile.location),
+      country: 'gb',
+      count: 10,
+    });
+  } catch (error) {
+    return { reason: `source_search_failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  // Only the chosen URL is used and logged -- the search result titles and
+  // snippets are never stored (BRAVE_PERSISTENCE_ALLOWED may be off).
+  const picked = pickSourceCandidate(profile.businessName, profile.category, profile.website, results);
+  return picked ?? { reason: 'recorded_website_is_a_directory_listing_and_no_better_source_found' };
 }
 
 export async function auditOneSupplier(
@@ -84,17 +118,44 @@ export async function auditOneSupplier(
     return base;
   }
 
+  // A recorded website on a third-party directory is usually a listing page
+  // describing many businesses: its phone/photos are not this supplier's.
+  // Find (and independently verify) a single-business page for this
+  // supplier first; if none, skip rather than mine the listing page.
+  let crawlTarget = profile.website;
+  let sourceKind: SourceKind = 'own_site';
+  if (isDirectorySourceUrl(profile.website)) {
+    const resolved = await resolveBetterSource(profile);
+    if ('reason' in resolved) {
+      base.reason = resolved.reason;
+      return base;
+    }
+    crawlTarget = resolved.url;
+    sourceKind = resolved.kind;
+    base.resolvedSource = resolved;
+  }
+
   let crawl;
   try {
-    crawl = await crawlSupplierSite(profile.website, 8);
+    crawl = await crawlSupplierSite(crawlTarget, 8);
   } catch (error) {
     base.reason = `recrawl_failed: ${error instanceof Error ? error.message : String(error)}`;
     return base;
   }
 
   const extraction = extractBasicFacts(crawl);
+  if (base.resolvedSource && !crawlNamesBusiness(profile.businessName, extraction.pageText)) {
+    base.reason = 'resolved_source_page_does_not_name_the_business';
+    return base;
+  }
+  if (base.resolvedSource && !crawlMentionsLocation(profile.location, extraction.pageText)) {
+    base.reason = 'resolved_source_page_does_not_mention_the_location';
+    return base;
+  }
   const structured = extractStructuredBusinessFacts(extraction.jsonLd);
-  const images = extraction.media.slice(0, 12).map(media => media.url);
+  // Photos on a third-party directory page are uploaded to that directory;
+  // only reuse images from the supplier's own site.
+  const images = sourceKind === 'own_site' ? extraction.media.slice(0, 12).map(media => media.url) : [];
 
   const patch: Partial<ShadowProfile> = {};
   const fixed: string[] = [];
