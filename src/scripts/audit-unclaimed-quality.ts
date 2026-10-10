@@ -15,6 +15,18 @@ import {
   type AuditQueueItem,
 } from '../services/eventflow-quality-audit.service.js';
 import { matchPackagePhotos } from '../services/package-photo-matcher.js';
+import { recordProviderUsage, tryClaimProviderSearch } from '../services/provider-usage.service.js';
+import {
+  crawlNamesBusiness,
+  hostLooksLikeBusiness,
+  isDirectorySourceUrl,
+  pagesAboutBusiness,
+  pickSourceCandidate,
+  significantNameTokens,
+  sourceSearchQuery,
+  type SourceKind,
+} from '../services/source-resolver.service.js';
+import { getDiscoveryProvider } from '../providers/discovery/index.js';
 import { scoreShadowProfile } from '../services/quality.service.js';
 import { cleanPublicPhone, composeDeterministicDescription } from '../services/shadow-profile-composer.service.js';
 
@@ -32,6 +44,9 @@ interface SupplierAuditResult {
   skipped: Array<{ field: string; reason: string }>;
   outcome: 'refreshed' | 'no_real_fix_found' | 'skipped';
   reason?: string;
+  // Set when the recorded website was a third-party directory page and a
+  // better single-business source was resolved and verified instead.
+  resolvedSource?: { url: string; kind: SourceKind };
 }
 
 export function activeGapNames(gaps: AuditQueueItem['gaps']): string[] {
@@ -45,6 +60,28 @@ export function activeGapNames(gaps: AuditQueueItem['gaps']): string[] {
     names.push(`packagesMissingPhotos(${gaps.packagesMissingPhotos.length})`);
   }
   return names;
+}
+
+async function resolveBetterSource(
+  profile: ShadowProfile,
+): Promise<{ url: string; kind: SourceKind } | { reason: string }> {
+  const searchClaimed = await tryClaimProviderSearch('brave', env.ABSOLUTE_MAX_PROVIDER_SEARCHES_PER_DAY);
+  if (!searchClaimed) return { reason: 'daily_provider_search_budget_exhausted' };
+  let results;
+  try {
+    results = await getDiscoveryProvider('brave').search({
+      query: sourceSearchQuery(profile.businessName, profile.location),
+      country: 'gb',
+      count: 10,
+    });
+  } catch (error) {
+    return { reason: `source_search_failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  await recordProviderUsage({ provider: 'brave', resultsSeen: results.length }).catch(() => undefined);
+  // Only the chosen URL is used and logged -- the search result titles and
+  // snippets are never stored (BRAVE_PERSISTENCE_ALLOWED may be off).
+  const picked = pickSourceCandidate(profile.businessName, profile.category, profile.website, results);
+  return picked ?? { reason: 'recorded_website_is_a_directory_listing_and_no_better_source_found' };
 }
 
 export async function auditOneSupplier(
@@ -78,23 +115,84 @@ export async function auditOneSupplier(
     return base;
   }
 
-  const claimed = await tryClaimDailyCrawlSlot(settings.maxCrawlsPerDay, env.ABSOLUTE_MAX_CRAWLS_PER_DAY);
-  if (!claimed) {
-    base.reason = 'daily_crawl_budget_exhausted';
-    return base;
+  const claimCrawlSlot = async (): Promise<boolean> => {
+    const claimed = await tryClaimDailyCrawlSlot(settings.maxCrawlsPerDay, env.ABSOLUTE_MAX_CRAWLS_PER_DAY);
+    if (!claimed) base.reason = 'daily_crawl_budget_exhausted';
+    return claimed;
+  };
+
+  // A recorded website on a third-party directory is usually a listing page
+  // describing many businesses: its phone/photos are not this supplier's.
+  // Find (and independently verify) a single-business page for this
+  // supplier first; if none, skip rather than mine the listing page.
+  let crawlTarget = profile.website;
+  let sourceKind: SourceKind = 'own_site';
+  if (isDirectorySourceUrl(profile.website)) {
+    const resolved = await resolveBetterSource(profile);
+    if ('reason' in resolved) {
+      base.reason = resolved.reason;
+      return base;
+    }
+    crawlTarget = resolved.url;
+    sourceKind = resolved.kind;
+    base.resolvedSource = resolved;
   }
+
+  // Claimed only now that there is something to crawl, so a skipped
+  // directory profile (no source found / search budget gone) burns no
+  // crawl-ceiling slot.
+  if (!(await claimCrawlSlot())) return base;
 
   let crawl;
   try {
-    crawl = await crawlSupplierSite(profile.website, 8);
+    crawl = await crawlSupplierSite(crawlTarget, 8);
   } catch (error) {
     base.reason = `recrawl_failed: ${error instanceof Error ? error.message : String(error)}`;
     return base;
   }
 
-  const extraction = extractBasicFacts(crawl);
-  const structured = extractStructuredBusinessFacts(extraction.jsonLd);
-  const images = extraction.media.slice(0, 12).map(media => media.url);
+  let extraction = extractBasicFacts(crawl);
+  if (base.resolvedSource) {
+    // The resolved page may be reached through a redirect to somewhere else
+    // entirely: re-derive the source kind from where the crawl actually
+    // ended up, never from the search result's URL alone.
+    const finalHost = new URL(crawl.finalRootUrl).hostname.toLowerCase();
+    if (isDirectorySourceUrl(crawl.finalRootUrl) || !hostLooksLikeBusiness(finalHost, profile.businessName)) {
+      sourceKind = 'directory_profile';
+      base.resolvedSource = { url: base.resolvedSource.url, kind: 'directory_profile' };
+    }
+    if (!profile.location) {
+      base.reason = 'resolved_source_cannot_be_verified_without_a_profile_location';
+      return base;
+    }
+    // Only pages that individually name the business and its town may
+    // contribute any fact: a phone/photo/tag pooled from the rest of a
+    // directory (other suppliers, footer, "similar" blocks) is not theirs.
+    const aboutPages = pagesAboutBusiness(profile.businessName, profile.location, extraction.pageText, page => page.text);
+    if (aboutPages.length === 0) {
+      base.reason = 'resolved_source_has_no_page_naming_the_business_and_its_location';
+      return base;
+    }
+    const keep = new Set(aboutPages.map(page => page.url));
+    extraction = extractBasicFacts({ ...crawl, pages: crawl.pages.filter(page => keep.has(page.url)) });
+  }
+  let structured = extractStructuredBusinessFacts(extraction.jsonLd);
+  let serviceTags = extraction.serviceTags;
+  // A resolved source's JSON-LD only counts when the typed object's own name
+  // is this business (a parent company/agency Organization must not leak
+  // its phone or services onto the listing).
+  if (base.resolvedSource) {
+    const nameTokens = significantNameTokens(profile.businessName);
+    const structuredNamesBusiness = Boolean(structured.name) && crawlNamesBusiness(profile.businessName, [{ url: '', text: structured.name! }]) && nameTokens.length > 0;
+    if (!structuredNamesBusiness) {
+      structured = { ...structured, telephone: null };
+      serviceTags = [];
+    }
+  }
+  // Photos on a third-party directory page are uploaded to that directory;
+  // only reuse images from the supplier's own site.
+  const usableMedia = sourceKind === 'own_site' ? extraction.media : [];
+  const images = usableMedia.slice(0, 12).map(media => media.url);
 
   const patch: Partial<ShadowProfile> = {};
   const fixed: string[] = [];
@@ -133,7 +231,10 @@ export async function auditOneSupplier(
   }
 
   if (item.gaps.missingPhone) {
-    const phone = cleanPublicPhone(structured.telephone || extraction.phones[0] || null);
+    // Pooled tel: links from a third-party page are not trusted (footer/
+    // support numbers); only the business's own site may supply one.
+    const pooledPhone = sourceKind === 'own_site' ? extraction.phones[0] : null;
+    const phone = cleanPublicPhone(structured.telephone || pooledPhone || null);
     // Same <=20 guard eventflow-ingestion.service.ts applies to this field:
     // a longer value (e.g. a number with a spelled-out extension) is real,
     // but EventFlow has nowhere to put it, so claiming this as a fix here
@@ -151,8 +252,8 @@ export async function auditOneSupplier(
   }
 
   if (item.gaps.missingTags) {
-    if (extraction.serviceTags.length > 0) {
-      patch.services = extraction.serviceTags;
+    if (serviceTags.length > 0) {
+      patch.services = serviceTags;
       fixed.push('services');
     } else {
       skipped.push({ field: 'tags', reason: 'no_deterministic_service_tags_found_on_recrawl' });
@@ -160,7 +261,7 @@ export async function auditOneSupplier(
   }
 
   if (item.gaps.packagesMissingPhotos.length > 0) {
-    const matches = matchPackagePhotos(item.gaps.packagesMissingPhotos, profile.packages, extraction.media);
+    const matches = matchPackagePhotos(item.gaps.packagesMissingPhotos, profile.packages, usableMedia);
     if (matches.length > 0) {
       // Keyed by array position, not package name -- two packages can
       // legitimately share a name, and each match was independently
@@ -188,7 +289,7 @@ export async function auditOneSupplier(
     // never loses the evidence record that backs it.
     const seenEvidenceUrls = new Set<string>();
     const mergedEvidence: ShadowProfile['mediaEvidence'] = [];
-    for (const evidence of [...profile.mediaEvidence, ...extraction.media]) {
+    for (const evidence of [...profile.mediaEvidence, ...usableMedia]) {
       if (seenEvidenceUrls.has(evidence.url)) continue;
       seenEvidenceUrls.add(evidence.url);
       mergedEvidence.push(evidence);

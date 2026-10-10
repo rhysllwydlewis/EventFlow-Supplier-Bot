@@ -1,7 +1,7 @@
 import type { ComplianceAssessment } from '../domain/compliance-assessment.js';
 import type { ShadowProfile } from '../domain/shadow-profile.js';
 import type { EvidenceFragment } from '../evidence/evidence.js';
-import { isKnownNonSupplierDomain, isVenueCategoryContentMismatch } from './discovery-result-quality.service.js';
+import { isClearlyNonUk, isKnownNonSupplierDomain, isVenueCategoryContentMismatch } from './discovery-result-quality.service.js';
 
 export const COMPLIANCE_POLICY_VERSION = 'shadow-compliance-v1';
 const COPY_BLOCK_THRESHOLD = 0.65;
@@ -169,6 +169,17 @@ export function assessShadowProfileCompliance(input: {
   if (isVenueCategoryContentMismatch(profile.category, `${profile.description} ${profile.services.join(' ')}`)) {
     reasons.push('category_mismatch_with_content');
   }
+  if (
+    isClearlyNonUk({
+      domain: websiteDomain,
+      // Location only: a UK supplier's description may legitimately mention
+      // another country ("we have catered events in Australia").
+      text: profile.location,
+      phone: profile.publicPhone,
+    })
+  ) {
+    reasons.push('non_uk_supplier');
+  }
   if (isLocationOutsideTargetRegion(profile.location, input.campaignLocations ?? [])) {
     reasons.push('location_outside_target_region');
   }
@@ -184,6 +195,7 @@ export function assessShadowProfileCompliance(input: {
     'missing_media',
     'category_mismatch_with_content',
     'location_outside_target_region',
+    'non_uk_supplier',
     // A supplier profile with contact details but no location or services is
     // not a useful listing -- these already downgrade `status` to 'review',
     // but without being blocking too, the actual publish path (which checks

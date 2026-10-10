@@ -288,4 +288,18 @@ describe('Shadow compliance gate', () => {
     });
     expect(assessment.reasons).not.toContain('location_outside_target_region');
   });
+
+  it('blocks a clearly non-UK supplier by location, TLD or phone prefix, but not one that merely mentions abroad', () => {
+    const base = { evidence, minimumPublicationQuality: 75 };
+    const reasonsFor = (profile: Record<string, unknown>) =>
+      assessShadowProfileCompliance({ ...base, profile: { ...deterministic, ...profile } as typeof deterministic }).reasons;
+    expect(reasonsFor({ location: 'Swansea, NSW, Australia' })).toContain('non_uk_supplier');
+    expect(reasonsFor({ website: 'https://cassowary.com.au/' })).toContain('non_uk_supplier');
+    expect(reasonsFor({ publicPhone: '+61 2 4945 0267' })).toContain('non_uk_supplier');
+    expect(reasonsFor({ publicPhone: '+44 29 2000 0000', location: 'Cardiff' })).not.toContain('non_uk_supplier');
+    expect(reasonsFor({ description: 'We have also catered events in Australia.', location: 'Cardiff' })).not.toContain(
+      'non_uk_supplier',
+    );
+    expect(reasonsFor({ location: 'Canada Water, London' })).not.toContain('non_uk_supplier');
+  });
 });
