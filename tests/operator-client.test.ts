@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ControlApiError, ControlClient } from '../src/operator/client.js';
+import { ControlApiError, ControlClient, assertSafeControlUrl } from '../src/operator/client.js';
 
 function response(status: number, body: unknown, headers: Record<string, string | string[]> = {}): Response {
   const res = new Response(status === 204 ? null : JSON.stringify(body), { status });
@@ -64,5 +64,22 @@ describe('ControlClient', () => {
       throw new Error('connect ECONNREFUSED');
     }) as unknown as typeof fetch);
     expect(await down.probe('/health')).toMatchObject({ ok: false, httpStatus: 0 });
+  });
+});
+
+describe('assertSafeControlUrl', () => {
+  it.each(['https://supplier-bot-control-production.up.railway.app', 'http://localhost:3000', 'http://127.0.0.1:8080'])('accepts %s', url => {
+    expect(() => assertSafeControlUrl(url)).not.toThrow();
+  });
+
+  it.each([
+    'http://bot.example',
+    'http://localhost.evil.example',
+    'http://127.0.0.1.evil.example',
+    'ftp://bot.example',
+    'https://user:pass@bot.example',
+    'not a url',
+  ])('rejects %s', url => {
+    expect(() => assertSafeControlUrl(url)).toThrow();
   });
 });

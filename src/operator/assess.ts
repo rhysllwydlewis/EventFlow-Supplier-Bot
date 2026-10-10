@@ -37,6 +37,36 @@ export const railwayObservationSchema = z.object({
 });
 export type RailwayObservation = z.infer<typeof railwayObservationSchema>;
 
+// Railway log lines are written to a committed run log, so scrub anything that
+// looks like a credential before it is stored. Defence in depth: the routine is
+// also told to redact.
+const SECRET_PATTERNS: RegExp[] = [
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/gi, // scheme://user:pass@
+  /\b(bearer|basic)\s+[a-z0-9._~+/=-]{8,}/gi,
+  /\b(authorization|cookie|set-cookie|x-csrf-token|api[_-]?key|secret|token|password|passwd|pwd|key)\b\s*[:=]\s*\S+/gi,
+  /\b(sk|pk|rk|ghp|gho|xox[abp])[-_][a-z0-9_-]{16,}/gi,
+  /\b[a-f0-9]{40,}\b/gi,
+  /\b[A-Za-z0-9_-]{32,}\b/g,
+];
+
+export function redactLogLine(line: string, max = 250): string {
+  let out = line.replace(/[\r\n\t]+/g, ' ');
+  for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, '[redacted]');
+  return out.length > max ? `${out.slice(0, max - 1)}…` : out;
+}
+
+export function sanitiseRailway(observation: RailwayObservation): RailwayObservation {
+  return {
+    ...observation,
+    ...(observation.recentErrors
+      ? { recentErrors: { ...observation.recentErrors, samples: observation.recentErrors.samples.map(line => redactLogLine(line)) } }
+      : {}),
+    ...(observation.notes ? { notes: observation.notes.map(line => redactLogLine(line, 300)) } : {}),
+  };
+}
+
+const EXPECTED_RAILWAY_SERVICES = ['supplier-bot-control', 'supplier-bot-worker'];
+
 // The supervisor runs every 6h (src/worker/index.ts SUPERVISOR_CYCLE_INTERVAL_MS).
 const SUPERVISOR_EXPECTED_EVERY_HOURS = 6;
 const SUPERVISOR_MAX_SILENCE_HOURS = SUPERVISOR_EXPECTED_EVERY_HOURS * 2 + 1;
@@ -119,6 +149,7 @@ export function assess(input: AssessInput): Finding[] {
     add('warn', 'ai_spend_high', `AI spend today £${spend.toFixed(2)} is over ${SPEND_WARN_FRACTION * 100}% of the £${status.settings.softAiSpendGbpPerDay} soft cap`);
   }
 
+  if (!compliance) add('warn', 'compliance_unavailable', 'could not read /api/compliance-overview');
   if (compliance && compliance.totalProfiles > compliance.assessed) {
     add('warn', 'compliance_backlog', `${compliance.totalProfiles - compliance.assessed} profiles not yet compliance-assessed`);
   }
@@ -134,6 +165,11 @@ export function assess(input: AssessInput): Finding[] {
     for (const service of railway.services) {
       if (BAD_DEPLOY_STATES.has(service.status.toUpperCase())) {
         add('alert', 'deploy_bad', `Railway ${service.name} latest deployment is ${service.status}`);
+      }
+    }
+    for (const expected of EXPECTED_RAILWAY_SERVICES) {
+      if (!railway.services.some(service => service.name === expected)) {
+        add('warn', 'railway_incomplete', `Railway observation has no entry for ${expected}`);
       }
     }
     if (railway.recentErrors && railway.recentErrors.count > 0) {

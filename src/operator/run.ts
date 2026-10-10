@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { BotSettings } from '../domain/settings.js';
-import { assess, settingsChanges, type Finding, type RailwayObservation } from './assess.js';
+import { assess, sanitiseRailway, settingsChanges, type Finding, type RailwayObservation } from './assess.js';
 import { ControlApiError, type ControlClient, type ComplianceOverview } from './client.js';
 import { decideRecommendations, DEFAULT_STALE_AFTER_HOURS, type PolicyVerdict } from './policy.js';
 
@@ -22,11 +22,14 @@ export interface LoggedRecommendation extends PolicyVerdict {
 }
 
 export interface OwnerQueueItem {
+  // What is being asked about (kind + target). Notification state is keyed on
+  // this, not on the exact payload, because the supervisor re-proposes a
+  // slightly different payload for the same topic every cycle.
+  topic: string;
   fingerprint: string;
   summary: string;
   rule: string;
   firstSeenAt: string;
-  count: number;
 }
 
 export interface RunLog {
@@ -63,6 +66,9 @@ export function runIdFor(ms: number): string {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z').replace(/:/g, '');
 }
 
+// The newest *applied* run. A dry run (a person poking at it) must not become
+// the baseline: it never told the owner anything, so using it would suppress
+// the next real run's "new decision" notification.
 export async function loadPreviousRun(logDir: string): Promise<RunLog | null> {
   let names: string[];
   try {
@@ -73,7 +79,7 @@ export async function loadPreviousRun(logDir: string): Promise<RunLog | null> {
   for (const name of names.reverse()) {
     try {
       const parsed = JSON.parse(await readFile(join(logDir, name), 'utf8')) as RunLog;
-      if (parsed.schemaVersion === RUN_LOG_SCHEMA_VERSION) return parsed;
+      if (parsed.schemaVersion === RUN_LOG_SCHEMA_VERSION && parsed.applied) return parsed;
     } catch {
       // Skip unreadable files; fall back to the next-newest.
     }
@@ -82,23 +88,20 @@ export async function loadPreviousRun(logDir: string): Promise<RunLog | null> {
 }
 
 function buildOwnerQueue(escalated: PolicyVerdict[], previous: RunLog | null, nowIso: string): OwnerQueueItem[] {
-  const seen = new Map(previous?.ownerQueue.map(item => [item.fingerprint, item.firstSeenAt]) ?? []);
-  const grouped = new Map<string, OwnerQueueItem>();
-  for (const item of escalated) {
-    const existing = grouped.get(item.fingerprint);
-    if (existing) {
-      existing.count += 1;
-      continue;
-    }
-    grouped.set(item.fingerprint, {
+  const seen = new Map(previous?.ownerQueue.map(item => [item.topic, item.firstSeenAt]) ?? []);
+  const byTopic = new Map<string, OwnerQueueItem>();
+  // Newest first, so the summary shown is the supervisor's latest word.
+  for (const item of [...escalated].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+    if (byTopic.has(item.topic)) continue;
+    byTopic.set(item.topic, {
+      topic: item.topic,
       fingerprint: item.fingerprint,
       summary: item.summary,
       rule: item.rule,
-      firstSeenAt: seen.get(item.fingerprint) ?? nowIso,
-      count: 1,
+      firstSeenAt: seen.get(item.topic) ?? nowIso,
     });
   }
-  return [...grouped.values()];
+  return [...byTopic.values()];
 }
 
 function decideNotify(
@@ -111,9 +114,9 @@ function decideNotify(
   for (const finding of findings) {
     if (finding.severity === 'alert') reasons.push(`ALERT ${finding.code}: ${finding.message}`);
   }
-  const previouslyQueued = new Set(previous?.ownerQueue.map(item => item.fingerprint) ?? []);
+  const previouslyQueued = new Set(previous?.ownerQueue.map(item => item.topic) ?? []);
   for (const item of ownerQueue) {
-    if (!previouslyQueued.has(item.fingerprint)) reasons.push(`NEW decision for you: ${item.summary}`);
+    if (!previouslyQueued.has(item.topic)) reasons.push(`NEW decision for you: ${item.summary}`);
   }
   const lastNotified = previous?.lastOwnerNotifiedAt ? Date.parse(previous.lastOwnerNotifiedAt) : 0;
   const reminderDue = nowMs - lastNotified > OWNER_REMINDER_DAYS * 86_400_000;
@@ -131,57 +134,77 @@ function controlHost(baseUrl: string): string {
   }
 }
 
+function failureLog(
+  base: Omit<RunLog, 'finishedAt' | 'botVersion' | 'settings' | 'supervisor' | 'queues' | 'metrics' | 'compliance' | 'findings' | 'recommendations' | 'counts' | 'ownerQueue' | 'notifyOwner' | 'lastOwnerNotifiedAt'>,
+  findings: Finding[],
+  previous: RunLog | null,
+  nowMs: number,
+  startedAt: string,
+): RunLog {
+  // Could not complete a run (login rejected, API erroring, control down): the
+  // run still produces a log and an alert rather than failing silently. The
+  // owner queue is carried forward unchanged.
+  const ownerQueue = previous?.ownerQueue ?? [];
+  const notifyOwner = decideNotify(findings, ownerQueue, previous, nowMs);
+  return {
+    ...base,
+    finishedAt: new Date().toISOString(),
+    botVersion: previous?.botVersion ?? null,
+    settings: previous?.settings ?? null,
+    supervisor: { lastCycleAt: null, lastKind: null, lastSkippedReason: null },
+    queues: {},
+    metrics: {},
+    compliance: null,
+    findings,
+    recommendations: [],
+    counts: { pending: 0, approved: 0, dismissed: 0, escalated: ownerQueue.length },
+    ownerQueue,
+    notifyOwner,
+    lastOwnerNotifiedAt: notifyOwner.needed ? startedAt : (previous?.lastOwnerNotifiedAt ?? null),
+  };
+}
+
 export async function runOperator(client: ControlClient, baseUrl: string, options: RunOptions): Promise<RunLog> {
   const nowMs = (options.now ?? Date.now)();
   const startedAt = new Date(nowMs).toISOString();
   const previous = await loadPreviousRun(options.logDir);
+  const railway = options.railway ? sanitiseRailway(options.railway) : null;
 
   const [health, ready] = await Promise.all([client.probe('/health'), client.probe('/ready')]);
-  const baseLog = {
+  const base = {
     schemaVersion: RUN_LOG_SCHEMA_VERSION,
     runId: runIdFor(nowMs),
     startedAt,
     applied: options.apply,
     controlHost: controlHost(baseUrl),
-    railway: options.railway,
+    railway,
   } as const;
+  const healthFindings: Finding[] = health.ok
+    ? []
+    : [{ severity: 'alert', code: 'control_unhealthy', message: `control /health returned HTTP ${health.httpStatus}` }];
 
   try {
     await client.login();
   } catch (error) {
     if (!(error instanceof ControlApiError)) throw error;
-    // Cannot log in (key rotated, rate-limited, control down): the run still
-    // produces a log and an alert rather than failing silently.
-    const findings: Finding[] = [
-      { severity: 'alert', code: 'operator_cannot_login', message: error.message },
-      ...(health.ok ? [] : [{ severity: 'alert' as const, code: 'control_unhealthy', message: `control /health returned HTTP ${health.httpStatus}` }]),
-    ];
-    return {
-      ...baseLog,
-      finishedAt: new Date().toISOString(),
-      botVersion: null,
-      settings: null,
-      supervisor: { lastCycleAt: null, lastKind: null, lastSkippedReason: null },
-      queues: {},
-      metrics: {},
-      compliance: null,
-      findings,
-      recommendations: [],
-      counts: { pending: 0, approved: 0, dismissed: 0, escalated: 0 },
-      ownerQueue: previous?.ownerQueue ?? [],
-      notifyOwner: decideNotify(findings, previous?.ownerQueue ?? [], previous, nowMs),
-      lastOwnerNotifiedAt: previous?.lastOwnerNotifiedAt ?? null,
-    };
+    return failureLog(base, [{ severity: 'alert', code: 'operator_cannot_login', message: error.message }, ...healthFindings], previous, nowMs, startedAt);
   }
 
   try {
-    const [status, compliance, campaigns, agentLog, pending] = await Promise.all([
-      client.status(),
-      client.compliance().catch(() => null),
-      client.campaigns(),
-      client.agentLog(10),
-      client.pendingRecommendations(200),
-    ]);
+    let fetched;
+    try {
+      fetched = await Promise.all([
+        client.status(),
+        client.compliance().catch(() => null),
+        client.campaigns(),
+        client.agentLog(10),
+        client.pendingRecommendations(200),
+      ]);
+    } catch (error) {
+      if (!(error instanceof ControlApiError)) throw error;
+      return failureLog(base, [{ severity: 'alert', code: 'operator_api_error', message: error.message }, ...healthFindings], previous, nowMs, startedAt);
+    }
+    const [status, compliance, campaigns, agentLog, pending] = fetched;
 
     const verdicts = decideRecommendations(pending, {
       now: nowMs,
@@ -190,27 +213,40 @@ export async function runOperator(client: ControlClient, baseUrl: string, option
       staleAfterHours: options.staleAfterHours ?? DEFAULT_STALE_AFTER_HOURS,
     });
 
+    // One recommendation failing (network blip, server error) must not abort
+    // the loop: everything already applied still has to reach the log.
+    const attempt = async (call: () => Promise<{ ok: boolean; httpStatus: number; detail: string }>, done: string, failed: string): Promise<RecommendationOutcome> => {
+      try {
+        const result = await call();
+        return { applied: result.ok, httpStatus: result.httpStatus, detail: result.detail || (result.ok ? done : failed) };
+      } catch (error) {
+        return { applied: false, httpStatus: null, detail: `request failed: ${error instanceof Error ? error.message : 'unknown error'}` };
+      }
+    };
+
     let approvalsUsed = 0;
     const recommendations: LoggedRecommendation[] = [];
     for (const verdict of verdicts) {
       let outcome: RecommendationOutcome = { applied: false, httpStatus: null, detail: options.apply ? 'left pending' : 'dry run' };
       if (verdict.decision === 'dismiss' && options.apply) {
-        const result = await client.dismiss(verdict.id);
-        outcome = { applied: result.ok, httpStatus: result.httpStatus, detail: result.detail || (result.ok ? 'dismissed' : 'not dismissed') };
+        outcome = await attempt(() => client.dismiss(verdict.id), 'dismissed', 'not dismissed');
       } else if (verdict.decision === 'approve' && options.apply) {
         if (approvalsUsed >= MAX_APPROVALS_PER_RUN) {
           outcome = { applied: false, httpStatus: null, detail: `skipped: per-run approval cap (${MAX_APPROVALS_PER_RUN}) reached` };
         } else {
           approvalsUsed += 1;
-          const result = await client.approve(verdict.id);
-          outcome = { applied: result.ok, httpStatus: result.httpStatus, detail: result.detail || (result.ok ? 'approved' : 'not approved') };
+          outcome = await attempt(() => client.approve(verdict.id), 'approved', 'not approved');
         }
       }
       recommendations.push({ ...verdict, outcome });
     }
 
-    const escalated = recommendations.filter(item => item.decision === 'escalate' || (item.decision === 'approve' && !item.outcome.applied && options.apply));
-    const ownerQueue = buildOwnerQueue(escalated, previous, startedAt);
+    // Owner queue: everything left for a human. That is the escalated items,
+    // plus (in apply mode) approvals the server refused or that were skipped.
+    const stillOwed = recommendations.filter(
+      item => item.decision === 'escalate' || (item.decision === 'approve' && options.apply && !item.outcome.applied),
+    );
+    const ownerQueue = buildOwnerQueue(stillOwed, previous, startedAt);
 
     const findings = assess({
       now: nowMs,
@@ -219,14 +255,14 @@ export async function runOperator(client: ControlClient, baseUrl: string, option
       agentLog,
       health,
       ready,
-      railway: options.railway,
+      railway,
       previousSettings: previous?.settings ?? null,
     });
     const notifyOwner = decideNotify(findings, ownerQueue, previous, nowMs);
     const latest = agentLog[0];
 
     return {
-      ...baseLog,
+      ...base,
       finishedAt: new Date().toISOString(),
       botVersion: status.version,
       settings: status.settings,
@@ -295,7 +331,7 @@ export function renderMarkdown(log: RunLog, previous: RunLog | null): string {
 
   lines.push('', '## Waiting on the owner', '');
   if (log.ownerQueue.length === 0) lines.push('Nothing.');
-  for (const item of log.ownerQueue) lines.push(`- ${item.summary} (first seen ${item.firstSeenAt}${item.count > 1 ? `, ${item.count} identical requests` : ''}; ${item.rule})`);
+  for (const item of log.ownerQueue) lines.push(`- ${item.summary} (first seen ${item.firstSeenAt}; ${item.rule})`);
 
   lines.push('', '## Notify owner', '');
   lines.push(log.notifyOwner.needed ? log.notifyOwner.reasons.map(reason => `- ${reason}`).join('\n') : 'No: nothing new needs the owner.', '');

@@ -43,6 +43,24 @@ export class ControlApiError extends Error {
   }
 }
 
+// The admin key is sent in the login body, so refuse anything that could carry
+// it in the clear. Parse the URL rather than prefix-match: a prefix test lets
+// `http://localhost.evil.example` through.
+export function assertSafeControlUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('Control URL is not a valid URL');
+  }
+  const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+    throw new Error('Refusing to send the admin key over a non-HTTPS URL');
+  }
+  if (url.username || url.password) throw new Error('Control URL must not contain credentials');
+  return url;
+}
+
 export class ControlClient {
   private cookie = '';
   private csrf = '';

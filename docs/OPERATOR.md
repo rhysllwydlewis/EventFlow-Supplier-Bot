@@ -29,8 +29,9 @@ CONTROL_ADMIN_KEY=... npm run operator -- --url https://<control-host> [--apply]
 
 - **Dry run by default.** Nothing on the bot changes unless `--apply` is passed.
   A dry run still logs in (and out) and writes a log.
-- The key is read from `CONTROL_ADMIN_KEY` only, sent only over HTTPS (or
-  localhost), JSON-encoded (a hand-built JSON body breaks if the key contains a
+- The key is read from `CONTROL_ADMIN_KEY` only, sent only over HTTPS (or to
+  exactly `localhost` / `127.0.0.1`; the URL is parsed, not prefix-matched),
+  JSON-encoded (a hand-built JSON body breaks if the key contains a
   quote or backslash; the server answers 500), and never written to the log.
 - Exit code `0`: nothing needs the owner. `2`: the owner should be told.
   `1`: the script itself failed.
@@ -45,8 +46,8 @@ status of the control and worker services and a count of recent error lines.
 
 | Finding | Severity |
 | --- | --- |
-| control `/health` or `/ready` failing, no fresh worker, idle alert, emergency stop, bad Railway deployment (FAILED/CRASHED), operator cannot log in | **alert** (notifies the owner) |
-| bot paused/stopped, queue backlog > 100, supervisor silent > 13h or skipping cycles, AI spend ≥ 80% of the soft cap, compliance backlog, Railway error lines | warn (logged) |
+| control `/health` or `/ready` failing, no fresh worker, idle alert, emergency stop, bad Railway deployment (FAILED/CRASHED), operator cannot log in, control API erroring after login | **alert** (notifies the owner) |
+| bot paused/stopped, queue backlog > 100, supervisor silent > 13h or skipping cycles, AI spend ≥ 80% of the soft cap, compliance backlog or unreadable, Railway error lines, Railway report missing the control or worker service | warn (logged) |
 | any watched setting changed since the previous run (and by whom) | info (logged) |
 
 ## Approval policy
@@ -72,6 +73,13 @@ Safety properties:
 - At most 3 approvals per run, whatever the policy says.
 - The control service re-validates every approval against current state
   server-side; the operator cannot make it apply something it considers invalid.
+- One request failing (network error, server refusal) never aborts the run:
+  it is recorded against that request and everything else still proceeds and
+  is logged. A run that cannot read the bot at all still writes a log and an
+  alert.
+- Text the supervisor wrote (campaign and category names) is flattened to
+  short printable text before it appears in a summary, and Railway log lines
+  are scrubbed for credentials before they are stored.
 - A dismissed request is not lost: its full action payload is in the run log,
   and the supervisor will propose it again if it is still relevant.
 - The operator only calls login, logout, the read endpoints, and the
@@ -96,11 +104,16 @@ integration is not built.
 
 ### Notification rules
 
-The owner is notified when a run has an **alert**, or an owner decision that
-was not in the previous run (matched by a fingerprint of the action, so a
-supervisor re-wording its reason does not count as new), or the same decisions
-have been waiting 7 days (a reminder). Otherwise the run is silent apart from
-the log.
+The owner is notified when a run has an **alert**, or an owner decision on a
+*topic* (kind + target, e.g. "widen the scope of campaign X") that was not in
+the previous run, or the same decisions have been waiting 7 days (a reminder).
+Keying on the topic rather than the exact payload matters: once a campaign
+plateaus the supervisor proposes a slightly different scope every cycle, and
+each of those must not count as a new decision. Otherwise the run is silent
+apart from the log.
+
+Only *applied* runs (`--apply`) count as the previous run. A dry run never
+told the owner anything, so it must not suppress the next real notification.
 
 ## Daily routine
 
@@ -125,6 +138,11 @@ says so; it does not improvise API calls.
 
 ## Known gaps
 
+- **Attribution.** The control service records an approval as decided by
+  `control-admin` and applies it with the actor `ai-supervisor`, so a setting's
+  `updatedBy` does not say who approved it. The operator cannot change that
+  without a server change; the run log (`recommendations[].outcome`) is the
+  record of what the operator decided.
 - Nothing yet feeds the run log into the in-app supervisor (see above).
 - The operator cannot tell whether the supervisor is *enabled* beyond "it has
   logged a cycle in the last 13 hours"; production's `OPENAI_API_KEY` is not

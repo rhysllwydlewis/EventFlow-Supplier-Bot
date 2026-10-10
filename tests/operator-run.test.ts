@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentActionRecord, AgentLogEntry } from '../src/domain/agent-log.js';
 import { southWalesVenuePilot, type Campaign } from '../src/domain/campaign.js';
 import { defaultSettings, type BotSettings } from '../src/domain/settings.js';
-import { assess, type AssessInput } from '../src/operator/assess.js';
+import { assess, redactLogLine, type AssessInput } from '../src/operator/assess.js';
 import { ControlApiError, type ControlClient, type StatusSnapshot } from '../src/operator/client.js';
 import { MAX_APPROVALS_PER_RUN, loadPreviousRun, renderMarkdown, runOperator, writeRunLog } from '../src/operator/run.js';
 
@@ -42,6 +42,8 @@ const goodLog: AgentLogEntry = {
   actionIds: [],
 };
 
+const complianceOk = { totalProfiles: 10, assessed: 10, pending: 0, publicationEligible: 5, review: 1, blocked: 4, seoReady: 3 };
+
 class FakeClient {
   approved: string[] = [];
   dismissed: string[] = [];
@@ -52,6 +54,7 @@ class FakeClient {
       items?: AgentActionRecord[];
       loginError?: ControlApiError;
       healthy?: boolean;
+      noCompliance?: boolean;
     } = {},
   ) {}
   probe = vi.fn(async () => ({ ok: this.opts.healthy ?? true, httpStatus: this.opts.healthy === false ? 503 : 200, body: {} }));
@@ -62,7 +65,7 @@ class FakeClient {
     this.loggedOut = true;
   });
   status = vi.fn(async () => this.opts.status ?? status());
-  compliance = vi.fn(async () => null);
+  compliance = vi.fn(async () => (this.opts.noCompliance ? null : complianceOk));
   campaigns = vi.fn(async () => [campaign]);
   agentLog = vi.fn(async () => [goodLog]);
   pendingRecommendations = vi.fn(async () => this.opts.items ?? []);
@@ -169,7 +172,7 @@ describe('runOperator', () => {
   });
 
   it('reports a settings change since the previous run', async () => {
-    const first = await runOperator(asClient(new FakeClient({ status: status({ publishingEnabled: false }) })), 'https://bot.example', opts(false));
+    const first = await runOperator(asClient(new FakeClient({ status: status({ publishingEnabled: false }) })), 'https://bot.example', opts(true));
     await writeRunLog(first, null, dir);
     const second = await runOperator(asClient(new FakeClient({ status: status({ publishingEnabled: true, updatedBy: 'control-admin' }) })), 'https://bot.example', opts(false, { now: () => NOW + 3_600_000 }));
     const change = second.findings.find(item => item.code === 'settings_changed');
@@ -178,15 +181,101 @@ describe('runOperator', () => {
   });
 });
 
+describe('runOperator: notification state', () => {
+  it('does not tell the owner again when the supervisor re-proposes a different payload for the same topic', async () => {
+    const day1 = await runOperator(asClient(new FakeClient({ items: [scope('b', ['Venues', 'Catering'], 2)] })), 'https://bot.example', opts(true));
+    await writeRunLog(day1, null, dir);
+    expect(day1.notifyOwner.needed).toBe(true);
+
+    const variant = scope('c', ['Venues', 'Florists', 'Hire'], 1);
+    const day2 = await runOperator(asClient(new FakeClient({ items: [variant] })), 'https://bot.example', opts(true, { now: () => NOW + 86_400_000 }));
+    expect(day2.ownerQueue[0]?.fingerprint).not.toBe(day1.ownerQueue[0]?.fingerprint);
+    expect(day2.notifyOwner.needed).toBe(false);
+    expect(day2.ownerQueue[0]?.firstSeenAt).toBe(day1.startedAt);
+  });
+
+  it('a dry run is never used as the baseline, so the next real run still notifies', async () => {
+    const items = [scope('b', ['Venues', 'Catering'], 2)];
+    const dry = await runOperator(asClient(new FakeClient({ items })), 'https://bot.example', opts(false));
+    await writeRunLog(dry, null, dir);
+    expect(await loadPreviousRun(dir)).toBeNull();
+    const real = await runOperator(asClient(new FakeClient({ items })), 'https://bot.example', opts(true, { now: () => NOW + 3_600_000 }));
+    expect(real.notifyOwner.needed).toBe(true);
+    expect(real.notifyOwner.reasons[0]).toMatch(/NEW decision/);
+  });
+});
+
+describe('runOperator: failures', () => {
+  it('an API error after login produces an alert log and still logs out', async () => {
+    const fake = new FakeClient();
+    fake.status.mockRejectedValueOnce(new ControlApiError('GET /api/status failed with HTTP 500', 500));
+    const log = await runOperator(asClient(fake), 'https://bot.example', opts(true));
+    expect(log.findings[0]).toMatchObject({ severity: 'alert', code: 'operator_api_error' });
+    expect(log.notifyOwner.needed).toBe(true);
+    expect(fake.dismiss).not.toHaveBeenCalled();
+    expect(fake.loggedOut).toBe(true);
+  });
+
+  it('one request failing mid-run does not lose the others or the log', async () => {
+    const items = [scope('a', ['Venues', 'Florists'], 30), scope('z', ['Venues', 'Hire'], 20), scope('b', ['Venues', 'Catering'], 2)];
+    const fake = new FakeClient({ items });
+    fake.dismiss.mockRejectedValueOnce(new Error('socket hang up'));
+    const log = await runOperator(asClient(fake), 'https://bot.example', opts(true));
+    expect(fake.dismiss).toHaveBeenCalledTimes(2);
+    expect(log.recommendations.find(item => item.id === 'a')?.outcome).toMatchObject({ applied: false });
+    expect(log.recommendations.find(item => item.id === 'a')?.outcome.detail).toContain('socket hang up');
+    expect(log.recommendations.find(item => item.id === 'z')?.outcome.applied).toBe(true);
+    expect(log.counts.dismissed).toBe(1);
+  });
+
+  it('warns when compliance is unreadable, and when Railway data is incomplete', async () => {
+    const railway = { checkedAt: new Date(NOW).toISOString(), services: [{ name: 'supplier-bot-control', status: 'SUCCESS' }] };
+    const log = await runOperator(asClient(new FakeClient({ noCompliance: true })), 'https://bot.example', opts(false, { railway }));
+    const codes = log.findings.map(item => item.code);
+    expect(codes).toEqual(expect.arrayContaining(['compliance_unavailable', 'railway_incomplete']));
+  });
+
+  it('scrubs credentials from Railway log samples before they reach the stored log', async () => {
+    const railway = {
+      checkedAt: new Date(NOW).toISOString(),
+      services: [{ name: 'supplier-bot-control', status: 'SUCCESS' }, { name: 'supplier-bot-worker', status: 'SUCCESS' }],
+      recentErrors: { count: 1, windowHours: 24, samples: ['connect failed mongodb://admin:hunter2@db.internal:27017/x token=abc123secret'] },
+    };
+    const log = await runOperator(asClient(new FakeClient()), 'https://bot.example', opts(false, { railway }));
+    const stored = JSON.stringify(log);
+    expect(stored).not.toContain('hunter2');
+    expect(stored).not.toContain('abc123secret');
+  });
+});
+
+describe('redactLogLine', () => {
+  it.each([
+    ['postgres://user:pa55@host/db', 'pa55'],
+    ['Authorization: Bearer abcdef0123456789', 'abcdef0123456789'],
+    ['x-csrf-token: Zm9vYmFyYmF6cXV4', 'Zm9vYmFyYmF6cXV4'],
+    ['key sk-abcdefghijklmnopqrstuvwxyz012345', 'sk-abcdefghijklmnopqrstuvwxyz012345'],
+    ['sid 0123456789abcdef0123456789abcdef01234567', '0123456789abcdef0123456789abcdef01234567'],
+  ])('removes the secret from %s', (line, secret) => {
+    const out = redactLogLine(line);
+    expect(out).not.toContain(secret);
+    expect(out).toContain('[redacted]');
+  });
+
+  it('keeps ordinary lines readable and caps length', () => {
+    expect(redactLogLine('queue crawl stalled for job 42')).toBe('queue crawl stalled for job 42');
+    expect(redactLogLine('x '.repeat(400)).length).toBeLessThanOrEqual(250);
+  });
+});
+
 describe('run log files', () => {
   it('writes a JSON and a Markdown file per run and reloads the newest as previous', async () => {
-    const log = await runOperator(asClient(new FakeClient({ items: [scope('b', ['Venues', 'Catering'], 2)] })), 'https://bot.example', opts(false));
+    const log = await runOperator(asClient(new FakeClient({ items: [scope('b', ['Venues', 'Catering'], 2)] })), 'https://bot.example', opts(true));
     const { jsonPath, mdPath } = await writeRunLog(log, null, dir);
     expect((await readdir(dir)).sort()).toEqual([`${log.runId}.json`, `${log.runId}.md`]);
     expect(await readFile(mdPath, 'utf8')).toContain('Waiting on the owner');
     expect(JSON.parse(await readFile(jsonPath, 'utf8')).schemaVersion).toBe(1);
     expect((await loadPreviousRun(dir))?.runId).toBe(log.runId);
-    expect(renderMarkdown(log, null)).toContain('dry run');
+    expect(renderMarkdown({ ...log, applied: false }, null)).toContain('dry run');
   });
 
   it('never contains the admin key or session material', async () => {
@@ -204,11 +293,17 @@ describe('assess', () => {
   const base = (): AssessInput => ({
     now: NOW,
     status: status(),
-    compliance: null,
+    compliance: complianceOk,
     agentLog: [goodLog],
     health: { ok: true, httpStatus: 200 },
     ready: { ok: true, httpStatus: 200 },
-    railway: { checkedAt: 'x', services: [{ name: 's', status: 'SUCCESS' }] },
+    railway: {
+      checkedAt: 'x',
+      services: [
+        { name: 'supplier-bot-control', status: 'SUCCESS' },
+        { name: 'supplier-bot-worker', status: 'SUCCESS' },
+      ],
+    },
     previousSettings: null,
   });
 

@@ -37,9 +37,13 @@ export interface PolicyVerdict {
   reason: string;
   // Human-readable one-liner of what the action would change right now.
   summary: string;
-  // Stable across runs for the same underlying request, so the owner is only
-  // notified about a given decision once (plus a periodic reminder).
+  // Exact-payload hash, for the log.
   fingerprint: string;
+  // What the owner is being asked about (kind + target), stable while the
+  // supervisor re-proposes slightly different payloads for the same thing, so
+  // the owner is told about a topic once (plus a periodic reminder), not every
+  // time a variant appears.
+  topic: string;
   createdAt: string;
   action: AgentAction;
 }
@@ -108,6 +112,17 @@ function supersedeKey(action: AgentAction): string {
   return `${action.kind}:${campaignId}`;
 }
 
+// Text in an action (campaign and category names) was produced by the
+// supervisor model from crawled web content. It ends up in logs and in a
+// routine's context, so it is flattened to printable single-line text and
+// shortened before it is shown anywhere.
+export function cleanText(value: string, max = 60): string {
+  const flat = value.replace(/[^\p{L}\p{N} .,&'/()+-]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+const cleanList = (items: string[]): string[] => items.map(item => cleanText(item));
+
 function fingerprintOf(action: AgentAction): string {
   const { reason: _reason, ...rest } = action as AgentAction & { reason?: string };
   const canonical = JSON.stringify(rest, Object.keys(rest).sort());
@@ -115,8 +130,8 @@ function fingerprintOf(action: AgentAction): string {
 }
 
 function diffList(next: string[], current: string[]): string {
-  const added = next.filter(item => !current.includes(item));
-  const removed = current.filter(item => !next.includes(item));
+  const added = cleanList(next.filter(item => !current.includes(item)));
+  const removed = cleanList(current.filter(item => !next.includes(item)));
   const parts: string[] = [];
   if (added.length) parts.push(`+${added.join(', +')}`);
   if (removed.length) parts.push(`-${removed.join(', -')}`);
@@ -128,12 +143,12 @@ export function summariseAction(action: AgentAction, ctx: Pick<PolicyContext, 's
   switch (action.kind) {
     case 'adjust_campaign_scope': {
       const campaign = campaigns.find(item => item.id === action.campaignId);
-      if (!campaign) return `change scope of unknown campaign ${action.campaignId}`;
-      return `${campaign.name} scope: categories ${diffList(action.categories, campaign.categories)}; locations ${diffList(action.locations, campaign.locations)}`;
+      if (!campaign) return `change scope of unknown campaign ${cleanText(action.campaignId)}`;
+      return `${cleanText(campaign.name)} scope: categories ${diffList(action.categories, campaign.categories)}; locations ${diffList(action.locations, campaign.locations)}`;
     }
     case 'adjust_campaign_daily_limits': {
       const campaign = campaigns.find(item => item.id === action.campaignId);
-      const name = campaign?.name ?? action.campaignId;
+      const name = cleanText(campaign?.name ?? action.campaignId);
       const from = campaign ? `${campaign.dailyTarget}/${campaign.dailyHardLimit}` : '?';
       return `${name} daily target/hard limit ${from} -> ${action.dailyTarget}/${action.dailyHardLimit}`;
     }
@@ -152,11 +167,11 @@ export function summariseAction(action: AgentAction, ctx: Pick<PolicyContext, 's
     case 'adjust_hard_ai_spend_cap':
       return `hard AI spend cap £${settings.hardAiSpendGbpPerDay} -> £${action.value}/day`;
     case 'set_campaign_status':
-      return `campaign ${action.campaignId} -> ${action.value}`;
+      return `campaign ${cleanText(action.campaignId)} -> ${action.value}`;
     case 'create_campaign_draft':
-      return `create draft campaign "${action.name}"`;
+      return `create draft campaign "${cleanText(action.name)}"`;
     case 'retry_stuck_publication':
-      return `retry stuck publication ${action.candidateId}`;
+      return `retry stuck publication ${cleanText(action.candidateId)}`;
     case 'pause_bot':
     case 'emergency_stop_bot':
       return action.kind.replace(/_/g, ' ');
@@ -188,6 +203,7 @@ export function decideRecommendations(items: AgentActionRecord[], ctx: PolicyCon
       action: item.action,
       summary: summariseAction(item.action, ctx),
       fingerprint: fingerprintOf(item.action),
+      topic: supersedeKey(item.action),
     };
     const verdict = (decision: OperatorDecision, rule: PolicyRule, reason: string): PolicyVerdict => ({
       ...base,

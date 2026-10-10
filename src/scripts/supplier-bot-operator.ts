@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import { railwayObservationSchema } from '../operator/assess.js';
-import { ControlClient } from '../operator/client.js';
+import { assertSafeControlUrl, ControlClient } from '../operator/client.js';
 import { loadPreviousRun, renderMarkdown, runOperator, writeRunLog } from '../operator/run.js';
 
 // Boots-on-the-ground operator for the deployed bot. Reads the live Control
@@ -28,9 +28,7 @@ async function main(): Promise<number> {
   const adminKey = process.env.CONTROL_ADMIN_KEY;
   if (!baseUrl) throw new Error('Pass --url or set SUPPLIER_BOT_CONTROL_URL');
   if (!adminKey) throw new Error('CONTROL_ADMIN_KEY is not set');
-  if (!/^https:\/\//.test(baseUrl) && !/^http:\/\/(localhost|127\.0\.0\.1)/.test(baseUrl)) {
-    throw new Error('Refusing to send the admin key over a non-HTTPS URL');
-  }
+  assertSafeControlUrl(baseUrl);
 
   const logDir = values['log-dir'] ?? 'docs/operator-runs';
   const railway = values['railway-json']
