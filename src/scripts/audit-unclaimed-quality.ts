@@ -248,6 +248,33 @@ export function auditControlBlockReason(settings: Awaited<ReturnType<typeof getS
   return null;
 }
 
+// One compact, single-line-loggable summary of a run. The full pretty-printed
+// JSON written to stdout gets interleaved line by line in hosted log viewers
+// (Railway), so this is also emitted as a single structured log entry.
+export function summarizeRun(
+  totals: { totalPublished: number; totalNeedingWork: number },
+  audited: SupplierAuditResult[],
+): Record<string, unknown> {
+  const outcomes: Record<string, number> = {};
+  for (const result of audited) {
+    outcomes[result.outcome] = (outcomes[result.outcome] ?? 0) + 1;
+  }
+  return {
+    totalPublished: totals.totalPublished,
+    totalNeedingWork: totals.totalNeedingWork,
+    audited: audited.length,
+    fixedSuppliers: audited.filter(result => result.fixed.length > 0).length,
+    outcomes,
+    suppliers: audited.map(result => ({
+      supplierId: result.supplierId,
+      website: result.website,
+      outcome: result.outcome,
+      fixed: result.fixed,
+      reasons: [...new Set([...(result.reason ? [result.reason] : []), ...result.skipped.map(item => item.reason)])],
+    })),
+  };
+}
+
 export async function main(): Promise<void> {
   const settings = await getSettings();
   const blockReason = auditControlBlockReason(settings);
@@ -298,6 +325,11 @@ export async function main(): Promise<void> {
       break;
     }
   }
+
+  logger.info(
+    summarizeRun(queueResult, audited),
+    'Unclaimed quality audit: run summary',
+  );
 
   process.stdout.write(
     `${JSON.stringify(
