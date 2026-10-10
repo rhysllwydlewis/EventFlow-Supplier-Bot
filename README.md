@@ -32,3 +32,5 @@ npm run start:worker
 Default operating posture is Shadow mode, stopped, with publication/outreach/SEO indexing disabled.
 
 See `docs/PHASE1_COMPLETE.md`, `docs/CRAWLER_POLICY.md` and `docs/RAILWAY_SETUP.md` for the operating and deployment contracts.
+
+See `docs/OPERATOR.md` for the daily operator that monitors the deployed bot and works its approval queue (`npm run operator`).
