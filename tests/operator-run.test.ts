@@ -165,6 +165,23 @@ describe('runOperator', () => {
     expect(log.notifyOwner.needed).toBe(true);
   });
 
+  it('a run that could not read the bot shows no settings and is not used as the next baseline', async () => {
+    const good = await runOperator(asClient(new FakeClient({ status: status({ publishingEnabled: false }) })), 'https://bot.example', opts(true));
+    await writeRunLog(good, null, dir);
+    const failed = await runOperator(asClient(new FakeClient({ loginError: new ControlApiError('login rejected', 401) })), 'https://bot.example', opts(true, { now: () => NOW + 3_600_000 }));
+    expect(failed.settings).toBeNull();
+    expect(renderMarkdown(failed, good)).toContain('could not be read');
+    expect(renderMarkdown(failed, good)).not.toContain('Supervisor:');
+    await writeRunLog(failed, good, dir);
+    expect((await loadPreviousRun(dir))?.runId).toBe(good.runId);
+  });
+
+  it('warns when the pending list may have been truncated', async () => {
+    const items = Array.from({ length: 200 }, (_, i) => pending(`s${i}`, { kind: 'adjust_daily_hard_limit', value: 100 + i, reason: 'r' }, i + 1));
+    const log = await runOperator(asClient(new FakeClient({ items })), 'https://bot.example', opts(false));
+    expect(log.findings.map(item => item.code)).toContain('recommendations_truncated');
+  });
+
   it('records a Railway deployment failure as an alert', async () => {
     const railway = { checkedAt: new Date(NOW).toISOString(), services: [{ name: 'supplier-bot-worker', status: 'CRASHED' }] };
     const log = await runOperator(asClient(new FakeClient()), 'https://bot.example', opts(false, { railway }));

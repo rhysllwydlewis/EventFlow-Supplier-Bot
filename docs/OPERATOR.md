@@ -112,8 +112,11 @@ plateaus the supervisor proposes a slightly different scope every cycle, and
 each of those must not count as a new decision. Otherwise the run is silent
 apart from the log.
 
-Only *applied* runs (`--apply`) count as the previous run. A dry run never
-told the owner anything, so it must not suppress the next real notification.
+Only *applied* runs (`--apply`) that actually read the bot count as the
+previous run. A dry run never told the owner anything, so it must not suppress
+the next real notification; a run that could not log in or read the API holds
+no settings to compare against, so it is skipped as a baseline (its log shows
+no settings rather than stale ones).
 
 ## Daily routine
 

@@ -10,6 +10,7 @@ export const RUN_LOG_SCHEMA_VERSION = 1;
 // can at worst loosen this many things before a human sees the log.
 export const MAX_APPROVALS_PER_RUN = 3;
 const OWNER_REMINDER_DAYS = 7;
+const PENDING_FETCH_LIMIT = 200;
 
 export interface RecommendationOutcome {
   applied: boolean;
@@ -66,9 +67,11 @@ export function runIdFor(ms: number): string {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z').replace(/:/g, '');
 }
 
-// The newest *applied* run. A dry run (a person poking at it) must not become
-// the baseline: it never told the owner anything, so using it would suppress
-// the next real run's "new decision" notification.
+// The newest *applied* run that actually read the bot. A dry run (a person
+// poking at it) must not become the baseline: it never told the owner anything,
+// so using it would suppress the next real run's "new decision" notification.
+// A run that could not read the bot (settings null) holds no state worth
+// comparing against either.
 export async function loadPreviousRun(logDir: string): Promise<RunLog | null> {
   let names: string[];
   try {
@@ -79,7 +82,7 @@ export async function loadPreviousRun(logDir: string): Promise<RunLog | null> {
   for (const name of names.reverse()) {
     try {
       const parsed = JSON.parse(await readFile(join(logDir, name), 'utf8')) as RunLog;
-      if (parsed.schemaVersion === RUN_LOG_SCHEMA_VERSION && parsed.applied) return parsed;
+      if (parsed.schemaVersion === RUN_LOG_SCHEMA_VERSION && parsed.applied && parsed.settings) return parsed;
     } catch {
       // Skip unreadable files; fall back to the next-newest.
     }
@@ -149,8 +152,8 @@ function failureLog(
   return {
     ...base,
     finishedAt: new Date().toISOString(),
-    botVersion: previous?.botVersion ?? null,
-    settings: previous?.settings ?? null,
+    botVersion: null,
+    settings: null,
     supervisor: { lastCycleAt: null, lastKind: null, lastSkippedReason: null },
     queues: {},
     metrics: {},
@@ -198,7 +201,7 @@ export async function runOperator(client: ControlClient, baseUrl: string, option
         client.compliance().catch(() => null),
         client.campaigns(),
         client.agentLog(10),
-        client.pendingRecommendations(200),
+        client.pendingRecommendations(PENDING_FETCH_LIMIT),
       ]);
     } catch (error) {
       if (!(error instanceof ControlApiError)) throw error;
@@ -258,6 +261,13 @@ export async function runOperator(client: ControlClient, baseUrl: string, option
       railway,
       previousSettings: previous?.settings ?? null,
     });
+    if (pending.length >= PENDING_FETCH_LIMIT) {
+      findings.push({
+        severity: 'warn',
+        code: 'recommendations_truncated',
+        message: `${PENDING_FETCH_LIMIT} pending recommendations fetched; there may be more not handled this run`,
+      });
+    }
     const notifyOwner = decideNotify(findings, ownerQueue, previous, nowMs);
     const latest = agentLog[0];
 
@@ -305,7 +315,10 @@ export function renderMarkdown(log: RunLog, previous: RunLog | null): string {
       if (changes.length) lines.push(`- Changed since last run: ${changes.join('; ')}`);
     }
   }
-  lines.push(`- Supervisor: last cycle ${log.supervisor.lastCycleAt ?? 'never'} (${log.supervisor.lastKind ?? 'n/a'}${log.supervisor.lastSkippedReason ? `, skipped: ${log.supervisor.lastSkippedReason}` : ''})`);
+  if (!log.settings) lines.push('- The bot could not be read this run (see findings); no settings, queue or supervisor data below.');
+  if (log.settings) {
+    lines.push(`- Supervisor: last cycle ${log.supervisor.lastCycleAt ?? 'never'} (${log.supervisor.lastKind ?? 'n/a'}${log.supervisor.lastSkippedReason ? `, skipped: ${log.supervisor.lastSkippedReason}` : ''})`);
+  }
   if (log.compliance) {
     const c = log.compliance;
     lines.push(`- Compliance: ${c.totalProfiles} profiles, ${c.publicationEligible} publication-eligible, ${c.review} in review, ${c.blocked} blocked, ${c.seoReady} SEO-ready`);
