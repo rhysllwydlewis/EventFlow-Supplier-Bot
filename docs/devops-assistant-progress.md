@@ -600,3 +600,11 @@ branches since. No unchecked backlog items; no sweep started — nothing
 changed to re-sweep against. "Discovered" smells (`safe-fetch.ts`,
 `image-extractor.ts` cross-host) still left alone for a human call. Stayed
 away from nothing.
+
+## 2026-10-10 — quiet cycle
+
+Main still at a97ef13 (PR #86, 2026-10-07); no open PRs, no new commits or
+branches since. No unchecked backlog items; no sweep started — nothing
+changed to re-sweep against. "Discovered" smells (`safe-fetch.ts`,
+`image-extractor.ts` cross-host) still left alone for a human call. Stayed
+away from nothing.
