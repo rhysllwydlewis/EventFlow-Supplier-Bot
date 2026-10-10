@@ -44,6 +44,47 @@ describe('supplier discovery quality gate', () => {
     }
   });
 
+  it('rejects the directory/aggregator/media domains found in the published unclaimed audit queue', () => {
+    for (const url of [
+      'https://designmynight.com/cardiff/best-private-hire-venues-cardiff',
+      'https://poptop.uk.com/cardiff/suppliers/catering/weddingcatering',
+      'https://wedding-caterers.co.uk/near-me/cardiff',
+      'https://event-caterers.co.uk/near-me/swansea',
+      'https://event-catering.uk/near-me/swansea',
+      'https://ukweddingservices.com/wedding-caterers/cardiff',
+      'https://hirespace.com/GB/Cardiff-Venue-Hire',
+      'https://wedissimo.com/wedding-photographers/wales',
+      'https://encoremusicians.com/hire/entertainers/swansea',
+      'https://ewegottalove.com/venues-in-wales',
+      'https://guides.ticketmaster.co.uk/city-guides/cardiff',
+      'https://southwalesguardian.co.uk/leisure',
+      'https://celticenglish.co.uk/cardiff/places-to-visit-things-to-do/entertainment-and-arts',
+    ]) {
+      const decision = evaluateDiscoverySearchResult(result(url, 'Some Real Business Name'), 'Venues');
+      expect(decision.eligible, url).toBe(false);
+      expect(isKnownNonSupplierDomain(new URL(url).hostname), url).toBe(true);
+    }
+  });
+
+  it('rejects a directory listing path on an otherwise unknown domain', () => {
+    for (const url of [
+      'https://hafodfarm.co.uk/supplier-directory',
+      'https://example-farm.co.uk/directory/',
+      'https://example-caterer.co.uk/near-me/cardiff',
+    ]) {
+      expect(evaluateDiscoverySearchResult(result(url, 'Some Real Business Name'), 'Venues')).toMatchObject({
+        eligible: false,
+        reason: 'editorial_result',
+      });
+    }
+  });
+
+  it('keeps an own-site homepage on a domain that merely resembles a blocked one', () => {
+    expect(
+      evaluateDiscoverySearchResult(result('https://cardiffcateringcompany.co.uk/', 'Cardiff Catering Company'), 'Catering'),
+    ).toMatchObject({ eligible: true });
+  });
+
   it('rejects a search/venue-finder path even on a domain not explicitly blocklisted', () => {
     // The domain-blocklist entries above cover the three domains already
     // confirmed live; this is the general-purpose safety net for the same
