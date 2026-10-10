@@ -437,3 +437,10 @@ queue still blocked on credentials.
 - `MONGODB_URI` points at a Railway proxy host (`hayabusa.proxy.rlwy.net`) with no database name in the path. The script reads bot settings and writes crawl-budget counters and shadow profiles to it. A read-only listing of databases/collections to confirm it is the bot's own database was denied by the permission classifier, and I did not work around that. Same unresolved question as the 2026-09-16 entry.
 - Nothing fetched from the audit queue, nothing re-crawled, nothing written; no crawl budget spent.
 - **Still open:** provide `REDIS_URL`, `CONTROL_ADMIN_KEY` and `CONTROL_SESSION_SECRET` (or make `env.ts` not require them for scripts — a reasonable small code fix for a future session), and confirm `MONGODB_URI` targets the bot's database. Then run `npm run audit:unclaimed-quality`.
+
+**2026-10-10 (third run, scheduled, unattended)** — All env vars present; live run blocked on MongoDB reachability.
+
+- `git log --all` shows only this routine's own entries and dev-ops handoff updates; no open PRs; nothing mid-iteration in this area.
+- **New:** `EVENTFLOW_BOT_HMAC_SECRET`, `REDIS_URL`, `CONTROL_ADMIN_KEY`, `CONTROL_SESSION_SECRET`, `EVENTFLOW_INTERNAL_BASE_URL` and `MONGODB_URI` are all set now; env validation passes.
+- Built `dist/` and ran `npm run audit:unclaimed-quality`: it fails in `getSettings()` with `MongoServerSelectionError: Server selection timed out after 10000 ms` — this sandbox cannot reach the `MONGODB_URI` host (Railway TCP proxy; the sandbox only has an HTTPS agent proxy). The run gate reads bot settings from Mongo first, so nothing was fetched from the audit queue, re-crawled or written; no crawl budget spent.
+- **Still open:** either run this routine in an environment with raw TCP egress to the bot's MongoDB, or (code change) let the audit script obtain settings/budget state without a direct Mongo connection. The 2026-09-16 question of whether `MONGODB_URI` targets the bot's own DB (`BOT_DB_NAME` defaults to `eventflow_supplier_bot`) also remains unconfirmed.
