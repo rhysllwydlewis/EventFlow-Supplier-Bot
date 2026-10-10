@@ -44,25 +44,18 @@ describe('supplier discovery quality gate', () => {
     }
   });
 
-  it('rejects the directory/aggregator/media domains found in the published unclaimed audit queue', () => {
+  it('does not blanket-block supplier-directory domains: a single-business profile page there is a usable source', () => {
+    // Owner decision 2026-10-10: directory sites (PopTop, DesignMyNight, ...)
+    // are legitimate data sources for suppliers with no site of their own.
+    // Only listing/search/roundup pages (rejected by path or title) are out.
     for (const url of [
-      'https://designmynight.com/cardiff/best-private-hire-venues-cardiff',
-      'https://poptop.uk.com/cardiff/suppliers/catering/weddingcatering',
-      'https://wedding-caterers.co.uk/near-me/cardiff',
-      'https://event-caterers.co.uk/near-me/swansea',
-      'https://event-catering.uk/near-me/swansea',
-      'https://ukweddingservices.com/wedding-caterers/cardiff',
-      'https://hirespace.com/GB/Cardiff-Venue-Hire',
-      'https://wedissimo.com/wedding-photographers/wales',
-      'https://encoremusicians.com/hire/entertainers/swansea',
-      'https://ewegottalove.com/venues-in-wales',
-      'https://guides.ticketmaster.co.uk/city-guides/cardiff',
-      'https://southwalesguardian.co.uk/leisure',
-      'https://celticenglish.co.uk/cardiff/places-to-visit-things-to-do/entertainment-and-arts',
+      'https://poptop.uk.com/cardiff/suppliers/some-caterer',
+      'https://designmynight.com/cardiff/bars/some-venue',
     ]) {
-      const decision = evaluateDiscoverySearchResult(result(url, 'Some Real Business Name'), 'Venues');
-      expect(decision.eligible, url).toBe(false);
-      expect(isKnownNonSupplierDomain(new URL(url).hostname), url).toBe(true);
+      expect(evaluateDiscoverySearchResult(result(url, 'Some Real Business Name'), 'Venues')).toMatchObject({
+        eligible: true,
+      });
+      expect(isKnownNonSupplierDomain(new URL(url).hostname), url).toBe(false);
     }
   });
 

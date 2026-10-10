@@ -52,23 +52,6 @@ const BLOCKED_DISCOVERY_DOMAINS = [
   'britainsfinest.co.uk',
   'meetnorthwales.co.uk',
   'meetcardiff.com',
-  // Supplier-directory / marketplace / listings / media sites confirmed in
-  // the published unclaimed-profile audit queue (2026-10-10): a recrawl of
-  // each can never find that business's own phone/photos because the page
-  // describes many other businesses. None is a supplier itself.
-  'designmynight.com',
-  'poptop.uk.com',
-  'wedding-caterers.co.uk',
-  'event-caterers.co.uk',
-  'event-catering.uk',
-  'ukweddingservices.com',
-  'hirespace.com',
-  'wedissimo.com',
-  'encoremusicians.com',
-  'ewegottalove.com',
-  'ticketmaster.co.uk',
-  'southwalesguardian.co.uk',
-  'celticenglish.co.uk',
 ] as const;
 
 // Government and public-body domains are never a commercial wedding supplier,
