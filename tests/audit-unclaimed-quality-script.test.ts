@@ -24,7 +24,7 @@ vi.mock('../src/services/eventflow-quality-audit.service.js', () => ({ fetchAudi
 const recordAuditEvent = vi.fn().mockResolvedValue(undefined);
 vi.mock('../src/repositories/audit.repository.js', () => ({ recordAuditEvent }));
 
-const { auditOneSupplier, activeGapNames, auditControlBlockReason, main } = await import(
+const { auditOneSupplier, activeGapNames, auditControlBlockReason, summarizeRun, main } = await import(
   '../src/scripts/audit-unclaimed-quality.js'
 );
 
@@ -463,6 +463,55 @@ describe('auditOneSupplier', () => {
     expect(result.outcome).toBe('skipped');
     expect(result.reason).toBe('refresh_failed: eventflow_http_500');
     expect(saveShadowProfile).not.toHaveBeenCalled();
+  });
+});
+
+describe('summarizeRun', () => {
+  it('counts outcomes and collapses skip reasons into one compact record per supplier', () => {
+    const summary = summarizeRun({ totalPublished: 171, totalNeedingWork: 28 }, [
+      {
+        supplierId: 's1',
+        candidateId: 'c1',
+        website: 'https://a.example/',
+        gapsTargeted: ['missingPhone'],
+        fixed: [],
+        skipped: [
+          { field: 'publicPhone', reason: 'no_phone_number_found_on_recrawl' },
+          { field: 'tags', reason: 'no_phone_number_found_on_recrawl' },
+        ],
+        outcome: 'no_real_fix_found',
+      },
+      {
+        supplierId: 's2',
+        candidateId: 'c2',
+        website: 'https://b.example/',
+        gapsTargeted: ['missingTags'],
+        fixed: ['tags'],
+        skipped: [],
+        outcome: 'refreshed',
+      },
+      {
+        supplierId: 's3',
+        candidateId: null,
+        website: 'https://c.example/',
+        gapsTargeted: [],
+        fixed: [],
+        skipped: [],
+        outcome: 'skipped',
+        reason: 'no_candidate_id',
+      },
+    ]);
+
+    expect(summary).toMatchObject({
+      totalPublished: 171,
+      totalNeedingWork: 28,
+      audited: 3,
+      fixedSuppliers: 1,
+      outcomes: { no_real_fix_found: 1, refreshed: 1, skipped: 1 },
+    });
+    const suppliers = summary.suppliers as Array<{ supplierId: string; reasons: string[] }>;
+    expect(suppliers[0]?.reasons).toEqual(['no_phone_number_found_on_recrawl']);
+    expect(suppliers[2]?.reasons).toEqual(['no_candidate_id']);
   });
 });
 
