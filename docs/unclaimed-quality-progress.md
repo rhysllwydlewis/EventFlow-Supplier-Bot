@@ -104,6 +104,13 @@ supplier's site has materially changed in a way that suggests the whole
 profile (not just a missing photo) may now be wrong — flag that in the
 backlog for a human rather than guessing.
 
+## Owner clarifications (2026-10-10) — these override earlier assumptions
+
+- **Unclaimed profiles are the point.** Having many unclaimed, reasonably complete profiles is the intended function (a head start for suppliers who later claim them, and more content for the site). Never unpublish or alter a profile merely because it is unclaimed or incomplete — improve it.
+- **Job = raise quality of low-quality unclaimed profiles:** fill missing cover/gallery/profile photos, missing info, and (new scope) packages that can be created from real information on the supplier's own website, always within EventFlow's existing structure and the never-invent rule.
+- **Second job = fine line of defence.** EventFlow is a UK site. A profile that is clearly wrong — not in the UK, not a real supplier, or otherwise should not exist — may be removed (unpublish via the signed `/suppliers/<id>/unpublish` endpoint) without asking. Verify on the supplier's own site first and put the evidence in the unpublish reason and the session log. When it is merely incomplete, fix it; when unsure whether it is wrong, leave it and log it.
+- Directory/aggregator pages published as a "supplier" website (see 2026-10-10 follow-up) are *not yet* covered by this authority — owner has not said to remove them; leave them and ask.
+
 ## Backlog
 
 - [x] First run: build the audit-queue service + `audit-unclaimed-quality.ts`
@@ -132,7 +139,8 @@ backlog for a human rather than guessing.
       [#68](https://github.com/rhysllwydlewis/EventFlow-Supplier-Bot/pull/68).
       **Not yet exercised against the live queue** — same credentials gap
       as the rest of this routine, see today's session log.
-- [ ] Run `npm run audit:unclaimed-quality` for real once the deployed
+- [ ] New scope: build packages from real info on a supplier's own site where a profile has none/too few (needs design: extraction + EventFlow package schema; never invent prices).
+- [x] (done 2026-10-10 via Railway cron service) Run `npm run audit:unclaimed-quality` for real once the deployed
       environment's credentials are available in whatever session picks this
       up, and log the actual results here.
 
@@ -466,3 +474,5 @@ queue still blocked on credentials.
 - Real supplier sites with a genuinely missing phone (e.g. photographers' own sites) still ended `no_real_fix_found` — their pages may show no phone at all; nothing to write.
 
 **2026-10-10 (discovery fix)** — Merged [#88](https://github.com/rhysllwydlewis/EventFlow-Supplier-Bot/pull/88): 13 directory/aggregator/media domains added to the discovery + publication-time block list, and `directory`/`supplier-directory`/`near-me` added as rejected path segments. This stops *new* directory pages being published. **Existing published profiles from those domains are still live** (owner decision pending: unpublish via the existing unpublish path / `live-listing-remediation.service.ts`). `cassowary.cafe` (NSW, Australia) is not covered — needs a geography check, not a domain block.
+
+**2026-10-10 (defence-line removal)** — Unpublished `sup_bot_e8b8f3e0f67d7a7b7a21af28` (Cassowary Cafe, cassowary.cafe/catering-swansea-nsw): its own page shows Lake Macquarie/Swansea NSW, Australia, an (02) phone number — not a UK business. EventFlow returned 200 `{success:true}`. Done with a direct signed call (sandbox cannot reach Mongo), so **bot-side candidate status/audit bookkeeping was not updated** — a future run with Mongo access should mark that candidate rejected so it isn't republished (the new discovery gates don't check geography).
