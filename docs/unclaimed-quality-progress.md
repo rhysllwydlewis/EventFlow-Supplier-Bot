@@ -428,3 +428,12 @@ queue still blocked on credentials.
   fetched, re-crawled or written; no crawl budget spent.
 - **Still open**: provide `EVENTFLOW_BOT_HMAC_SECRET` to this routine's
   environment, then run `npm run audit:unclaimed-quality`.
+
+**2026-10-10 (second run, scheduled, unattended)** — Credential gap partly closed; live run still not possible.
+
+- `git log --all` shows only this routine's own earlier entry and a dev-ops handoff update; no open PRs; nothing mid-iteration in this area.
+- **New:** `EVENTFLOW_BOT_HMAC_SECRET` is now present in the environment (first time in 12 runs), alongside `EVENTFLOW_INTERNAL_BASE_URL`, `EVENTFLOW_OPS_BOT_HMAC_SECRET` and `MONGODB_URI`.
+- Built `dist/` and ran `npm run audit:unclaimed-quality`. It exits immediately at env validation: `REDIS_URL`, `CONTROL_ADMIN_KEY` and `CONTROL_SESSION_SECRET` are required by `src/config/env.ts` and are not set here. None are used by the audit path itself, but I did not invent placeholder values to get past validation.
+- `MONGODB_URI` points at a Railway proxy host (`hayabusa.proxy.rlwy.net`) with no database name in the path. The script reads bot settings and writes crawl-budget counters and shadow profiles to it. A read-only listing of databases/collections to confirm it is the bot's own database was denied by the permission classifier, and I did not work around that. Same unresolved question as the 2026-09-16 entry.
+- Nothing fetched from the audit queue, nothing re-crawled, nothing written; no crawl budget spent.
+- **Still open:** provide `REDIS_URL`, `CONTROL_ADMIN_KEY` and `CONTROL_SESSION_SECRET` (or make `env.ts` not require them for scripts — a reasonable small code fix for a future session), and confirm `MONGODB_URI` targets the bot's database. Then run `npm run audit:unclaimed-quality`.
