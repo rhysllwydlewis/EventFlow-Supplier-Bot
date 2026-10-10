@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   evaluateDiscoverySearchResult,
+  isClearlyNonUk,
   isKnownNonSupplierDomain,
   isVenueCategoryContentMismatch,
 } from '../src/services/discovery-result-quality.service.js';
@@ -248,5 +249,20 @@ describe('supplier discovery quality gate', () => {
       eligible: false,
       reason: 'invalid_url',
     });
+  });
+
+  it('rejects clearly non-UK results by TLD or explicit foreign place, but not UK places that share a name', () => {
+    expect(
+      evaluateDiscoverySearchResult(result('https://cassowary.com.au/catering', 'Catering Swansea NSW'), 'Catering'),
+    ).toMatchObject({ eligible: false, reason: 'non_uk' });
+    expect(
+      evaluateDiscoverySearchResult(result('https://cassowary.cafe/catering-swansea-nsw', 'Catering Swansea NSW | Cassowary Cafe'), 'Catering'),
+    ).toMatchObject({ eligible: false, reason: 'non_uk' });
+    expect(
+      evaluateDiscoverySearchResult(result('https://example-caterer.co.uk/', 'Weddings in Canada Water, London'), 'Catering'),
+    ).toMatchObject({ eligible: true });
+    expect(isClearlyNonUk({ phone: '+1 555 0100' })).toBe(true);
+    expect(isClearlyNonUk({ phone: '+44 7700 900000' })).toBe(false);
+    expect(isClearlyNonUk({ phone: '029 2000 0000' })).toBe(false);
   });
 });
