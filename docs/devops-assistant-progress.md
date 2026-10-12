@@ -608,3 +608,23 @@ branches since. No unchecked backlog items; no sweep started — nothing
 changed to re-sweep against. "Discovered" smells (`safe-fetch.ts`,
 `image-extractor.ts` cross-host) still left alone for a human call. Stayed
 away from nothing.
+
+## 2026-10-12 — quiet cycle (main is live again)
+
+Branch's last PR (#86) had merged; this branch carried only handoff-note
+commits, so I merged `origin/main` into it (no force-push). Main moved a lot on
+2026-10-10 (#87–#92: audit run-summary, directory-domain discovery changes,
+single-business source resolver, clear-non-UK gate, operator + approval-queue
+policy) — fresh manual work in discovery/compliance/operator, so I stayed out
+of all of it. No open PRs.
+
+Findings: `npm run check` is green on main (lint/typecheck/565 tests/build,
+`npm audit --omit=dev` = 0 vulns) **only when `CONTROL_SESSION_SECRET`,
+`CONTROL_ADMIN_KEY`, `EVENTFLOW_INTERNAL_BASE_URL`, `EVENTFLOW_BOT_HMAC_SECRET`
+and `EVENTFLOW_OPS_BOT_HMAC_SECRET` are unset**. This routine's sandbox has
+them set, which makes `tests/auth.test.ts` (5 tests) and
+`tests/eventflow-supplier-lookup-unconfigured.test.ts` (1 test) fail — an
+environment leak, not a code bug. Candidate hardening for a future cycle: have
+those tests delete/stub the env vars themselves so they're hermetic. Not done
+now (small, but the operator/lookup area was just touched by manual work).
+Nothing merged apart from this note.
