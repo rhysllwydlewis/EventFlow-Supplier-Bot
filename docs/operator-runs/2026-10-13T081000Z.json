@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "runId": "2026-10-13T081000Z",
+  "startedAt": "2026-10-13T08:10:00.767Z",
+  "applied": true,
+  "controlHost": "supplier-bot-control-production.up.railway.app",
+  "railway": {
+    "checkedAt": "2026-10-13T08:10:00.000Z",
+    "services": [
+      {
+        "name": "supplier-bot-control",
+        "status": "SUCCESS",
+        "commit": "148a2d1d",
+        "deployedAt": "2026-10-13T06:23:02.767Z"
+      },
+      {
+        "name": "supplier-bot-worker",
+        "status": "SUCCESS",
+        "commit": "148a2d1d",
+        "deployedAt": "2026-10-13T06:23:02.768Z"
+      }
+    ],
+    "recentErrors": {
+      "count": 0,
+      "windowHours": 24,
+      "samples": []
+    },
+    "notes": [
+      "Only error-level lines were npm SIGTERM/notice output at container shutdown during the 06:25 redeploy (routine, 10 lines per service, ignored). Worker log fetch hit the 500-line cap so covered only ~06:00-08:05 UTC."
+    ]
+  },
+  "finishedAt": "2026-10-13T08:10:01.673Z",
+  "botVersion": "0.8.0",
+  "settings": {
+    "id": "global",
+    "mode": "live",
+    "runState": "running",
+    "discoveryEnabled": true,
+    "publishingEnabled": true,
+    "refreshEnabled": true,
+    "claimNoticesEnabled": true,
+    "marketingEnabled": false,
+    "seoIndexingEnabled": true,
+    "dailyTarget": 10,
+    "dailyHardLimit": 30,
+    "maxCrawlsPerDay": 100,
+    "minimumPublicationQuality": 75,
+    "softAiSpendGbpPerDay": 5,
+    "hardAiSpendGbpPerDay": 10,
+    "activeCampaignId": "campaign_south_wales_venues_pilot",
+    "updatedAt": "2026-10-05T17:23:31.709Z",
+    "updatedBy": "ai-supervisor"
+  },
+  "supervisor": {
+    "lastCycleAt": "2026-10-13T05:23:31.369Z",
+    "lastKind": "ai_cycle",
+    "lastSkippedReason": null
+  },
+  "queues": {
+    "orchestration": {
+      "waiting": 0,
+      "failed": 1
+    },
+    "discovery": {
+      "waiting": 0,
+      "failed": 8
+    },
+    "crawl": {
+      "waiting": 0,
+      "failed": 24
+    },
+    "browserCrawl": {
+      "waiting": 0,
+      "failed": 1
+    },
+    "extraction": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "enrichment": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "compliance": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "composition": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "quality": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "publication": {
+      "waiting": 0,
+      "failed": 150
+    },
+    "refresh": {
+      "waiting": 0,
+      "failed": 0
+    }
+  },
+  "metrics": {
+    "candidatesToday": 0,
+    "crawlsToday": 0,
+    "aiReservedGbp": 0.1,
+    "aiCallsToday": 1,
+    "aiInputTokensToday": 2779,
+    "aiOutputTokensToday": 412,
+    "aiEstimatedCostGbpToday": 0.025528,
+    "braveSearchesToday": 3,
+    "braveResultsSeenToday": 0
+  },
+  "compliance": {
+    "totalProfiles": 369,
+    "assessed": 369,
+    "pending": 0,
+    "publicationEligible": 197,
+    "review": 29,
+    "blocked": 158,
+    "seoReady": 182
+  },
+  "findings": [],
+  "recommendations": [],
+  "counts": {
+    "pending": 0,
+    "approved": 0,
+    "dismissed": 0,
+    "escalated": 0
+  },
+  "ownerQueue": [],
+  "notifyOwner": {
+    "needed": false,
+    "reasons": []
+  },
+  "lastOwnerNotifiedAt": "2026-10-10T12:00:15.860Z"
+}
