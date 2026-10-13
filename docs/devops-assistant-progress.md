@@ -584,3 +584,56 @@ moderate), all fixed by a lockfile-only `npm audit fix` (PR #85). Remaining
 dead-branch smell and the `image-extractor.ts` cross-host question in
 "Discovered" remain open and were left alone (crawler safety code; wants a
 human call). Stayed away from nothing.
+
+## 2026-10-08 — quiet cycle
+
+Main at a97ef13 (PR #86, 2026-10-07); no open PRs, no new commits since.
+Lint, typecheck and full suite (63 files, 467 tests) clean. No unchecked
+backlog items; no new sweep target found. Still-open smells in "Discovered"
+(`safe-fetch.ts`, `image-extractor.ts` cross-host) left alone — crawler
+safety code wanting a human call. Stayed away from nothing.
+
+## 2026-10-09 — quiet cycle
+
+Main still at a97ef13 (PR #86, 2026-10-07); no open PRs, no new commits or
+branches since. No unchecked backlog items; no sweep started — nothing
+changed to re-sweep against. "Discovered" smells (`safe-fetch.ts`,
+`image-extractor.ts` cross-host) still left alone for a human call. Stayed
+away from nothing.
+
+## 2026-10-10 — quiet cycle
+
+Main still at a97ef13 (PR #86, 2026-10-07); no open PRs, no new commits or
+branches since. No unchecked backlog items; no sweep started — nothing
+changed to re-sweep against. "Discovered" smells (`safe-fetch.ts`,
+`image-extractor.ts` cross-host) still left alone for a human call. Stayed
+away from nothing.
+
+## 2026-10-12 — quiet cycle (main is live again)
+
+Branch's last PR (#86) had merged; this branch carried only handoff-note
+commits, so I merged `origin/main` into it (no force-push). Main moved a lot on
+2026-10-10 (#87–#92: audit run-summary, directory-domain discovery changes,
+single-business source resolver, clear-non-UK gate, operator + approval-queue
+policy) — fresh manual work in discovery/compliance/operator, so I stayed out
+of all of it. No open PRs.
+
+Findings: `npm run check` is green on main (lint/typecheck/565 tests/build,
+`npm audit --omit=dev` = 0 vulns) **only when `CONTROL_SESSION_SECRET`,
+`CONTROL_ADMIN_KEY`, `EVENTFLOW_INTERNAL_BASE_URL`, `EVENTFLOW_BOT_HMAC_SECRET`
+and `EVENTFLOW_OPS_BOT_HMAC_SECRET` are unset**. This routine's sandbox has
+them set, which makes `tests/auth.test.ts` (5 tests) and
+`tests/eventflow-supplier-lookup-unconfigured.test.ts` (1 test) fail — an
+environment leak, not a code bug. Candidate hardening for a future cycle: have
+those tests delete/stub the env vars themselves so they're hermetic. Not done
+now (small, but the operator/lookup area was just touched by manual work).
+Nothing merged apart from this note.
+
+## 2026-10-13 — hermetic test env
+
+Main moved again this morning (#93, audit queue rotation — manual work; stayed
+out of the audit area). No open PRs. Did the hardening noted on 2026-10-12:
+`tests/setup-env.ts` now forces `CONTROL_ADMIN_KEY`/`CONTROL_SESSION_SECRET`
+to test values and deletes the three `EVENTFLOW_*` integration vars, so
+`npm run check` is green (568 tests) even when the host env has them set.
+Test-only change; no safety/compliance code touched.
