@@ -5,7 +5,7 @@ import { extractBasicFacts } from '../extraction/basic-extractor.js';
 import { extractStructuredBusinessFacts } from '../extraction/structured-data.js';
 import { closeMongo } from '../lib/mongo.js';
 import { logger } from '../lib/logger.js';
-import { recordAuditEvent } from '../repositories/audit.repository.js';
+import { listAuditEventsByAction, recordAuditEvent } from '../repositories/audit.repository.js';
 import { getSettings } from '../repositories/settings.repository.js';
 import { getShadowProfile, saveShadowProfile } from '../repositories/shadow-profile.repository.js';
 import { getTodayCrawlCount, tryClaimDailyCrawlSlot } from '../services/crawl-budget.service.js';
@@ -376,6 +376,36 @@ export function summarizeRun(
   };
 }
 
+// A supplier whose last audit ended with nothing real to write (or a
+// non-transient skip) would otherwise sit at the front of the worst-first
+// queue and be re-crawled every day, starving everything behind it. Park it
+// for a week. Transient skips (budget ceilings, search outages) are retried.
+export const AUDIT_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const TRANSIENT_SKIP_REASON = /^(source_search_failed|refresh_failed|daily_)/;
+
+export function cooldownSupplierIds(
+  events: Array<{ createdAt: string; details: Record<string, unknown> }>,
+  now: number = Date.now(),
+): string[] {
+  const ids = new Set<string>();
+  const seen = new Set<string>();
+  // Newest first (as listAuditEventsByAction returns): only a supplier's
+  // latest audit decides whether it is parked.
+  const newestFirst = [...events].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  for (const event of newestFirst) {
+    const at = Date.parse(event.createdAt);
+    if (!Number.isFinite(at) || now - at > AUDIT_COOLDOWN_MS) continue;
+    const { supplierId, outcome, reason } = event.details;
+    if (typeof supplierId !== 'string' || !supplierId || seen.has(supplierId)) continue;
+    seen.add(supplierId);
+    const parked =
+      outcome === 'no_real_fix_found' ||
+      (outcome === 'skipped' && !(typeof reason === 'string' && TRANSIENT_SKIP_REASON.test(reason)));
+    if (parked) ids.add(supplierId);
+  }
+  return [...ids];
+}
+
 export async function main(): Promise<void> {
   const settings = await getSettings();
   const blockReason = auditControlBlockReason(settings);
@@ -399,7 +429,12 @@ export async function main(): Promise<void> {
     return;
   }
 
-  const queueResult = await fetchAuditQueue({ limit: MAX_SUPPLIERS_PER_RUN });
+  const recentEvents = await listAuditEventsByAction('quality_audit.supplier_audited', 500).catch(error => {
+    logger.warn({ error: error instanceof Error ? error.message : String(error) }, 'Unclaimed quality audit: could not read audit history, no cooldown this run');
+    return [];
+  });
+  const excludeSupplierIds = cooldownSupplierIds(recentEvents);
+  const queueResult = await fetchAuditQueue({ limit: MAX_SUPPLIERS_PER_RUN, excludeSupplierIds });
   if (queueResult.status !== 'fetched') {
     logger.warn({ queueResult }, 'Unclaimed quality audit: could not fetch audit queue, skipping cycle');
     process.stdout.write(`${JSON.stringify({ skipped: true, reason: queueResult.reason }, null, 2)}\n`);
