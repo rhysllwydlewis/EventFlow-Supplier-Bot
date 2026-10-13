@@ -628,3 +628,12 @@ environment leak, not a code bug. Candidate hardening for a future cycle: have
 those tests delete/stub the env vars themselves so they're hermetic. Not done
 now (small, but the operator/lookup area was just touched by manual work).
 Nothing merged apart from this note.
+
+## 2026-10-13 — hermetic test env
+
+Main moved again this morning (#93, audit queue rotation — manual work; stayed
+out of the audit area). No open PRs. Did the hardening noted on 2026-10-12:
+`tests/setup-env.ts` now forces `CONTROL_ADMIN_KEY`/`CONTROL_SESSION_SECRET`
+to test values and deletes the three `EVENTFLOW_*` integration vars, so
+`npm run check` is green (568 tests) even when the host env has them set.
+Test-only change; no safety/compliance code touched.
