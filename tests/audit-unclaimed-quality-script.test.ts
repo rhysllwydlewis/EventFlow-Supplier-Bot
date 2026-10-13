@@ -22,7 +22,8 @@ const refreshEventFlowSupplierData = vi.fn();
 vi.mock('../src/services/eventflow-quality-audit.service.js', () => ({ fetchAuditQueue, refreshEventFlowSupplierData }));
 
 const recordAuditEvent = vi.fn().mockResolvedValue(undefined);
-vi.mock('../src/repositories/audit.repository.js', () => ({ recordAuditEvent }));
+const listAuditEventsByAction = vi.fn().mockResolvedValue([]);
+vi.mock('../src/repositories/audit.repository.js', () => ({ recordAuditEvent, listAuditEventsByAction }));
 
 const tryClaimProviderSearch = vi.fn();
 vi.mock('../src/services/provider-usage.service.js', () => ({ tryClaimProviderSearch, recordProviderUsage: vi.fn().mockResolvedValue(undefined) }));
@@ -30,7 +31,7 @@ vi.mock('../src/services/provider-usage.service.js', () => ({ tryClaimProviderSe
 const braveSearch = vi.fn();
 vi.mock('../src/providers/discovery/index.js', () => ({ getDiscoveryProvider: () => ({ search: braveSearch }) }));
 
-const { auditOneSupplier, activeGapNames, auditControlBlockReason, summarizeRun, main } = await import(
+const { auditOneSupplier, activeGapNames, auditControlBlockReason, summarizeRun, main, cooldownSupplierIds } = await import(
   '../src/scripts/audit-unclaimed-quality.js'
 );
 
@@ -830,5 +831,54 @@ describe('main', () => {
 
     expect(getShadowProfile).toHaveBeenCalledTimes(2);
     expect(tryClaimDailyCrawlSlot).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks the queue to skip suppliers recently audited with nothing real to fix', async () => {
+    getSettings.mockResolvedValue(settingsFixture());
+    getTodayCrawlCount.mockResolvedValue(0);
+    listAuditEventsByAction.mockResolvedValueOnce([
+      { createdAt: new Date().toISOString(), details: { supplierId: 'sup_bot_9', outcome: 'no_real_fix_found' } },
+    ]);
+    fetchAuditQueue.mockResolvedValue({ status: 'fetched', totalPublished: 1, totalNeedingWork: 0, queue: [] });
+
+    await main();
+
+    expect(fetchAuditQueue).toHaveBeenCalledWith({ limit: 10, excludeSupplierIds: ['sup_bot_9'] });
+  });
+
+  it('still fetches the queue when the audit history cannot be read', async () => {
+    getSettings.mockResolvedValue(settingsFixture());
+    getTodayCrawlCount.mockResolvedValue(0);
+    listAuditEventsByAction.mockRejectedValueOnce(new Error('mongo down'));
+    fetchAuditQueue.mockResolvedValue({ status: 'fetched', totalPublished: 1, totalNeedingWork: 0, queue: [] });
+
+    await main();
+
+    expect(fetchAuditQueue).toHaveBeenCalledWith({ limit: 10, excludeSupplierIds: [] });
+  });
+});
+
+describe('cooldownSupplierIds', () => {
+  const now = Date.parse('2026-10-13T12:00:00Z');
+  const ev = (daysAgo: number, details: Record<string, unknown>) => ({
+    createdAt: new Date(now - daysAgo * 86400000).toISOString(),
+    details,
+  });
+
+  it('parks no_real_fix_found and non-transient skips, within 7 days only', () => {
+    const ids = cooldownSupplierIds(
+      [
+        ev(1, { supplierId: 'a', outcome: 'no_real_fix_found' }),
+        ev(2, { supplierId: 'b', outcome: 'skipped', reason: 'no_local_shadow_profile_for_candidate' }),
+        ev(8, { supplierId: 'c', outcome: 'no_real_fix_found' }),
+        ev(1, { supplierId: 'd', outcome: 'refreshed' }),
+        ev(1, { supplierId: 'e', outcome: 'skipped', reason: 'source_search_failed: Brave Search is not configured' }),
+        ev(1, { supplierId: 'f', outcome: 'skipped', reason: 'daily_crawl_budget_exhausted' }),
+        ev(1, { outcome: 'no_real_fix_found' }),
+        { createdAt: 'garbage', details: { supplierId: 'g', outcome: 'no_real_fix_found' } },
+      ],
+      now,
+    );
+    expect(ids.sort()).toEqual(['a', 'b']);
   });
 });
