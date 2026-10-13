@@ -381,18 +381,23 @@ export function summarizeRun(
 // queue and be re-crawled every day, starving everything behind it. Park it
 // for a week. Transient skips (budget ceilings, search outages) are retried.
 export const AUDIT_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
-const TRANSIENT_SKIP_REASON = /^(source_search_failed|daily_)/;
+const TRANSIENT_SKIP_REASON = /^(source_search_failed|refresh_failed|daily_)/;
 
 export function cooldownSupplierIds(
   events: Array<{ createdAt: string; details: Record<string, unknown> }>,
   now: number = Date.now(),
 ): string[] {
   const ids = new Set<string>();
-  for (const event of events) {
+  const seen = new Set<string>();
+  // Newest first (as listAuditEventsByAction returns): only a supplier's
+  // latest audit decides whether it is parked.
+  const newestFirst = [...events].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  for (const event of newestFirst) {
     const at = Date.parse(event.createdAt);
     if (!Number.isFinite(at) || now - at > AUDIT_COOLDOWN_MS) continue;
     const { supplierId, outcome, reason } = event.details;
-    if (typeof supplierId !== 'string' || !supplierId) continue;
+    if (typeof supplierId !== 'string' || !supplierId || seen.has(supplierId)) continue;
+    seen.add(supplierId);
     const parked =
       outcome === 'no_real_fix_found' ||
       (outcome === 'skipped' && !(typeof reason === 'string' && TRANSIENT_SKIP_REASON.test(reason)));
@@ -424,7 +429,10 @@ export async function main(): Promise<void> {
     return;
   }
 
-  const recentEvents = await listAuditEventsByAction('quality_audit.supplier_audited', 500).catch(() => []);
+  const recentEvents = await listAuditEventsByAction('quality_audit.supplier_audited', 500).catch(error => {
+    logger.warn({ error: error instanceof Error ? error.message : String(error) }, 'Unclaimed quality audit: could not read audit history, no cooldown this run');
+    return [];
+  });
   const excludeSupplierIds = cooldownSupplierIds(recentEvents);
   const queueResult = await fetchAuditQueue({ limit: MAX_SUPPLIERS_PER_RUN, excludeSupplierIds });
   if (queueResult.status !== 'fetched') {
