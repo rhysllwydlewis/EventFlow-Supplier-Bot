@@ -637,3 +637,21 @@ out of the audit area). No open PRs. Did the hardening noted on 2026-10-12:
 to test values and deletes the three `EVENTFLOW_*` integration vars, so
 `npm run check` is green (568 tests) even when the host env has them set.
 Test-only change; no safety/compliance code touched.
+
+## 2026-10-14 — quiet cycle
+
+Branch restarted from `origin/main` (PR #94 merged). No open PRs, no new manual
+activity in the last 24h. `npm run check` green. Backlog empty. Deliberately did
+not touch the two "Discovered along the way" items (image-extractor same-eTLD+1
+filter; dead `startsWith` branch in `safe-fetch.ts`) — crawl/extraction code that
+wants a maintainer's call, neither an active bug. (This note was never merged
+to main; restored here.)
+
+## 2026-10-15 — quiet cycle
+
+Branch restarted from `origin/main`. Manual PR #95 (audit: park refreshed and
+Brave-not-configured suppliers for 3 days) merged 07:23 today, so the audit
+script area (`src/scripts/audit-unclaimed-quality.ts`) is live manual work —
+stayed away. No open PRs. Fresh `npm ci` + `npm run check` green (lint,
+typecheck, 569 tests, build). Backlog empty; "Discovered along the way" items
+unchanged and still deliberately untouched. No code changes.
