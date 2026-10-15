@@ -876,12 +876,25 @@ describe('cooldownSupplierIds', () => {
         ev(1, { supplierId: 'f', outcome: 'skipped', reason: 'daily_crawl_budget_exhausted' }),
         ev(1, { supplierId: 'h', outcome: 'skipped', reason: 'refresh_failed: timeout' }),
         ev(3, { supplierId: 'i', outcome: 'no_real_fix_found' }),
-        ev(1, { supplierId: 'i', outcome: 'refreshed' }),
+        ev(1, { supplierId: 'i', outcome: 'skipped', reason: 'refresh_failed: x' }),
         ev(1, { outcome: 'no_real_fix_found' }),
         { createdAt: 'garbage', details: { supplierId: 'g', outcome: 'no_real_fix_found' } },
       ],
       now,
     );
-    expect(ids.sort()).toEqual(['a', 'b']);
+    expect(ids.sort()).toEqual(['a', 'b', 'd', 'e']);
+  });
+
+  it('parks refreshed and not-configured skips only for 3 days', () => {
+    const ids = cooldownSupplierIds(
+      [
+        ev(2, { supplierId: 'r1', outcome: 'refreshed' }),
+        ev(4, { supplierId: 'r2', outcome: 'refreshed' }),
+        ev(2, { supplierId: 'n1', outcome: 'skipped', reason: 'source_search_failed: Brave Search is not configured' }),
+        ev(4, { supplierId: 'n2', outcome: 'skipped', reason: 'source_search_failed: Brave Search is not configured' }),
+      ],
+      now,
+    );
+    expect(ids.sort()).toEqual(['n1', 'r1']);
   });
 });
