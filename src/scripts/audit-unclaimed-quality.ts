@@ -382,6 +382,12 @@ export function summarizeRun(
 // for a week. Transient skips (budget ceilings, search outages) are retried.
 export const AUDIT_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const TRANSIENT_SKIP_REASON = /^(source_search_failed|refresh_failed|daily_)/;
+// A missing Brave key does not heal by itself, so retrying daily just burns
+// the per-run cap on suppliers that cannot be resolved. Park those (and
+// suppliers we just refreshed, which need no immediate second pass) for a
+// shorter window so they come back soon after the owner fixes the config.
+export const AUDIT_SHORT_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
+const NOT_CONFIGURED_SKIP_REASON = /not configured/i;
 
 export function cooldownSupplierIds(
   events: Array<{ createdAt: string; details: Record<string, unknown> }>,
@@ -398,9 +404,17 @@ export function cooldownSupplierIds(
     const { supplierId, outcome, reason } = event.details;
     if (typeof supplierId !== 'string' || !supplierId || seen.has(supplierId)) continue;
     seen.add(supplierId);
+    const reasonText = typeof reason === 'string' ? reason : '';
+    const short =
+      outcome === 'refreshed' ||
+      (outcome === 'skipped' && NOT_CONFIGURED_SKIP_REASON.test(reasonText));
+    if (short) {
+      if (now - at <= AUDIT_SHORT_COOLDOWN_MS) ids.add(supplierId);
+      continue;
+    }
     const parked =
       outcome === 'no_real_fix_found' ||
-      (outcome === 'skipped' && !(typeof reason === 'string' && TRANSIENT_SKIP_REASON.test(reason)));
+      (outcome === 'skipped' && !TRANSIENT_SKIP_REASON.test(reasonText));
     if (parked) ids.add(supplierId);
   }
   return [...ids];
