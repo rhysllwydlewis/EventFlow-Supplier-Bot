@@ -517,3 +517,10 @@ queue still blocked on credentials.
 - Cause: `source_search_failed` is classed transient and `refreshed` was never parked, so both came back at the front of the worst-first queue daily. PR [#95](https://github.com/rhysllwydlewis/EventFlow-Supplier-Bot/pull/95): `refreshed` and "not configured" skips get a 3-day cooldown (other transient skips unchanged). Tests 569 green, tsc clean, diff self-reviewed (small).
 - I did not re-crawl from this session (sandbox cannot reach Mongo; the Railway cron does it). Nothing written to EventFlow.
 - **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on the audit service — blocks every directory-listing profile. Also: hensolcastle shadow profile missing; michellehuggleston 2 MB page limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-10-16 (scheduled, unattended)** — Read the 2026-10-15 14:00 UTC cron run (first with #95); 0 fixed.
+
+- Activity check: last ~26h is only dev-ops/operator commits and my own #95; no open PRs in this area.
+- Run (deployment `c4889147-...`, commit a8eaaae incl. #95): 188 published, 12 needing work, 10 audited, **0 fixed / 0 written**. 6 × skipped `source_search_failed: Brave Search is not configured` (encoremusicians, ukweddingservices, ewegottalove, hirespace, event-caterers.co.uk, event-catering.uk); 4 × `no_real_fix_found` (`no_phone_number_found_on_recrawl`: starlight.events, newport-market.co.uk, rosiereynolds.co.uk/wrexham, happywed.co.uk). Queue has rotated away from the previously refreshed suppliers, so #95 works; the 6 Brave-skipped are now parked 3 days.
+- No re-crawl from this session (sandbox cannot reach Mongo; the Railway cron does it). Nothing written to EventFlow, no code changes.
+- **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on the audit service — blocks every directory-listing profile (6 of 10 last run). Also: hensolcastle shadow profile missing; michellehuggleston 2 MB page limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
