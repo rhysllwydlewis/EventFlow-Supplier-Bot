@@ -539,3 +539,11 @@ queue still blocked on credentials.
 - Observation: the two refreshed suppliers resurface every ~3 days (cooldown expiry), which means the queue still flags them as `missingPhone` after the write. Either the refresh isn't persisting `publicPhone` on the EventFlow side or the audit-queue gap check reads a different field. Worth checking EventFlow's `audit-queue` gap rule vs the refresh endpoint's phone field before the next cycle; not yet investigated.
 - No re-crawl from this session (sandbox cannot reach Mongo; the Railway cron does it). Nothing written to EventFlow, no code changes.
 - **Still open:** Brave vars on the audit service (owner; blocks 7 of 9); refreshed-phone-not-sticking question above; snappr.com listing profile; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-10-19 (scheduled, unattended)** — Read the 2026-10-18 14:00 UTC cron run; 0 fixed, queue entirely Brave-blocked.
+
+- Activity check: last ~24h on `main` is only dev-ops/operator commits (#99); no open PRs in this area.
+- Run (Railway deployment `59adbff3-...`, commit 3ffab7a): 182 published, 6 needing work, 6 audited, **0 fixed / 0 written**. All 6 skipped `source_search_failed: Brave Search is not configured` (encoremusicians, ukweddingservices, ewegottalove, hirespace, event-caterers.co.uk near-me, event-catering.uk near-me). Per-run cap and crawl budget were not a factor.
+- The two repeat-refresh suppliers (huwevansimages, nuriasernaphotography) did not appear this run (parked by the 3-day cooldown); the "phone not sticking" question from 10-18 is still uninvestigated (needs EventFlow-repo access to compare the audit-queue `missingPhone` rule with the refresh endpoint's phone field).
+- No re-crawl from this session (sandbox cannot reach Mongo; the Railway cron does it). Nothing written to EventFlow, no code changes.
+- **Still open:** Brave vars on the audit service (owner; now blocks 100% of the queue); refreshed-phone-not-sticking; snappr.com listing profile; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
