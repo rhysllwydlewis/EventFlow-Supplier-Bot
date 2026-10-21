@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "runId": "2026-10-21T081121Z",
+  "startedAt": "2026-10-21T08:11:21.807Z",
+  "applied": true,
+  "controlHost": "supplier-bot-control-production.up.railway.app",
+  "railway": {
+    "checkedAt": "2026-10-21T08:11:21.000Z",
+    "services": [
+      {
+        "name": "supplier-bot-control",
+        "status": "SUCCESS",
+        "commit": "181bd323",
+        "deployedAt": "2026-10-20T09:06:31.731Z"
+      },
+      {
+        "name": "supplier-bot-worker",
+        "status": "SUCCESS",
+        "commit": "181bd323",
+        "deployedAt": "2026-10-20T09:06:31.731Z"
+      }
+    ],
+    "recentErrors": {
+      "count": 3,
+      "windowHours": 24,
+      "samples": [
+        "control 2026-10-20T09:13Z, 10:08Z, 10:13Z: One-profile EventFlow pilot reconcile failed: ENOENT rename '/app/public/phase3-progress.json.tmp' -> '/app/public/phase3-progress.json' (writePublicPhase3Progress)"
+      ]
+    },
+    "notes": [
+      "worker log fetch hit the 500-line cap so only covered 06:05-08:10Z on 2026-10-21; 0 error lines in that span",
+      "control pilot reconcile ENOENT errors occurred only in the first hour after the 09:08Z 2026-10-20 deploy; none since"
+    ]
+  },
+  "finishedAt": "2026-10-21T08:11:22.513Z",
+  "botVersion": "0.8.0",
+  "settings": {
+    "id": "global",
+    "mode": "live",
+    "runState": "running",
+    "discoveryEnabled": true,
+    "publishingEnabled": true,
+    "refreshEnabled": true,
+    "claimNoticesEnabled": true,
+    "marketingEnabled": false,
+    "seoIndexingEnabled": true,
+    "dailyTarget": 10,
+    "dailyHardLimit": 30,
+    "maxCrawlsPerDay": 100,
+    "minimumPublicationQuality": 75,
+    "softAiSpendGbpPerDay": 5,
+    "hardAiSpendGbpPerDay": 10,
+    "activeCampaignId": "campaign_south_wales_venues_pilot",
+    "updatedAt": "2026-10-05T17:23:31.709Z",
+    "updatedBy": "ai-supervisor"
+  },
+  "supervisor": {
+    "lastCycleAt": "2026-10-21T05:23:30.978Z",
+    "lastKind": "ai_cycle",
+    "lastSkippedReason": null
+  },
+  "queues": {
+    "orchestration": {
+      "waiting": 0,
+      "failed": 1
+    },
+    "discovery": {
+      "waiting": 0,
+      "failed": 33
+    },
+    "crawl": {
+      "waiting": 0,
+      "failed": 24
+    },
+    "browserCrawl": {
+      "waiting": 0,
+      "failed": 1
+    },
+    "extraction": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "enrichment": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "compliance": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "composition": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "quality": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "publication": {
+      "waiting": 0,
+      "failed": 150
+    },
+    "refresh": {
+      "waiting": 0,
+      "failed": 0
+    }
+  },
+  "metrics": {
+    "candidatesToday": 0,
+    "crawlsToday": 0,
+    "aiReservedGbp": 0.1,
+    "aiCallsToday": 1,
+    "aiInputTokensToday": 2779,
+    "aiOutputTokensToday": 340,
+    "aiEstimatedCostGbpToday": 0.024952,
+    "braveSearchesToday": 3,
+    "braveResultsSeenToday": 0
+  },
+  "compliance": {
+    "totalProfiles": 369,
+    "assessed": 369,
+    "pending": 0,
+    "publicationEligible": 197,
+    "review": 29,
+    "blocked": 158,
+    "seoReady": 182
+  },
+  "findings": [
+    {
+      "severity": "warn",
+      "code": "railway_errors",
+      "message": "3 error log lines in the last 24h"
+    }
+  ],
+  "recommendations": [],
+  "counts": {
+    "pending": 0,
+    "approved": 0,
+    "dismissed": 0,
+    "escalated": 0
+  },
+  "ownerQueue": [],
+  "notifyOwner": {
+    "needed": false,
+    "reasons": []
+  },
+  "lastOwnerNotifiedAt": "2026-10-10T12:00:15.860Z"
+}
