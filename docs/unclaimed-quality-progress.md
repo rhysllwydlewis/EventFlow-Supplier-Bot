@@ -567,3 +567,10 @@ queue still blocked on credentials.
 - Activity check: last ~30h on `main` is only dev-ops/operator commits (#103); no open PRs in this area.
 - The Railway MCP server in this session requires authentication (not authorised), so the `supplier-bot-quality-audit` deploy logs were unreadable. The sandbox still cannot reach Mongo, so no re-crawl or queue pull from here. Nothing written to EventFlow, no crawl budget spent, no code changes.
 - **Still open:** re-authorise Railway for this routine so the cron logs can be read; Brave vars on the audit service (owner); phone-not-sticking (log the exact `publicPhone` sent and check it against EventFlow's `safePhone` regex client-side before writing — a reasonable small PR for a session with working access); snappr.com listing profile; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-10-23 (scheduled, unattended)** — Railway still unauthorised; shipped the phone-format guard.
+
+- Activity check: last ~30h on `main` is only dev-ops commits (#104); no open PRs before mine.
+- The Railway MCP server again requires authentication, so the 2026-10-22 14:00 UTC cron logs were unreadable. The sandbox cannot reach Mongo, so no queue pull or re-crawl from here. Nothing written to EventFlow, no crawl budget spent.
+- Picked up the small PR the 10-22 entry suggested: [#105](https://github.com/rhysllwydlewis/EventFlow-Supplier-Bot/pull/105). The audit script now checks a recrawled phone against EventFlow's `safePhone` pattern before refreshing. A phone that fails is skipped as `phone_format_not_accepted_by_eventflow`, which should stop the repeat rewrites of the same suppliers. Tests 570 green, tsc and eslint clean. Diff self-reviewed (small).
+- **Still open:** re-authorise Railway for this routine; Brave vars on the audit service (owner); snappr.com listing profile; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
