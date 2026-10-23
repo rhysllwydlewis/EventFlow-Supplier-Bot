@@ -49,6 +49,9 @@ interface SupplierAuditResult {
   resolvedSource?: { url: string; kind: SourceKind };
 }
 
+// Mirrors EventFlow's utils/supplierPublicProfile.js safePhone() pattern.
+const EVENTFLOW_SAFE_PHONE = /^[+\d][\d\s().-]{5,}$/;
+
 export function activeGapNames(gaps: AuditQueueItem['gaps']): string[] {
   const names: string[] = [];
   if (gaps.missingCoverImage) names.push('missingCoverImage');
@@ -240,13 +243,20 @@ export async function auditOneSupplier(
     // but EventFlow has nowhere to put it, so claiming this as a fix here
     // would be reported as "refreshed" locally while never actually
     // reaching EventFlow's phone field.
-    if (phone && phone.length <= 20) {
+    // EventFlow's audit-queue/public profile only accepts phones matching
+    // safePhone's pattern; anything else is stored but still flagged
+    // missingPhone, so the same supplier would resurface and be rewritten.
+    if (phone && phone.length <= 20 && EVENTFLOW_SAFE_PHONE.test(phone)) {
       patch.publicPhone = phone;
       fixed.push('publicPhone');
     } else {
       skipped.push({
         field: 'publicPhone',
-        reason: phone ? 'phone_number_too_long_for_eventflow_field' : 'no_phone_number_found_on_recrawl',
+        reason: !phone
+          ? 'no_phone_number_found_on_recrawl'
+          : phone.length > 20
+            ? 'phone_number_too_long_for_eventflow_field'
+            : 'phone_format_not_accepted_by_eventflow',
       });
     }
   }
