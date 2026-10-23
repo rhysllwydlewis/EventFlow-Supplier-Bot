@@ -596,6 +596,31 @@ describe('auditOneSupplier', () => {
     expect(refreshEventFlowSupplierData).not.toHaveBeenCalled();
   });
 
+  it('skips a phone EventFlow would not accept as a public phone', async () => {
+    getShadowProfile.mockResolvedValue(shadowProfileFixture());
+    tryClaimDailyCrawlSlot.mockResolvedValue(true);
+    crawlSupplierSite.mockResolvedValue({
+      rootUrl: 'https://example-venue.test/',
+      finalRootUrl: 'https://example-venue.test/',
+      pages: [
+        {
+          url: 'https://example-venue.test/',
+          contentType: 'text/html',
+          html: '<html><body><a href="tel:029 2012/3456">Call</a></body></html>',
+          bytes: 100,
+        },
+      ],
+      failures: [],
+    });
+
+    const item = queueItem({ gaps: { ...queueItem().gaps, missingPhone: true } });
+    const result = await auditOneSupplier(item, settingsFixture());
+
+    expect(result.outcome).toBe('no_real_fix_found');
+    expect(result.skipped).toContainEqual({ field: 'publicPhone', reason: 'phone_format_not_accepted_by_eventflow' });
+    expect(refreshEventFlowSupplierData).not.toHaveBeenCalled();
+  });
+
   it('fixes a real gallery-images gap without touching an already-fine cover image', async () => {
     const profile = shadowProfileFixture({ coverImage: 'https://example-venue.test/existing-cover.jpg' });
     getShadowProfile.mockResolvedValue(profile);
