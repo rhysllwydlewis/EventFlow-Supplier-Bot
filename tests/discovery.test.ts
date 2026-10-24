@@ -58,4 +58,16 @@ describe('discovery cycle', () => {
     expect(claimIndex).toBeGreaterThan(-1);
     expect(claimIndex).toBeLessThan(searchIndex);
   });
+
+  it('records result volume for every search, not just the ones that survive to become candidates', () => {
+    // resultsSeen used to only ever live on the in-memory DiscoveryCycleResult
+    // (visible in the audit event and worker logs for that one cycle) --
+    // recordProviderUsage persists it to the same per-day ledger
+    // tryClaimProviderSearch writes searches to, so it's queryable as a
+    // running daily total instead of only ever appearing per-cycle.
+    expect(source).toContain("import { recordProviderUsage } from './provider-usage.service.js';");
+    const searchIndex = source.indexOf('await provider.search({');
+    const recordIndex = source.indexOf('await recordProviderUsage({ provider: providerName, resultsSeen: items.length });');
+    expect(recordIndex).toBeGreaterThan(searchIndex);
+  });
 });

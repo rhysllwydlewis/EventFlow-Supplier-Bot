@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   evaluateDiscoverySearchResult,
+  isClearlyNonUk,
   isKnownNonSupplierDomain,
   isVenueCategoryContentMismatch,
 } from '../src/services/discovery-result-quality.service.js';
@@ -42,6 +43,40 @@ describe('supplier discovery quality gate', () => {
       const decision = evaluateDiscoverySearchResult(item, 'Venues');
       expect(decision.eligible).toBe(false);
     }
+  });
+
+  it('does not blanket-block supplier-directory domains: a single-business profile page there is a usable source', () => {
+    // Owner decision 2026-10-10: directory sites (PopTop, DesignMyNight, ...)
+    // are legitimate data sources for suppliers with no site of their own.
+    // Only listing/search/roundup pages (rejected by path or title) are out.
+    for (const url of [
+      'https://poptop.uk.com/cardiff/suppliers/some-caterer',
+      'https://designmynight.com/cardiff/bars/some-venue',
+    ]) {
+      expect(evaluateDiscoverySearchResult(result(url, 'Some Real Business Name'), 'Venues')).toMatchObject({
+        eligible: true,
+      });
+      expect(isKnownNonSupplierDomain(new URL(url).hostname), url).toBe(false);
+    }
+  });
+
+  it('rejects a directory listing path on an otherwise unknown domain', () => {
+    for (const url of [
+      'https://hafodfarm.co.uk/supplier-directory',
+      'https://example-farm.co.uk/directory/',
+      'https://example-caterer.co.uk/near-me/cardiff',
+    ]) {
+      expect(evaluateDiscoverySearchResult(result(url, 'Some Real Business Name'), 'Venues')).toMatchObject({
+        eligible: false,
+        reason: 'editorial_result',
+      });
+    }
+  });
+
+  it('keeps an own-site homepage on a domain that merely resembles a blocked one', () => {
+    expect(
+      evaluateDiscoverySearchResult(result('https://cardiffcateringcompany.co.uk/', 'Cardiff Catering Company'), 'Catering'),
+    ).toMatchObject({ eligible: true });
   });
 
   it('rejects a search/venue-finder path even on a domain not explicitly blocklisted', () => {
@@ -214,5 +249,20 @@ describe('supplier discovery quality gate', () => {
       eligible: false,
       reason: 'invalid_url',
     });
+  });
+
+  it('rejects clearly non-UK results by TLD or explicit foreign place, but not UK places that share a name', () => {
+    expect(
+      evaluateDiscoverySearchResult(result('https://cassowary.com.au/catering', 'Catering Swansea NSW'), 'Catering'),
+    ).toMatchObject({ eligible: false, reason: 'non_uk' });
+    expect(
+      evaluateDiscoverySearchResult(result('https://cassowary.cafe/catering-swansea-nsw', 'Catering Swansea NSW | Cassowary Cafe'), 'Catering'),
+    ).toMatchObject({ eligible: false, reason: 'non_uk' });
+    expect(
+      evaluateDiscoverySearchResult(result('https://example-caterer.co.uk/', 'Weddings in Canada Water, London'), 'Catering'),
+    ).toMatchObject({ eligible: true });
+    expect(isClearlyNonUk({ phone: '+1 555 0100' })).toBe(true);
+    expect(isClearlyNonUk({ phone: '+44 7700 900000' })).toBe(false);
+    expect(isClearlyNonUk({ phone: '029 2000 0000' })).toBe(false);
   });
 });

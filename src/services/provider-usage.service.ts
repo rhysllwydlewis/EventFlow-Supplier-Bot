@@ -53,25 +53,28 @@ export async function tryClaimProviderSearch(provider: string, dailyLimit: numbe
   return claimed !== null;
 }
 
-export async function recordProviderUsage(input: Omit<ProviderUsage, 'updatedAt'>): Promise<void> {
+// searches is already incremented atomically by tryClaimProviderSearch (the
+// budget-claim path) -- this only adds the result-volume side of the ledger,
+// which has no ceiling of its own and so doesn't need the same atomic claim.
+// estimatedCostGbp is deliberately left untouched here: unlike the OpenAI
+// usage ledger (ai-usage.service.ts), no provider adapter in this codebase
+// has a configured per-search price to derive it from, so it stays at its
+// $setOnInsert default of 0 rather than reporting a fabricated cost.
+export async function recordProviderUsage(input: { provider: string; resultsSeen: number }): Promise<void> {
+  const day = utcDay();
   const db = await getDatabase();
   await db.collection<ProviderUsage>('provider_usage').updateOne(
-    { provider: input.provider, day: input.day },
+    { provider: input.provider, day },
     {
-      $inc: {
-        searches: input.searches,
-        resultsSeen: input.resultsSeen,
-        estimatedCostGbp: input.estimatedCostGbp,
-      },
+      $inc: { resultsSeen: Math.max(0, Math.floor(input.resultsSeen)) },
       $set: { updatedAt: new Date().toISOString() },
-      $setOnInsert: { provider: input.provider, day: input.day },
+      $setOnInsert: { provider: input.provider, day, searches: 0, estimatedCostGbp: 0 },
     },
     { upsert: true },
   );
 }
 
 export async function getTodayProviderUsage(provider: string): Promise<ProviderUsage | null> {
-  const day = new Date().toISOString().slice(0, 10);
   const db = await getDatabase();
-  return db.collection<ProviderUsage>('provider_usage').findOne({ provider, day });
+  return db.collection<ProviderUsage>('provider_usage').findOne({ provider, day: utcDay() });
 }

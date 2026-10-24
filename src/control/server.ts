@@ -37,6 +37,7 @@ import { getDiscoveryAudit } from '../services/discovery-audit.service.js';
 import { getLiveActivity } from '../services/live-activity.service.js';
 import { seedCandidate } from '../services/manual-seed.service.js';
 import { getOperatorIdleStatus } from '../services/operator-idle.service.js';
+import { getTodayProviderUsage } from '../services/provider-usage.service.js';
 import { applyAgentAction } from '../services/agent-actions.service.js';
 import { classifyAgentAction } from '../services/agent-ruleset.service.js';
 import { runSupervisorCycle } from '../services/agent-supervisor.service.js';
@@ -191,15 +192,17 @@ app.use('/api', requireSession);
 
 app.get('/api/status', async (_req, res, next) => {
   try {
-    const [settings, heartbeats, queues, candidatesToday, crawlsToday, aiReservedGbp, aiUsage] = await Promise.all([
-      getSettings(),
-      listHeartbeats(),
-      getQueueCounts(),
-      countCandidatesSince(startOfUtcDayIso()),
-      getTodayCrawlCount(),
-      getTodayAiReservedGbp(),
-      getTodayAiUsage(),
-    ]);
+    const [settings, heartbeats, queues, candidatesToday, crawlsToday, aiReservedGbp, aiUsage, braveUsage] =
+      await Promise.all([
+        getSettings(),
+        listHeartbeats(),
+        getQueueCounts(),
+        countCandidatesSince(startOfUtcDayIso()),
+        getTodayCrawlCount(),
+        getTodayAiReservedGbp(),
+        getTodayAiUsage(),
+        getTodayProviderUsage('brave'),
+      ]);
     const operatorIdle = await getOperatorIdleStatus(settings);
     const now = Date.now();
     const workers = heartbeats.map(item => ({ ...item, fresh: heartbeatIsFresh(item, now) }));
@@ -219,6 +222,8 @@ app.get('/api/status', async (_req, res, next) => {
         aiInputTokensToday: aiUsage?.inputTokens ?? 0,
         aiOutputTokensToday: aiUsage?.outputTokens ?? 0,
         aiEstimatedCostGbpToday: aiUsage?.estimatedCostGbp ?? 0,
+        braveSearchesToday: braveUsage?.searches ?? 0,
+        braveResultsSeenToday: braveUsage?.resultsSeen ?? 0,
       },
       providerCapabilities: {
         braveConfigured: Boolean(env.BRAVE_API_KEY),
@@ -230,6 +235,7 @@ app.get('/api/status', async (_req, res, next) => {
         profilesPerDay: env.ABSOLUTE_MAX_PROFILES_PER_DAY,
         crawlsPerDay: env.ABSOLUTE_MAX_CRAWLS_PER_DAY,
         aiSpendGbpPerDay: env.ABSOLUTE_MAX_AI_SPEND_GBP_PER_DAY,
+        providerSearchesPerDay: env.ABSOLUTE_MAX_PROVIDER_SEARCHES_PER_DAY,
       },
     });
   } catch (error) {

@@ -79,14 +79,29 @@ export async function tryClaimDailyAcquisitionSlot(
 // would otherwise sit wasted for the rest of the UTC day. Only ever causes
 // under-acquisition relative to the ceiling, never an overrun, so this is
 // an efficiency fix, not a safety one.
+//
+// Each counter is decremented only while it is still above zero, gated by
+// the same findOneAndUpdate-with-$gt pattern the claim side uses to gate
+// $lt -- a caller that releases the same slot twice (a retried release, or
+// a bug) must not be able to push a counter negative, since a negative
+// counter widens how much can be claimed before the ceiling's $lt check
+// trips, defeating the ceiling it exists to enforce. The two counters are
+// decremented independently rather than in one $inc so that one already
+// being at zero (e.g. from a prior release) never blocks the other from
+// releasing.
 export async function releaseDailyAcquisitionSlot(campaignId: string, day: string = currentUtcDay()): Promise<void> {
   const id = `acquisition:${day}`;
   const campaignKey = campaignCounterKey(campaignId);
   const campaignPath = `campaignCounts.${campaignKey}`;
   const db = await getDatabase();
   const store = db.collection<AcquisitionCounter>('runtime_counters');
-  await store.updateOne(
-    { id },
-    { $inc: { globalCount: -1, [campaignPath]: -1 }, $set: { updatedAt: new Date().toISOString() } },
+  const updatedAt = new Date().toISOString();
+  await store.findOneAndUpdate(
+    { id, globalCount: { $gt: 0 } },
+    { $inc: { globalCount: -1 }, $set: { updatedAt } },
+  );
+  await store.findOneAndUpdate(
+    { id, [campaignPath]: { $gt: 0 } },
+    { $inc: { [campaignPath]: -1 }, $set: { updatedAt } },
   );
 }

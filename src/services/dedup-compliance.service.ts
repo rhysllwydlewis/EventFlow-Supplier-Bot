@@ -9,7 +9,11 @@ export function applyIdentityDedupGate(
   if (decision === 'distinct') return assessment;
 
   const reasons = new Set(assessment.reasons);
-  let status: ComplianceAssessment['status'] = 'review';
+  // Dedup review/pending must never *downgrade* a status the underlying
+  // compliance assessment already earned on its own (content/media/category
+  // reasons unrelated to dedup) -- only strong_duplicate is allowed to force
+  // 'block' below.
+  let status: ComplianceAssessment['status'] = assessment.status === 'block' ? 'block' : 'review';
   if (decision === 'strong_duplicate') {
     reasons.add('strong_supplier_duplicate');
     status = 'block';

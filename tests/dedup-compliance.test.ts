@@ -9,6 +9,11 @@ const assessment = complianceAssessmentSchema.parse({
   mediaStrategy: 'eventflow_category_fallback', logoStrategy: 'initials_tile', assessedAt: new Date().toISOString(),
 });
 
+const blockedAssessment = complianceAssessmentSchema.parse({
+  ...assessment, status: 'block', publicationEligible: false, seoIndexEligible: false,
+  reasons: ['missing_media'],
+});
+
 function candidate(dedupDecision?: 'strong_duplicate' | 'probable_duplicate' | 'distinct') {
   return candidateSchema.parse({
     id: 'candidate_1', campaignId: 'campaign_1', provider: 'manual', discoveryQuery: 'manual',
@@ -42,5 +47,23 @@ describe('identity dedup publication gate', () => {
 
   it('does not alter a distinct supplier assessment', () => {
     expect(applyIdentityDedupGate(assessment, candidate('distinct'))).toEqual(assessment);
+  });
+
+  it('does not downgrade an already-blocked assessment to review while a duplicate check is pending', () => {
+    const gated = applyIdentityDedupGate(blockedAssessment, candidate());
+    expect(gated.status).toBe('block');
+    expect(gated.reasons).toContain('missing_media');
+    expect(gated.reasons).toContain('identity_dedup_pending');
+  });
+
+  it('does not downgrade an already-blocked assessment to review for a probable duplicate', () => {
+    const gated = applyIdentityDedupGate(blockedAssessment, candidate('probable_duplicate'));
+    expect(gated.status).toBe('block');
+    expect(gated.reasons).toContain('missing_media');
+  });
+
+  it('keeps a strong duplicate blocked even when the base assessment already passed', () => {
+    const gated = applyIdentityDedupGate(assessment, candidate('strong_duplicate'));
+    expect(gated.status).toBe('block');
   });
 });
