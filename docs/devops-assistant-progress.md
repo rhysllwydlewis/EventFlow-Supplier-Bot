@@ -109,6 +109,15 @@ whole point of Shadow-first design is caution before real supplier contact.
 
 ## Session log
 
+### 2026-10-30
+
+Quiet cycle. Used the pre-provisioned clone; restarted the branch from
+`origin/main` (#112 had merged). No open PRs; the only recent commits on main
+are this routine's own handoff merges, so no live manual work to collide with.
+`npm ci` + `npm run check` green (570 tests, build ok). No code changes: the
+only candidate is still the dead `startsWith` branch in
+`src/crawler/safe-fetch.ts`. Nothing merged apart from this note.
+
 ### 2026-10-21
 
 Quiet cycle. Used the pre-provisioned clone; restarted the branch from
