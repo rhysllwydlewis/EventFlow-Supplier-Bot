@@ -620,3 +620,9 @@ queue still blocked on credentials.
 - Activity check: no open PRs found; `main` quiet apart from dev-ops handoff commits (last #116, 2026-11-03).
 - `npm run build` fine, then `npm run audit:unclaimed-quality` failed in `getSettings()` with a Mongo server-selection error, identical to 10-29/10-30/11-03. Without Mongo there is no crawl-budget claim, so per the Mandate the cycle was skipped. Did not re-pull the queue (last pull 10-29: 32 needing work, 31 × `missingPhone`, 1 × `missingTags`). Nothing re-crawled, nothing written to EventFlow, no code changes.
 - **Still open (owner):** run this where Mongo is reachable (Railway cron is the only working runner; re-authorise Railway so its logs can be read); Brave vars; snappr.com listing profile; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-05 (scheduled, unattended)** — Mongo still unreachable; no re-crawl.
+
+- Activity check: last ~30h on `main` is only dev-ops handoff commits (#117, 2026-11-04); no code activity in this area.
+- `npm run build` fine, then `npm run audit:unclaimed-quality` failed in `getSettings()` with `MongoServerSelectionError` (10s timeout), identical to 10-29/10-30/11-03/11-04. Without Mongo there is no crawl-budget claim, so per the Mandate the cycle was skipped. Did not re-pull the queue (last pull 10-29: 32 needing work, 31 × `missingPhone`, 1 × `missingTags`). Nothing re-crawled, nothing written to EventFlow, no code changes.
+- **Still open (owner):** run this where Mongo is reachable (Railway cron is the only working runner; re-authorise Railway so its logs can be read); Brave vars; snappr.com listing profile; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
