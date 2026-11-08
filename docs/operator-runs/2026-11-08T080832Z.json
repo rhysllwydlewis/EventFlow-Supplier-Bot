@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "runId": "2026-11-08T080832Z",
+  "startedAt": "2026-11-08T08:08:32.138Z",
+  "applied": true,
+  "controlHost": "supplier-bot-control-production.up.railway.app",
+  "railway": {
+    "checkedAt": "2026-11-08T08:08:32Z",
+    "services": [
+      {
+        "name": "supplier-bot-control",
+        "status": "SUCCESS",
+        "commit": "c27312ca",
+        "deployedAt": "2026-11-05T09:07:37.134Z"
+      },
+      {
+        "name": "supplier-bot-worker",
+        "status": "SUCCESS",
+        "commit": "c27312ca",
+        "deployedAt": "2026-11-05T09:07:37.134Z"
+      }
+    ],
+    "recentErrors": {
+      "count": 0,
+      "windowHours": 24,
+      "samples": []
+    },
+    "notes": [
+      "control: 2 info lines (robots.txt) in window; worker: 500-line cap reached, 0 error-like lines among them"
+    ]
+  },
+  "finishedAt": "2026-11-08T08:08:32.917Z",
+  "botVersion": "0.8.0",
+  "settings": {
+    "id": "global",
+    "mode": "live",
+    "runState": "running",
+    "discoveryEnabled": true,
+    "publishingEnabled": true,
+    "refreshEnabled": true,
+    "claimNoticesEnabled": true,
+    "marketingEnabled": false,
+    "seoIndexingEnabled": true,
+    "dailyTarget": 10,
+    "dailyHardLimit": 30,
+    "maxCrawlsPerDay": 100,
+    "minimumPublicationQuality": 75,
+    "softAiSpendGbpPerDay": 5,
+    "hardAiSpendGbpPerDay": 10,
+    "activeCampaignId": "campaign_south_wales_venues_pilot",
+    "updatedAt": "2026-10-05T17:23:31.709Z",
+    "updatedBy": "ai-supervisor"
+  },
+  "supervisor": {
+    "lastCycleAt": "2026-11-08T05:23:25.986Z",
+    "lastKind": "ai_skipped",
+    "lastSkippedReason": "call_failed"
+  },
+  "queues": {
+    "orchestration": {
+      "waiting": 0,
+      "failed": 1
+    },
+    "discovery": {
+      "waiting": 0,
+      "failed": 56
+    },
+    "crawl": {
+      "waiting": 0,
+      "failed": 36
+    },
+    "browserCrawl": {
+      "waiting": 0,
+      "failed": 8
+    },
+    "extraction": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "enrichment": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "compliance": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "composition": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "quality": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "publication": {
+      "waiting": 0,
+      "failed": 150
+    },
+    "refresh": {
+      "waiting": 0,
+      "failed": 0
+    }
+  },
+  "metrics": {
+    "candidatesToday": 30,
+    "crawlsToday": 36,
+    "aiReservedGbp": 0,
+    "aiCallsToday": 0,
+    "aiInputTokensToday": 0,
+    "aiOutputTokensToday": 0,
+    "aiEstimatedCostGbpToday": 0,
+    "braveSearchesToday": 62,
+    "braveResultsSeenToday": 1233
+  },
+  "compliance": {
+    "totalProfiles": 562,
+    "assessed": 562,
+    "pending": 0,
+    "publicationEligible": 197,
+    "review": 38,
+    "blocked": 342,
+    "seoReady": 182
+  },
+  "findings": [
+    {
+      "severity": "warn",
+      "code": "supervisor_skipped",
+      "message": "last supervisor cycle was skipped: call_failed"
+    }
+  ],
+  "recommendations": [],
+  "counts": {
+    "pending": 0,
+    "approved": 0,
+    "dismissed": 0,
+    "escalated": 0
+  },
+  "ownerQueue": [],
+  "notifyOwner": {
+    "needed": false,
+    "reasons": []
+  },
+  "lastOwnerNotifiedAt": "2026-10-10T12:00:15.860Z"
+}
