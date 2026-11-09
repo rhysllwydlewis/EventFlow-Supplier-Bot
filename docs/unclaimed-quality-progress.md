@@ -635,3 +635,10 @@ queue still blocked on credentials.
 - Cron run 2026-11-05 14:02 UTC: also hit the Brave-not-configured skip.
 - Nothing written to EventFlow and no code changes from this session.
 - **Still open (owner):** Brave vars on the audit service (blocks every directory-listing profile); snappr.com listing profile; hensolcastle shadow profile missing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping. The phone-less photographers/venues above recur as `no_real_fix_found` and are parked by the cooldowns.
+
+**2026-11-09 (scheduled, unattended)** — Read the 2026-11-08 14:05 UTC cron run; 0 fixed. No re-crawl from this sandbox (Mongo unreachable here; the Railway cron is the runner).
+
+- Activity check: no open PRs; `main` quiet apart from dev-ops handoff commits (last #119, 2026-11-08).
+- Cron run (deployment `46108964-...`): 186 published, 10 needing work, 10 audited, **0 fixed / 0 written**. 6 × skipped `source_search_failed: Brave Search is not configured` (designmynight, poptop, wedding-caterers near-me, wedissimo, southwalesguardian, event-catering.uk near-me); 4 × `no_real_fix_found` (`no_phone_number_found_on_recrawl`: newport-market.co.uk, rosiereynolds.co.uk/wrexham, happywed.co.uk, snappr.com listing).
+- Nothing written to EventFlow, no code changes.
+- **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on the audit service (blocks 6 of 10 last run — every directory-listing profile); snappr.com listing profile (also no phone found); hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
