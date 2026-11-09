@@ -109,6 +109,14 @@ whole point of Shadow-first design is caution before real supplier contact.
 
 ## Session log
 
+### 2026-11-09
+
+Quiet cycle. Used the pre-provisioned clone; restarted the branch from
+`origin/main` (#119 had merged). No open PRs; only this routine's own handoff
+merges on main recently, so no live manual work to collide with. `npm ci` +
+`npm run check` green (570 tests, build ok). No code changes; "Discovered along
+the way" items still deliberately untouched.
+
 ### 2026-11-08
 
 Quiet cycle. Used the pre-provisioned clone; restarted the branch from
