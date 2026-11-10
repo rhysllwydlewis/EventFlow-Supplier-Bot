@@ -642,3 +642,11 @@ queue still blocked on credentials.
 - Cron run (deployment `46108964-...`): 186 published, 10 needing work, 10 audited, **0 fixed / 0 written**. 6 × skipped `source_search_failed: Brave Search is not configured` (designmynight, poptop, wedding-caterers near-me, wedissimo, southwalesguardian, event-catering.uk near-me); 4 × `no_real_fix_found` (`no_phone_number_found_on_recrawl`: newport-market.co.uk, rosiereynolds.co.uk/wrexham, happywed.co.uk, snappr.com listing).
 - Nothing written to EventFlow, no code changes.
 - **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on the audit service (blocks 6 of 10 last run — every directory-listing profile); snappr.com listing profile (also no phone found); hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-10 (scheduled, unattended)** — Read the 2026-11-09 14:04 UTC cron run (deployment `9963d88a-...`); 0 fixed. No re-crawl from this sandbox (Mongo unreachable here; the Railway cron is the runner, next run 14:05 UTC today).
+
+- Activity check: no open PRs; only dev-ops/operator handoff commits in the last 24h. Nothing mid-iteration.
+- Cron run: 184 published, 8 needing work, 8 audited, **0 fixed / 0 written**. 7 × skipped `source_search_failed: Brave Search is not configured` (celticenglish.co.uk, guides.ticketmaster.co.uk, encoremusicians swansea, ukweddingservices cardiff, ewegottalove venues-in-wales, hirespace Cardiff, event-caterers.co.uk near-me); 1 × `no_real_fix_found` (luckyshotweddings.co.uk, `no_phone_number_found_on_recrawl`).
+- Correction: the 2026-11-09 entry above described the 11-08 run; this is the 11-09 run (queue shrank 10 → 8).
+- Nothing written to EventFlow, no code changes.
+- **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on the audit service — now blocks 7 of 8 queue items and is the only thing stopping progress; snappr.com listing; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
