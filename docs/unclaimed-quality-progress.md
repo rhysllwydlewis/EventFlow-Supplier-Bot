@@ -650,3 +650,12 @@ queue still blocked on credentials.
 - Correction: the 2026-11-09 entry above described the 11-08 run; this is the 11-09 run (queue shrank 10 → 8).
 - Nothing written to EventFlow, no code changes.
 - **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on the audit service — now blocks 7 of 8 queue items and is the only thing stopping progress; snappr.com listing; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-11 (scheduled, unattended)** — Read the 2026-11-10 14:03 UTC cron run (deployment `251892f5-...`); 0 fixed. No re-crawl from this sandbox (Mongo unreachable here; the Railway cron is the runner).
+
+- Activity check: no open PRs; only dev-ops/operator handoff commits in the last ~30h. Nothing mid-iteration.
+- Cron run: 178 published, **2 needing work** (down from 8), 2 audited, **0 fixed / 0 written**. Both `no_real_fix_found` with `phone_format_not_accepted_by_eventflow` (a phone *was* extracted but failed the `EVENTFLOW_SAFE_PHONE` / `safePhone` check): huwevansimages.co.uk/about and nuriasernaphotography.com/event-photographer-cardiff.
+- The 7 Brave-not-configured directory-listing items from 11-09 are no longer in the queue and no `source_search_failed` appeared this run — the Brave blocker looks cleared or those profiles left the published set; owner to confirm.
+- Not verified: what the raw phone strings on those two sites look like (sandbox curl returned nothing). Worth checking next time whether `cleanPublicPhone` is mangling a valid UK number (e.g. one with letters/extension) or the site's number is genuinely unusable — only change code if it's a real normalisation bug.
+- Nothing written to EventFlow, no code changes.
+- **Still open:** the two phone-format cases above; snappr.com listing; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
