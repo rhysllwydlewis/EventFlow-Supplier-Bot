@@ -659,3 +659,10 @@ queue still blocked on credentials.
 - Not verified: what the raw phone strings on those two sites look like (sandbox curl returned nothing). Worth checking next time whether `cleanPublicPhone` is mangling a valid UK number (e.g. one with letters/extension) or the site's number is genuinely unusable — only change code if it's a real normalisation bug.
 - Nothing written to EventFlow, no code changes.
 - **Still open:** the two phone-format cases above; snappr.com listing; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-12 (scheduled, unattended)** — Read the 2026-11-11 14:00 UTC cron run (deployment `7a03d57e-...`); queue empty, nothing to fix.
+
+- Activity check: no open PRs; only dev-ops handoff commits in the last ~36h. Nothing mid-iteration.
+- Cron run: 177 published, **0 needing work**, 0 audited, 0 fixed / 0 written. The two phone-format cases from 11-10 (huwevansimages.co.uk, nuriasernaphotography.com) are no longer flagged — presumably resolved or left the published set; not verified which.
+- No re-crawl from this sandbox (cannot reach Mongo; the Railway cron is the runner). No code changes, nothing written to EventFlow, no crawl budget spent.
+- **Still open:** snappr.com listing; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
