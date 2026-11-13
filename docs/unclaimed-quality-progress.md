@@ -666,3 +666,11 @@ queue still blocked on credentials.
 - Cron run: 177 published, **0 needing work**, 0 audited, 0 fixed / 0 written. The two phone-format cases from 11-10 (huwevansimages.co.uk, nuriasernaphotography.com) are no longer flagged — presumably resolved or left the published set; not verified which.
 - No re-crawl from this sandbox (cannot reach Mongo; the Railway cron is the runner). No code changes, nothing written to EventFlow, no crawl budget spent.
 - **Still open:** snappr.com listing; hensolcastle shadow profile; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-13 (scheduled, unattended)** — Read the 2026-11-12 14:00 UTC cron run (deployment `1ad25c0e-...`, commit d68bddb); 0 fixed, Brave blocker is back.
+
+- Activity check: no open PRs; only dev-ops handoff commits in the last ~30h. Nothing mid-iteration.
+- Cron run: 186 published, **9 needing work**, 9 audited, **0 fixed / 0 written**. 7 × skipped: 6 × `source_search_failed: Brave Search is not configured` (designmynight best-private-hire-venues-cardiff, poptop catering/weddingcatering, wedding-caterers.co.uk/near-me/cardiff, wedissimo wedding-photographers/wales, southwalesguardian.co.uk/leisure, event-catering.uk/near-me/swansea) and 1 × `no_local_shadow_profile_for_candidate` (hensolcastle.com). 2 × `no_real_fix_found` (`no_phone_number_found_on_recrawl`: ymarram.com/north-wales-catering, hafodfarm.co.uk/supplier-directory).
+- Correction to the 2026-11-12 entry's hope: the Brave blocker did **not** clear — the queue was just empty on 11-11 and the directory-listing profiles are back. `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` still missing on `supplier-bot-quality-audit` (I could not read service variables: Railway variable listing was denied by the permission classifier; not worked around).
+- No re-crawl from this sandbox (cannot reach Mongo; the Railway cron is the runner). No code changes, nothing written to EventFlow, no crawl budget spent.
+- **Still open (owner):** Brave vars on the audit service (blocks 6 of 9); hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
