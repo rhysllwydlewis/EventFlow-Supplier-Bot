@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "runId": "2026-11-13T080943Z",
+  "startedAt": "2026-11-13T08:09:43.022Z",
+  "applied": true,
+  "controlHost": "supplier-bot-control-production.up.railway.app",
+  "railway": {
+    "checkedAt": "2026-11-13T08:10:00.000Z",
+    "services": [
+      {
+        "name": "supplier-bot-control",
+        "status": "SUCCESS",
+        "commit": "d68bddb0",
+        "deployedAt": "2026-11-12T09:06:57.719Z"
+      },
+      {
+        "name": "supplier-bot-worker",
+        "status": "SUCCESS",
+        "commit": "d68bddb0",
+        "deployedAt": "2026-11-12T09:06:57.718Z"
+      }
+    ],
+    "recentErrors": {
+      "count": 3,
+      "windowHours": 24,
+      "samples": [
+        "control 2026-11-12T09:14Z: Failed to refresh public Phase 3 progress: ENOENT rename /app/public/phase3-progress.json.tmp -> /app/public/phase3-progress.json",
+        "control 2026-11-12T09:24Z: Failed to refresh public Phase 3 progress: ENOENT rename /app/public/phase3-progress.json.tmp -> /app/public/phase3-progress.json",
+        "control 2026-11-12T09:34Z: One-profile EventFlow pilot reconcile failed: ENOENT rename phase3-progress.json.tmp"
+      ]
+    },
+    "notes": [
+      "Ignored 10 routine 'npm error ... SIGTERM' lines from old container shutdown during the 2026-11-12 redeploy.",
+      "Worker deploy logs: only newest 500 lines fetched (about 45 min, 2026-11-13 07:20-08:05), all info severity, 0 errors; older worker logs not covered.",
+      "No control or worker errors seen after 2026-11-12T09:34Z."
+    ]
+  },
+  "finishedAt": "2026-11-13T08:09:43.917Z",
+  "botVersion": "0.8.0",
+  "settings": {
+    "id": "global",
+    "mode": "live",
+    "runState": "running",
+    "discoveryEnabled": true,
+    "publishingEnabled": true,
+    "refreshEnabled": true,
+    "claimNoticesEnabled": true,
+    "marketingEnabled": false,
+    "seoIndexingEnabled": true,
+    "dailyTarget": 10,
+    "dailyHardLimit": 30,
+    "maxCrawlsPerDay": 100,
+    "minimumPublicationQuality": 75,
+    "softAiSpendGbpPerDay": 5,
+    "hardAiSpendGbpPerDay": 10,
+    "activeCampaignId": "campaign_south_wales_venues_pilot",
+    "updatedAt": "2026-10-05T17:23:31.709Z",
+    "updatedBy": "ai-supervisor"
+  },
+  "supervisor": {
+    "lastCycleAt": "2026-11-13T05:23:25.967Z",
+    "lastKind": "ai_skipped",
+    "lastSkippedReason": "call_failed"
+  },
+  "queues": {
+    "orchestration": {
+      "waiting": 0,
+      "failed": 1
+    },
+    "discovery": {
+      "waiting": 0,
+      "failed": 56
+    },
+    "crawl": {
+      "waiting": 0,
+      "failed": 59
+    },
+    "browserCrawl": {
+      "waiting": 0,
+      "failed": 8
+    },
+    "extraction": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "enrichment": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "compliance": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "composition": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "quality": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "publication": {
+      "waiting": 0,
+      "failed": 150
+    },
+    "refresh": {
+      "waiting": 0,
+      "failed": 0
+    }
+  },
+  "metrics": {
+    "candidatesToday": 16,
+    "crawlsToday": 23,
+    "aiReservedGbp": 0,
+    "aiCallsToday": 0,
+    "aiInputTokensToday": 0,
+    "aiOutputTokensToday": 0,
+    "aiEstimatedCostGbpToday": 0,
+    "braveSearchesToday": 70,
+    "braveResultsSeenToday": 1387
+  },
+  "compliance": {
+    "totalProfiles": 674,
+    "assessed": 674,
+    "pending": 0,
+    "publicationEligible": 197,
+    "review": 41,
+    "blocked": 451,
+    "seoReady": 182
+  },
+  "findings": [
+    {
+      "severity": "warn",
+      "code": "supervisor_skipped",
+      "message": "last supervisor cycle was skipped: call_failed"
+    },
+    {
+      "severity": "warn",
+      "code": "railway_errors",
+      "message": "3 error log lines in the last 24h"
+    }
+  ],
+  "recommendations": [],
+  "counts": {
+    "pending": 0,
+    "approved": 0,
+    "dismissed": 0,
+    "escalated": 0
+  },
+  "ownerQueue": [],
+  "notifyOwner": {
+    "needed": false,
+    "reasons": []
+  },
+  "lastOwnerNotifiedAt": "2026-10-10T12:00:15.860Z"
+}
