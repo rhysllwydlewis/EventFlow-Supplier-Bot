@@ -831,3 +831,10 @@ Branch restarted from `origin/main` (PR #122 merged). No open PRs; main's only
 recent commits are prior quiet-cycle handoffs. Fresh `npm ci` + `npm run check`
 green (570 tests). Backlog empty; "Discovered along the way" items unchanged and
 still deliberately untouched. No code changes.
+
+## 2026-11-13 — quiet cycle
+
+Branch restarted from `origin/main` (PR #123 merged). No open PRs; main's only
+recent commits are prior quiet-cycle handoffs, so no manual-work areas to avoid.
+Fresh `npm ci` + `npm run check` green. Backlog empty; "Discovered along the way"
+items unchanged and still deliberately untouched. No code changes.
