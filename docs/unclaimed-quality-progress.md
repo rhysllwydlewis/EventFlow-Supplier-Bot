@@ -674,3 +674,11 @@ queue still blocked on credentials.
 - Correction to the 2026-11-12 entry's hope: the Brave blocker did **not** clear — the queue was just empty on 11-11 and the directory-listing profiles are back. `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` still missing on `supplier-bot-quality-audit` (I could not read service variables: Railway variable listing was denied by the permission classifier; not worked around).
 - No re-crawl from this sandbox (cannot reach Mongo; the Railway cron is the runner). No code changes, nothing written to EventFlow, no crawl budget spent.
 - **Still open (owner):** Brave vars on the audit service (blocks 6 of 9); hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-14 (scheduled, unattended)** — No re-crawl; sandbox still cannot reach Mongo, so the audit script cannot run from here.
+
+- Activity check: no open PRs; only dev-ops handoff commits in the last ~30h. Nothing mid-iteration.
+- Correction to earlier "no `EVENTFLOW_INTERNAL_BASE_URL` / `EVENTFLOW_BOT_HMAC_SECRET`" note: this session's env *does* have both (plus `MONGODB_URI`, `EVENTFLOW_OPS_BOT_HMAC_SECRET`), but `MONGODB_URI` points at the Railway TCP proxy (`hayabusa.proxy.rlwy.net:22409`) and the connection is `ECONNREFUSED` from here. Built `dist/` fine (`npm ci && npm run build`). The script needs Mongo (shadow profiles, run state), so it was not run; no workaround attempted. No `BRAVE_*` vars exist in this env either.
+- Did not read the 2026-11-13 14:00 UTC cron results (not fetched this session). Last known state (11-12 run): 9 needing work, 6 blocked on missing Brave vars.
+- Nothing written to EventFlow, no code changes, no crawl budget spent.
+- **Still open (owner):** Brave vars on `supplier-bot-quality-audit`; Mongo TCP proxy reachable from routine sandbox (or accept the cron as sole runner); hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
