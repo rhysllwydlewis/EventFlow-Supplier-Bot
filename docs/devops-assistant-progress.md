@@ -847,3 +847,12 @@ recent commits are prior quiet-cycle handoffs. Branches
 fresh commits today (other routines) — left untouched. Fresh `npm ci` +
 `npm run check` green (570 tests). Backlog empty; "Discovered along the way"
 items unchanged and still deliberately untouched. No code changes.
+
+## 2026-11-15 — quiet cycle
+
+Branch restarted from `origin/main` (PR #125 merged). No open PRs; main's only
+recent commits are prior quiet-cycle handoffs. Branches
+`claude/supplier-bot-operator` and `claude/supplier-bot-unclaimed-quality` have
+fresh commits today (other routines) — left untouched. Fresh `npm ci` +
+`npm run check` green (570 tests). Backlog empty; "Discovered along the way"
+items unchanged and still deliberately untouched. No code changes.
