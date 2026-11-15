@@ -682,3 +682,10 @@ queue still blocked on credentials.
 - Did not read the 2026-11-13 14:00 UTC cron results (not fetched this session). Last known state (11-12 run): 9 needing work, 6 blocked on missing Brave vars.
 - Nothing written to EventFlow, no code changes, no crawl budget spent.
 - **Still open (owner):** Brave vars on `supplier-bot-quality-audit`; Mongo TCP proxy reachable from routine sandbox (or accept the cron as sole runner); hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-15 (scheduled, unattended)** — Read the 2026-11-14 14:03 UTC cron run (deployment `2867abe2-...`, commit 22a4bec); 0 fixed. No re-crawl from this sandbox (the Railway cron is the runner).
+
+- Activity check: no open PRs; only dev-ops/operator handoff commits in the last ~30h. Nothing mid-iteration.
+- Cron run: 179 published, **2 needing work**, 2 audited, **0 fixed / 0 written**. lowriellenphotography.co.uk × `no_real_fix_found` (`no_phone_number_found_on_recrawl`); event-caterers.co.uk/near-me/swansea × skipped `source_search_failed: Brave Search is not configured` (directory-listing profile).
+- Nothing written to EventFlow, no code changes, no extra crawl budget spent by this session.
+- **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit` (blocks every directory-listing profile; recurs); lowriellenphotography.co.uk has no public phone on its site (recurring, parked); hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
