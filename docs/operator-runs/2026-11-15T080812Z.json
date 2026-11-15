@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "runId": "2026-11-15T080812Z",
+  "startedAt": "2026-11-15T08:08:12.992Z",
+  "applied": true,
+  "controlHost": "supplier-bot-control-production.up.railway.app",
+  "railway": {
+    "checkedAt": "2026-11-15T08:08:12.000Z",
+    "services": [
+      {
+        "name": "supplier-bot-control",
+        "status": "SUCCESS",
+        "commit": "22a4becd",
+        "deployedAt": "2026-11-14T09:07:09.982Z"
+      },
+      {
+        "name": "supplier-bot-worker",
+        "status": "SUCCESS",
+        "commit": "22a4becd",
+        "deployedAt": "2026-11-14T09:07:09.982Z"
+      }
+    ],
+    "recentErrors": {
+      "count": 3,
+      "windowHours": 24,
+      "samples": [
+        "control 2026-11-14T09:14 One-profile EventFlow pilot reconcile failed: ENOENT rename /app/public/phase3-progress.json.tmp -> phase3-progress.json",
+        "control 2026-11-14T10:19 One-profile EventFlow pilot reconcile failed: ENOENT rename /app/public/phase3-progress.json.tmp -> phase3-progress.json",
+        "control 2026-11-14T12:17 Control heartbeat failed: MongoServerSelectionError interrupted at shutdown (code 11600)"
+      ]
+    },
+    "notes": [
+      "Control log window is mostly >24h old/partial; 9 'npm error' lines at SIGTERM during redeploy ignored as routine shutdown noise.",
+      "Worker log fetch hit the 500-line cap, covering only 07:30-08:05 UTC on 2026-11-15, with 0 errors; earlier 24h not fully covered."
+    ]
+  },
+  "finishedAt": "2026-11-15T08:08:13.777Z",
+  "botVersion": "0.8.0",
+  "settings": {
+    "id": "global",
+    "mode": "live",
+    "runState": "running",
+    "discoveryEnabled": true,
+    "publishingEnabled": true,
+    "refreshEnabled": true,
+    "claimNoticesEnabled": true,
+    "marketingEnabled": false,
+    "seoIndexingEnabled": true,
+    "dailyTarget": 10,
+    "dailyHardLimit": 30,
+    "maxCrawlsPerDay": 100,
+    "minimumPublicationQuality": 75,
+    "softAiSpendGbpPerDay": 5,
+    "hardAiSpendGbpPerDay": 10,
+    "activeCampaignId": "campaign_south_wales_venues_pilot",
+    "updatedAt": "2026-10-05T17:23:31.709Z",
+    "updatedBy": "ai-supervisor"
+  },
+  "supervisor": {
+    "lastCycleAt": "2026-11-15T05:23:26.017Z",
+    "lastKind": "ai_skipped",
+    "lastSkippedReason": "call_failed"
+  },
+  "queues": {
+    "orchestration": {
+      "waiting": 0,
+      "failed": 1
+    },
+    "discovery": {
+      "waiting": 0,
+      "failed": 56
+    },
+    "crawl": {
+      "waiting": 0,
+      "failed": 61
+    },
+    "browserCrawl": {
+      "waiting": 0,
+      "failed": 9
+    },
+    "extraction": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "enrichment": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "compliance": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "composition": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "quality": {
+      "waiting": 0,
+      "failed": 0
+    },
+    "publication": {
+      "waiting": 0,
+      "failed": 150
+    },
+    "refresh": {
+      "waiting": 0,
+      "failed": 0
+    }
+  },
+  "metrics": {
+    "candidatesToday": 1,
+    "crawlsToday": 1,
+    "aiReservedGbp": 0,
+    "aiCallsToday": 0,
+    "aiInputTokensToday": 0,
+    "aiOutputTokensToday": 0,
+    "aiEstimatedCostGbpToday": 0,
+    "braveSearchesToday": 70,
+    "braveResultsSeenToday": 1385
+  },
+  "compliance": {
+    "totalProfiles": 683,
+    "assessed": 683,
+    "pending": 0,
+    "publicationEligible": 197,
+    "review": 41,
+    "blocked": 460,
+    "seoReady": 182
+  },
+  "findings": [
+    {
+      "severity": "warn",
+      "code": "supervisor_skipped",
+      "message": "last supervisor cycle was skipped: call_failed"
+    },
+    {
+      "severity": "warn",
+      "code": "railway_errors",
+      "message": "3 error log lines in the last 24h"
+    }
+  ],
+  "recommendations": [],
+  "counts": {
+    "pending": 0,
+    "approved": 0,
+    "dismissed": 0,
+    "escalated": 0
+  },
+  "ownerQueue": [],
+  "notifyOwner": {
+    "needed": false,
+    "reasons": []
+  },
+  "lastOwnerNotifiedAt": "2026-10-10T12:00:15.860Z"
+}
