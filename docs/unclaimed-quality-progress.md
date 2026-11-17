@@ -689,3 +689,10 @@ queue still blocked on credentials.
 - Cron run: 179 published, **2 needing work**, 2 audited, **0 fixed / 0 written**. lowriellenphotography.co.uk × `no_real_fix_found` (`no_phone_number_found_on_recrawl`); event-caterers.co.uk/near-me/swansea × skipped `source_search_failed: Brave Search is not configured` (directory-listing profile).
 - Nothing written to EventFlow, no code changes, no extra crawl budget spent by this session.
 - **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit` (blocks every directory-listing profile; recurs); lowriellenphotography.co.uk has no public phone on its site (recurring, parked); hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-17 (scheduled, unattended)** — Read the 2026-11-16 14:04 UTC cron run (deployment `c659f64a-...`); 0 fixed. No re-crawl from this sandbox (`MONGODB_URI` TCP proxy still `ECONNREFUSED` here; the Railway cron is the runner).
+
+- Activity check: no open PRs; no `main` commits in the last ~30h. Nothing mid-iteration.
+- Cron run tail: 7 items visible, all `skipped` with `source_search_failed: Brave Search is not configured` (southwalesguardian.co.uk/leisure, celticenglish.co.uk Cardiff, guides.ticketmaster.co.uk Cardiff, encoremusicians swansea, ukweddingservices cardiff, ewegottalove venues-in-wales, +1 earlier in the log), all `missingPhone` on directory-listing URLs. Summary header counts were not retrievable (log limit returned only the tail). 0 fixed / 0 written.
+- Nothing written to EventFlow, no code changes, no crawl budget spent by this session.
+- **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit` (recurring blocker for every directory-listing profile); hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
