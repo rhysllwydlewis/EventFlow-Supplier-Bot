@@ -704,3 +704,10 @@ queue still blocked on credentials.
 - Tried curl on the two phone-format sites from this sandbox again: no phone strings returned (blocked/empty), so still unverified whether `cleanPublicPhone` mangles a valid number. Only change code if a real normalisation bug is shown.
 - Nothing written to EventFlow, no code changes, no crawl budget spent by this session.
 - **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit` (blocks every directory-listing profile); the two phone-format cases; hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-19 (scheduled, unattended)** — Read the 2026-11-18 14:04 UTC cron run (deployment `de4bdd20-...`, commit a5af491): queue empty, nothing to do. No re-crawl from this sandbox (Mongo TCP proxy still `ECONNREFUSED` here; the Railway cron is the runner).
+
+- Activity check: no open PRs; only dev-ops handoff commits (last #128, 2026-11-18). Nothing mid-iteration.
+- Cron run: 177 published, **0 needing work**, 0 audited, 0 fixed / 0 written. (Down from 10 needing work on 11-17 and 187 published → 177: the previously flagged profiles appear to have been unpublished or cleared by someone else; not investigated further.)
+- Nothing written to EventFlow, no code changes, no crawl budget spent by this session.
+- **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit` (will recur for directory-listing profiles if they return); phone-format cases (huwevansimages, nuriasernaphotography) if they return; hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
