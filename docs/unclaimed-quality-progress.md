@@ -711,3 +711,10 @@ queue still blocked on credentials.
 - Cron run: 177 published, **0 needing work**, 0 audited, 0 fixed / 0 written. (Down from 10 needing work on 11-17 and 187 published → 177: the previously flagged profiles appear to have been unpublished or cleared by someone else; not investigated further.)
 - Nothing written to EventFlow, no code changes, no crawl budget spent by this session.
 - **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit` (will recur for directory-listing profiles if they return); phone-format cases (huwevansimages, nuriasernaphotography) if they return; hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-20 (scheduled, unattended)** — Read the 2026-11-19 14:02 UTC cron run (deployment `323a5f79-...`, commit c644266); 0 fixed. No re-crawl from this sandbox (the Railway cron is the runner).
+
+- Activity check: no open PRs; only dev-ops/operator handoff commits (last #130, 2026-11-19). Nothing mid-iteration.
+- Cron run: 178 published, **1 needing work**, 1 audited, **0 fixed / 0 written**. hensolcastle.com (`sup_bot_5e73bbe133012097df2d75bb`, gap `missingTags`) skipped with `no_local_shadow_profile_for_candidate` (recurring; no local shadow profile for candidate `candidate_6e0e3505-...`).
+- Nothing written to EventFlow, no code changes, no crawl budget spent by this session.
+- **Still open (owner):** hensolcastle shadow profile (needs one so the audit can refresh it); `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit` (will recur for directory-listing profiles); phone-format cases (huwevansimages, nuriasernaphotography) if they return; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
