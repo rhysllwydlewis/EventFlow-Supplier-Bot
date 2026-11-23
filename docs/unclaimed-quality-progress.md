@@ -161,6 +161,16 @@ backlog for a human rather than guessing.
   prefixed path answers 401 unsigned and 200 when signed (checked 2026-11-23, with
   this environment's `EVENTFLOW_BOT_HMAC_SECRET` against `audit-queue`). Earlier
   versions of this file and of the routine prompt omitted the prefix.
+- **"Needing work" excludes parked suppliers.** The audit script passes the
+  suppliers it parked (cooldown after a no-fix attempt) as `excludeSupplierIds`,
+  and EventFlow's `totalPublished` / `totalNeedingWork` cover only the rest. On
+  2026-11-23 the cron logged 179 published / 2 needing work while the unfiltered
+  figure was 208 / 31 (the 29 parked profiles, nearly all missing only a phone).
+  The script now also reports `parked`, `totalPublishedIncludingParked`,
+  `totalNeedingWorkIncludingParked` and `totalMissingPhone` when EventFlow sends
+  them; read those, not the headline pair, to judge the real backlog. EventFlow
+  also no longer scores a missing phone as a gap, so phone-only profiles leave the
+  queue (the phone is still reported in `gaps.missingPhone`).
 - This dev/build session's container only had `MONGODB_URI` and an
   `EVENTFLOW_OPS_BOT_HMAC_SECRET` (a differently-named credential, almost
   certainly for a separate ops/devops integration, not this bot's own
