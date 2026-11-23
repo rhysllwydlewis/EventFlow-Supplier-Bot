@@ -31,7 +31,7 @@ vi.mock('../src/services/provider-usage.service.js', () => ({ tryClaimProviderSe
 const braveSearch = vi.fn();
 vi.mock('../src/providers/discovery/index.js', () => ({ getDiscoveryProvider: () => ({ search: braveSearch }) }));
 
-const { auditOneSupplier, activeGapNames, auditControlBlockReason, summarizeRun, main, cooldownSupplierIds } = await import(
+const { auditOneSupplier, activeGapNames, auditControlBlockReason, summarizeRun, reportedTotals, main, cooldownSupplierIds } = await import(
   '../src/scripts/audit-unclaimed-quality.js'
 );
 
@@ -683,6 +683,41 @@ describe('auditOneSupplier', () => {
     expect(result.outcome).toBe('skipped');
     expect(result.reason).toBe('refresh_failed: eventflow_http_500');
     expect(saveShadowProfile).not.toHaveBeenCalled();
+  });
+});
+
+describe('reportedTotals', () => {
+  it('reports only the headline totals when EventFlow does not say what it left out', () => {
+    expect(reportedTotals({ totalPublished: 12, totalNeedingWork: 3 })).toEqual({
+      totalPublished: 12,
+      totalNeedingWork: 3,
+    });
+  });
+
+  it('adds the parked backlog so a hidden 31 is not reported as 2', () => {
+    // The 2026-11-23 cron saw 179 published / 2 needing work because 29 parked
+    // suppliers were excluded from the totals; the full picture is 208 / 31.
+    expect(
+      reportedTotals({
+        totalPublished: 179,
+        totalNeedingWork: 2,
+        excluded: { published: 29, needingWork: 29 },
+        totalMissingPhone: 30,
+      }),
+    ).toEqual({
+      totalPublished: 179,
+      totalNeedingWork: 2,
+      parked: { published: 29, needingWork: 29 },
+      totalPublishedIncludingParked: 208,
+      totalNeedingWorkIncludingParked: 31,
+      totalMissingPhone: 30,
+    });
+  });
+
+  it('keeps a zero missing-phone count instead of dropping it', () => {
+    expect(reportedTotals({ totalPublished: 1, totalNeedingWork: 0, totalMissingPhone: 0 })).toMatchObject({
+      totalMissingPhone: 0,
+    });
   });
 });
 

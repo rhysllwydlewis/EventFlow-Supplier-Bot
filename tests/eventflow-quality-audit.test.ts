@@ -63,6 +63,32 @@ describe('EventFlow audit-queue fetch', () => {
     vi.restoreAllMocks();
   });
 
+  it('keeps the excluded and missing-phone totals EventFlow reports', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, {
+          totalPublished: 179,
+          totalNeedingWork: 2,
+          excluded: { published: 29, needingWork: 29 },
+          totalMissingPhone: 30,
+          queue: [],
+        }),
+      ),
+    );
+
+    const result = await fetchAuditQueue({ limit: 10, excludeSupplierIds: ['sup_1'] });
+
+    expect(result).toEqual({
+      status: 'fetched',
+      totalPublished: 179,
+      totalNeedingWork: 2,
+      excluded: { published: 29, needingWork: 29 },
+      totalMissingPhone: 30,
+      queue: [],
+    });
+  });
+
   it('signs the request the same way every other Supplier Bot -> EventFlow call does', async () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       jsonResponse(200, { totalPublished: 5, totalNeedingWork: 2, queue: [] }),

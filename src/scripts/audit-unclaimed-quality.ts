@@ -359,11 +359,38 @@ export function auditControlBlockReason(settings: Awaited<ReturnType<typeof getS
   return null;
 }
 
+// totalPublished/totalNeedingWork from the audit queue exclude the suppliers
+// this script parked via excludeSupplierIds, so on their own they understate the
+// backlog (a real 31 read as 2 on 2026-11-23). When EventFlow reports what it
+// left out, also report the full picture and label the headline numbers.
+export type RunTotals = {
+  totalPublished: number;
+  totalNeedingWork: number;
+  excluded?: { published: number; needingWork: number } | undefined;
+  totalMissingPhone?: number | undefined;
+};
+
+export function reportedTotals(totals: RunTotals): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    totalPublished: totals.totalPublished,
+    totalNeedingWork: totals.totalNeedingWork,
+  };
+  if (totals.excluded) {
+    base.parked = totals.excluded;
+    base.totalPublishedIncludingParked = totals.totalPublished + totals.excluded.published;
+    base.totalNeedingWorkIncludingParked = totals.totalNeedingWork + totals.excluded.needingWork;
+  }
+  if (totals.totalMissingPhone !== undefined) {
+    base.totalMissingPhone = totals.totalMissingPhone;
+  }
+  return base;
+}
+
 // One compact, single-line-loggable summary of a run. The full pretty-printed
 // JSON written to stdout gets interleaved line by line in hosted log viewers
 // (Railway), so this is also emitted as a single structured log entry.
 export function summarizeRun(
-  totals: { totalPublished: number; totalNeedingWork: number },
+  totals: RunTotals,
   audited: SupplierAuditResult[],
 ): Record<string, unknown> {
   const outcomes: Record<string, number> = {};
@@ -371,8 +398,7 @@ export function summarizeRun(
     outcomes[result.outcome] = (outcomes[result.outcome] ?? 0) + 1;
   }
   return {
-    totalPublished: totals.totalPublished,
-    totalNeedingWork: totals.totalNeedingWork,
+    ...reportedTotals(totals),
     audited: audited.length,
     fixedSuppliers: audited.filter(result => result.fixed.length > 0).length,
     outcomes,
@@ -494,8 +520,7 @@ export async function main(): Promise<void> {
   process.stdout.write(
     `${JSON.stringify(
       {
-        totalPublished: queueResult.totalPublished,
-        totalNeedingWork: queueResult.totalNeedingWork,
+        ...reportedTotals(queueResult),
         audited,
       },
       null,
