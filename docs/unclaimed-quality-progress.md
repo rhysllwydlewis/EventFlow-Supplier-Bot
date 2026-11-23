@@ -34,7 +34,7 @@ no re-enrichment workflow yet. Build it properly, the same way
 `eventflow-ingestion.service.ts` wraps the create/refresh endpoint:
 
 1. A new `eventflow-quality-audit.service.ts` (or similar) that calls the
-   new EventFlow endpoint `POST /internal/supplier-bot/suppliers/audit-queue`
+   new EventFlow endpoint `POST /api/v1/internal/supplier-bot/suppliers/audit-queue`
    (HMAC-signed exactly like the existing ingestion/lookup/unpublish calls,
    same `EVENTFLOW_BOT_HMAC_SECRET`). It returns a worst-first, capped batch
    of published unclaimed profiles with real gaps already computed
@@ -47,7 +47,7 @@ no re-enrichment workflow yet. Build it properly, the same way
    pipeline (respecting `docs/CRAWLER_POLICY.md` in full — same timeouts,
    same page caps, same public-network-only rules, same robots.txt
    compliance), and for any gap where real, better data is actually found,
-   calls the existing `POST /internal/supplier-bot/suppliers` refresh path
+   calls the existing `POST /api/v1/internal/supplier-bot/suppliers` refresh path
    (same `candidateId`, so it's the same idempotent update-in-place the
    ingestion pipeline already relies on) with only the improved fields.
 3. Per-run cap: at most **10 suppliers** re-crawled and refreshed per run,
@@ -148,13 +148,19 @@ backlog for a human rather than guessing.
 
 ## Discovered along the way
 
-- EventFlow's `POST /internal/supplier-bot/suppliers/audit-queue` endpoint
+- EventFlow's `POST /api/v1/internal/supplier-bot/suppliers/audit-queue` endpoint
   (`routes/supplier-profile-safe.js` in the EventFlow repo) already existed
   before this session started work — merged there as PR #1672, ahead of this
   repo's own client/script. Worth checking the EventFlow-repo-side handoff
   doc (if one exists there) for whether that was itself built by an earlier,
   cold run of a similarly-named routine, since this file's own backlog still
   read "First run: build..." for both halves.
+- **Endpoint paths need the `/api` prefix.** EventFlow mounts these routes under
+  `/api` and `/api/v1` (the bot's own client calls `/api/v1/internal/supplier-bot/...`).
+  The bare `/internal/supplier-bot/...` path returns 404 on production, while the
+  prefixed path answers 401 unsigned and 200 when signed (checked 2026-11-23, with
+  this environment's `EVENTFLOW_BOT_HMAC_SECRET` against `audit-queue`). Earlier
+  versions of this file and of the routine prompt omitted the prefix.
 - This dev/build session's container only had `MONGODB_URI` and an
   `EVENTFLOW_OPS_BOT_HMAC_SECRET` (a differently-named credential, almost
   certainly for a separate ops/devops integration, not this bot's own
