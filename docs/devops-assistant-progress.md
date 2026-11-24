@@ -912,3 +912,20 @@ recent commits are prior quiet-cycle/handoff commits. Other routines' branches
 Fresh `npm ci` + `npm run check` green (570 tests, build ok). Backlog empty;
 "Discovered along the way" items unchanged and still deliberately untouched.
 No code changes.
+
+## 2026-11-24 — runtime dependency audit fix
+
+Branch restarted from `origin/main` (e4ce2d44, PR #138 merged). No open PRs;
+other `claude/*` branches (audit-*, gracious-lamport-*, intelligent-davinci-*,
+etc.) belong to other routines/manual sessions — left untouched.
+`npm audit --omit=dev` had 3 findings (body-parser 2.3.0, qs 6.16.0, zod 4.4.3);
+fixed lockfile-only via `npm audit fix --omit=dev --package-lock-only`
+(body-parser 2.4.0, qs 6.17.1, zod 4.6.7) — no package.json change. After
+`npm ci`: `npm audit --omit=dev` = 0 vulnerabilities; `npm run check` green
+(67 files, 574 tests, build ok). Remaining full `npm audit`: 14 (2 critical
+tinypool via vitest, dev-only; fix needs a breaking vitest major) — unchanged
+policy, left alone. `npm outdated`: 17 packages, mostly majors (eslint 10,
+vitest 5, typescript 7, mongodb 7, pino 10, ioredis 6); not pursued.
+Independent review: DEGRADED (Codex review still "running" with no result when
+CI went green; self-review only: lockfile diff read cold — 3 version bumps, no
+new packages or resolved-URL changes).
