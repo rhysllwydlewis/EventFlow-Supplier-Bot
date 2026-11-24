@@ -926,5 +926,6 @@ fixed lockfile-only via `npm audit fix --omit=dev --package-lock-only`
 tinypool via vitest, dev-only; fix needs a breaking vitest major) — unchanged
 policy, left alone. `npm outdated`: 17 packages, mostly majors (eslint 10,
 vitest 5, typescript 7, mongodb 7, pino 10, ioredis 6); not pursued.
-Independent review: lockfile diff read cold — 3 version bumps only, no new
-packages or resolved-URL changes.
+Independent review: DEGRADED (Codex review still "running" with no result when
+CI went green; self-review only: lockfile diff read cold — 3 version bumps, no
+new packages or resolved-URL changes).
