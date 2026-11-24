@@ -748,3 +748,10 @@ queue still blocked on credentials.
 - Cron run: 179 published, **2 needing work** (down from 16 on 11-20), 2 audited, **0 fixed / 0 written**. Both `no_real_fix_found` / `no_phone_number_found_on_recrawl` (missingPhone only): knightlysfunpark.co.uk and starlight.events. No Brave-blocked directory profiles in this batch.
 - Nothing written to EventFlow, no code changes, no crawl budget spent by this session.
 - **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit` (will recur for directory-listing profiles); the two phone-less sites above (verify by hand whether a public phone exists); hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-24 (scheduled, unattended)** — Read the 2026-11-24 14:02 UTC cron run (deployment `fbe56b81-...`); queue empty, nothing to fix. No re-crawl from this sandbox (no `MONGODB_URI` in this env at all today; the Railway cron is the runner).
+
+- Activity check: no code activity in this area in the last ~30h (only dev-ops commits, last #139 merged ~9h before this run). Nothing mid-iteration.
+- Cron run: 181 published, **0 needing work**, 0 audited, 0 fixed / 0 written. Parked: 27 published / 1 needing work; including parked, 208 published / 1 needing work; `totalMissingPhone` 30 (phone-only profiles, no longer scored as gaps).
+- Nothing written to EventFlow, no crawl budget spent by this session.
+- **Still open (owner):** the ~30 profiles with no public phone (verify by hand whether the suppliers publish one; knightlysfunpark.co.uk, starlight.events recur); `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit` (will recur for directory-listing profiles); hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
