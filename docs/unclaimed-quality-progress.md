@@ -34,7 +34,7 @@ no re-enrichment workflow yet. Build it properly, the same way
 `eventflow-ingestion.service.ts` wraps the create/refresh endpoint:
 
 1. A new `eventflow-quality-audit.service.ts` (or similar) that calls the
-   new EventFlow endpoint `POST /internal/supplier-bot/suppliers/audit-queue`
+   new EventFlow endpoint `POST /api/v1/internal/supplier-bot/suppliers/audit-queue`
    (HMAC-signed exactly like the existing ingestion/lookup/unpublish calls,
    same `EVENTFLOW_BOT_HMAC_SECRET`). It returns a worst-first, capped batch
    of published unclaimed profiles with real gaps already computed
@@ -47,7 +47,7 @@ no re-enrichment workflow yet. Build it properly, the same way
    pipeline (respecting `docs/CRAWLER_POLICY.md` in full — same timeouts,
    same page caps, same public-network-only rules, same robots.txt
    compliance), and for any gap where real, better data is actually found,
-   calls the existing `POST /internal/supplier-bot/suppliers` refresh path
+   calls the existing `POST /api/v1/internal/supplier-bot/suppliers` refresh path
    (same `candidateId`, so it's the same idempotent update-in-place the
    ingestion pipeline already relies on) with only the improved fields.
 3. Per-run cap: at most **10 suppliers** re-crawled and refreshed per run,
@@ -148,13 +148,29 @@ backlog for a human rather than guessing.
 
 ## Discovered along the way
 
-- EventFlow's `POST /internal/supplier-bot/suppliers/audit-queue` endpoint
+- EventFlow's `POST /api/v1/internal/supplier-bot/suppliers/audit-queue` endpoint
   (`routes/supplier-profile-safe.js` in the EventFlow repo) already existed
   before this session started work — merged there as PR #1672, ahead of this
   repo's own client/script. Worth checking the EventFlow-repo-side handoff
   doc (if one exists there) for whether that was itself built by an earlier,
   cold run of a similarly-named routine, since this file's own backlog still
   read "First run: build..." for both halves.
+- **Endpoint paths need the `/api` prefix.** EventFlow mounts these routes under
+  `/api` and `/api/v1` (the bot's own client calls `/api/v1/internal/supplier-bot/...`).
+  The bare `/internal/supplier-bot/...` path returns 404 on production, while the
+  prefixed path answers 401 unsigned and 200 when signed (checked 2026-11-23, with
+  this environment's `EVENTFLOW_BOT_HMAC_SECRET` against `audit-queue`). Earlier
+  versions of this file and of the routine prompt omitted the prefix.
+- **"Needing work" excludes parked suppliers.** The audit script passes the
+  suppliers it parked (cooldown after a no-fix attempt) as `excludeSupplierIds`,
+  and EventFlow's `totalPublished` / `totalNeedingWork` cover only the rest. On
+  2026-11-23 the cron logged 179 published / 2 needing work while the unfiltered
+  figure was 208 / 31 (the 29 parked profiles, nearly all missing only a phone).
+  The script now also reports `parked`, `totalPublishedIncludingParked`,
+  `totalNeedingWorkIncludingParked` and `totalMissingPhone` when EventFlow sends
+  them; read those, not the headline pair, to judge the real backlog. EventFlow
+  also no longer scores a missing phone as a gap, so phone-only profiles leave the
+  queue (the phone is still reported in `gaps.missingPhone`).
 - This dev/build session's container only had `MONGODB_URI` and an
   `EVENTFLOW_OPS_BOT_HMAC_SECRET` (a differently-named credential, almost
   certainly for a separate ops/devops integration, not this bot's own
@@ -725,3 +741,10 @@ queue still blocked on credentials.
 - Cron run: 193 published, **16 needing work** (up from 1 on 11-19; queue refilled after the pipeline published ~15 more), 10 audited, **0 fixed / 0 written**. 4 × skipped `source_search_failed: Brave Search is not configured` (designmynight Cardiff private-hire, poptop Cardiff wedding catering, wedding-caterers.co.uk near-me/cardiff, wedissimo wales photographers). 6 × `no_real_fix_found` / `no_phone_number_found_on_recrawl` (ymarram.com/north-wales-catering, hafodfarm.co.uk/supplier-directory, cardiffcateringcompany.co.uk, francescahillphotography.com, michellehuggleston.com, kirstylouisephoto.com/about-south-wales-wedding-photographer) — same suppliers as the 10-10/10-20 runs; no phone is published on their sites. ~6 more queued for next run.
 - Nothing written to EventFlow, no code changes, no crawl budget spent by this session.
 - **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit` (blocks every directory-listing profile; recurring since 10-10); consider whether the permanently phone-less profiles above (ymarram, hafodfarm directory, etc.) and directory-listing profiles should be published at all; hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-23 (scheduled, unattended)** — Read the 2026-11-23 14:01 UTC cron run (deployment `0d281c74-...`, commit 8ef5925); 0 fixed. No re-crawl from this sandbox (the Railway cron is the runner).
+
+- Activity check: no open PRs; only dev-ops handoff commits (last #135, 2026-11-23 09:06 UTC). Nothing mid-iteration.
+- Cron run: 179 published, **2 needing work** (down from 16 on 11-20), 2 audited, **0 fixed / 0 written**. Both `no_real_fix_found` / `no_phone_number_found_on_recrawl` (missingPhone only): knightlysfunpark.co.uk and starlight.events. No Brave-blocked directory profiles in this batch.
+- Nothing written to EventFlow, no code changes, no crawl budget spent by this session.
+- **Still open (owner):** `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit` (will recur for directory-listing profiles); the two phone-less sites above (verify by hand whether a public phone exists); hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.

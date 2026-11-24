@@ -28,15 +28,37 @@ export const auditQueueItemSchema = z.object({
 });
 export type AuditQueueItem = z.infer<typeof auditQueueItemSchema>;
 
+// What the caller asked EventFlow to skip via excludeSupplierIds (suppliers
+// parked after an attempt that found nothing real to write). totalPublished and
+// totalNeedingWork cover only the profiles that were NOT skipped, so without
+// these a parked backlog silently disappears from the headline numbers.
+// Optional: older EventFlow deployments do not send them.
+const auditExcludedSchema = z.object({
+  published: z.number(),
+  needingWork: z.number(),
+});
+export type AuditQueueExcluded = z.infer<typeof auditExcludedSchema>;
+
 const auditQueueResponseSchema = z.object({
   totalPublished: z.number(),
   totalNeedingWork: z.number(),
+  excluded: auditExcludedSchema.optional(),
+  // Published profiles with no usable public phone. Informational: EventFlow no
+  // longer counts a missing phone as a gap.
+  totalMissingPhone: z.number().optional(),
   queue: z.array(auditQueueItemSchema),
 });
 
 export type AuditQueueFetchResult =
   | { status: 'not_configured'; reason: string }
-  | { status: 'fetched'; totalPublished: number; totalNeedingWork: number; queue: AuditQueueItem[] }
+  | {
+      status: 'fetched';
+      totalPublished: number;
+      totalNeedingWork: number;
+      excluded?: AuditQueueExcluded | undefined;
+      totalMissingPhone?: number | undefined;
+      queue: AuditQueueItem[];
+    }
   | { status: 'failed'; reason: string };
 
 export type EventFlowRefreshResult =
