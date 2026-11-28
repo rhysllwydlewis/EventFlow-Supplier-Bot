@@ -769,3 +769,10 @@ queue still blocked on credentials.
 - Cron run: 197 published, **0 needing work**, 0 audited, 0 fixed / 0 written. Parked: 11 published / 1 needing work; including parked, 208 published / 1 needing work; `totalMissingPhone` 30 (phone-only, not scored as gaps).
 - Nothing written to EventFlow, no crawl budget spent by this session, no code changes.
 - **Still open (owner):** the ~30 profiles with no public phone (verify by hand; knightlysfunpark.co.uk, starlight.events recur); `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit`; hensolcastle shadow profile; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
+
+**2026-11-27 (scheduled, unattended)** — Read the 2026-11-27 14:00 UTC cron run (deployment `c81c4636-...`); 0 fixed. No re-crawl from this sandbox (no `MONGODB_URI` here; the Railway cron is the runner).
+
+- Activity check: no open PRs; no commits in the last ~30h except the 11-26 handoff docs PR (#142). Nothing mid-iteration.
+- Cron run: 198 published, **1 needing work**, 1 audited, **0 fixed / 0 written**. hensolcastle.com (`sup_bot_5e73bbe133012097df2d75bb`, gap `missingTags`) skipped with `no_local_shadow_profile_for_candidate` (recurring since 11-19). Parked: 10 published / 0 needing work; including parked, 208 published / 1 needing work; `totalMissingPhone` 30 (not scored as gaps).
+- Nothing written to EventFlow, no crawl budget spent by this session, no code changes.
+- **Still open (owner):** hensolcastle shadow profile (the only queue item, blocked for 9 days); the ~30 profiles with no public phone; `BRAVE_API_KEY` / `BRAVE_PERSISTENCE_ALLOWED` on `supplier-bot-quality-audit`; snappr.com listing; michellehuggleston 2 MB limit; packages-from-site; `website` correction; Cassowary candidate bookkeeping.
